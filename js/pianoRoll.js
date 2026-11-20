@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=5';
+} from './theory.js?v=6';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6
@@ -63,11 +63,11 @@ export class PianoRoll {
 
   // --- Kích thước hình học đáp ứng Desktop & Mobile ---
   get keyWidth() {
-    return this.width < 520 ? 46 : 56;
+    return this.width < 520 ? 48 : 60;
   }
 
   get headerHeight() {
-    return 28;
+    return 32;
   }
 
   get rowHeight() {
@@ -596,7 +596,7 @@ export class PianoRoll {
   }
 
   // ============================================================================
-  // Hàm vẽ Canvas 60fps
+  // Hàm vẽ Canvas 60fps — Phong cách Pro DAW (FL Studio / Ableton Live)
   // ============================================================================
   draw() {
     const ctx = this.ctx;
@@ -606,6 +606,7 @@ export class PianoRoll {
     const hh = this.headerHeight;
     const rh = this.rowHeight;
     const bw = this.beatWidth;
+    const monoFont = '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace';
 
     const scaleSet = getScaleSet(this.keyPc, this.scaleType);
     const preferFlats = shouldPreferFlats(this.keyPc, this.scaleType);
@@ -616,38 +617,40 @@ export class PianoRoll {
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
 
-    // 1. Nền tổng thể
-    ctx.fillStyle = '#090C12';
+    // 1. Nền Graphite phòng thu
+    ctx.fillStyle = '#181A1F';
     ctx.fillRect(0, 0, w, h);
 
-    // 2. Vùng lưới chính (clip bên phải bàn phím và bên dưới header)
+    // 2. Vùng lưới chính (clip bên phải bàn phím và bên dưới thước đo)
     ctx.save();
     ctx.beginPath();
     ctx.rect(kw, hh, w - kw, h - hh);
     ctx.clip();
 
-    // Tính phạm vi hàng nhìn thấy để tối ưu 60fps
     const firstRow = Math.max(0, Math.floor(this.scrollY / rh) - 1);
     const lastRow = Math.min(NUM_ROWS - 1, Math.ceil((this.scrollY + h - hh) / rh) + 1);
 
-    // 2a. Vẽ nền từng hàng (Tô sáng nốt thuộc Âm giai)
+    // 2a. Vẽ nền hàng kiểu FL Studio: tách rõ hàng phím trắng (#202328) & phím đen (#17191D) + tông
     for (let r = firstRow; r <= lastRow; r++) {
       const midi = MAX_MIDI - r;
       const pc = ((midi % 12) + 12) % 12;
       const y = hh + r * rh - this.scrollY;
+      const black = isBlackKey(midi);
       const inScale = scaleSet.has(pc);
       const isRoot = pc === this.keyPc;
 
-      if (isRoot) {
-        ctx.fillStyle = '#182336';
+      if (black) {
+        ctx.fillStyle = inScale ? '#1B1E24' : '#16181D';
+      } else if (isRoot) {
+        ctx.fillStyle = '#262B34';
       } else if (inScale) {
-        ctx.fillStyle = '#121926';
+        ctx.fillStyle = '#22262E';
       } else {
-        ctx.fillStyle = '#0A0D13';
+        ctx.fillStyle = '#1D2026';
       }
       ctx.fillRect(kw, y, w - kw, rh);
 
-      // 2b. Tô sáng màu nhấn tinh tế cho các nốt thuộc HỢP ÂM của từng ô nhịp
+      // 2b. Tô sáng tinh tế các nốt thuộc HỢP ÂM của từng ô nhịp
       for (let bar = 0; bar < this.totalBars; bar++) {
         const vc = this.voicedChords[bar];
         if (!vc || !vc.allPitchClasses.has(pc)) continue;
@@ -661,30 +664,28 @@ export class PianoRoll {
 
         if (isChordRoot) {
           ctx.fillStyle = isCurrentBar
-            ? 'rgba(45, 212, 191, 0.22)'
-            : 'rgba(45, 212, 191, 0.13)';
+            ? 'rgba(16, 185, 129, 0.18)'
+            : 'rgba(16, 185, 129, 0.11)';
         } else {
           ctx.fillStyle = isCurrentBar
-            ? 'rgba(99, 102, 241, 0.20)'
-            : 'rgba(99, 102, 241, 0.105)';
+            ? 'rgba(96, 165, 250, 0.14)'
+            : 'rgba(96, 165, 250, 0.08)';
         }
         ctx.fillRect(bx + 1, y + 0.5, barPxW - 2, rh - 1);
 
-        // Chấm tròn nhỏ báo hiệu nốt hợp âm ở đầu ô nhịp cho người mới dễ nhìn
+        // Thanh đánh dấu mảnh đầu ô nhịp
         ctx.fillStyle = isChordRoot
-          ? 'rgba(45, 212, 191, 0.58)'
-          : 'rgba(129, 140, 248, 0.42)';
-        ctx.beginPath();
-        ctx.arc(bx + 7, y + rh / 2, isChordRoot ? 2.4 : 1.7, 0, Math.PI * 2);
-        ctx.fill();
+          ? 'rgba(16, 185, 129, 0.72)'
+          : 'rgba(96, 165, 250, 0.52)';
+        ctx.fillRect(bx + 1, y + 2, 2.5, rh - 4);
       }
 
-      // Đường kẻ ngang phân tách từng bán cung
-      ctx.strokeStyle = pc === 0 ? 'rgba(148, 163, 184, 0.22)' : 'rgba(255, 255, 255, 0.045)';
+      // Đường kẻ ngang phân tách bán cung (đậm nhẹ tại mỗi quãng tám C)
+      ctx.strokeStyle = pc === 0 ? '#363B46' : 'rgba(255, 255, 255, 0.045)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(kw, y + rh);
-      ctx.lineTo(w, y + rh);
+      ctx.moveTo(kw, Math.round(y + rh) - 0.5);
+      ctx.lineTo(w, Math.round(y + rh) - 0.5);
       ctx.stroke();
     }
 
@@ -694,25 +695,22 @@ export class PianoRoll {
       const x = Math.round(this.beatToX(b)) + 0.5;
       if (x >= kw - 2 && x <= w + 2) {
         const isBarLine = b % 4 === 0;
-        ctx.strokeStyle = isBarLine
-          ? 'rgba(148, 163, 184, 0.34)'
-          : 'rgba(255, 255, 255, 0.09)';
-        ctx.lineWidth = isBarLine ? 1.2 : 1;
+        ctx.strokeStyle = isBarLine ? '#3E4452' : '#2A2E37';
+        ctx.lineWidth = isBarLine ? 1.25 : 1;
         ctx.beginPath();
         ctx.moveTo(x, hh);
         ctx.lineTo(x, h);
         ctx.stroke();
       }
 
-      // Lưới con trong từng phách (nếu đủ rộng)
-      if (b < this.totalBeats && bw >= 42) {
+      if (b < this.totalBeats && bw >= 40) {
         for (let s = 1; s < subDiv; s++) {
           const sx = Math.round(this.beatToX(b + s / subDiv)) + 0.5;
           if (sx < kw || sx > w) continue;
           ctx.strokeStyle =
             s === subDiv / 2
-              ? 'rgba(255, 255, 255, 0.05)'
-              : 'rgba(255, 255, 255, 0.025)';
+              ? 'rgba(255, 255, 255, 0.055)'
+              : 'rgba(255, 255, 255, 0.024)';
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(sx, hh);
@@ -725,24 +723,24 @@ export class PianoRoll {
     // 2d. Gợi ý trực quan khi chưa có nốt nào
     if (this.notes.length === 0) {
       ctx.save();
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.42)';
-      ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = 'rgba(156, 163, 175, 0.45)';
+      ctx.font = '500 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const msg =
         w < 520
-          ? 'Chạm vào hàng sáng để chấm nốt • Hoặc nhấn Thu Mic để ngân nga'
-          : 'Chạm vào các hàng sáng màu hợp âm để chấm nốt • Hoặc nhấn Thu Mic (R) để ngân nga giai điệu';
+          ? 'Chạm vào hàng sáng để chấm nốt • Hoặc nhấn Thu Mic'
+          : 'Chạm vào lưới sáng hợp âm để chấm nốt • Hoặc nhấn Thu Mic (R) để thu giọng';
       ctx.fillText(msg, kw + (w - kw) / 2, hh + (h - hh) / 2);
       ctx.restore();
     }
 
-    // 2e. Vẽ các thanh nốt MIDI giai điệu
+    // 2e. Vẽ các thanh nốt MIDI vuông vức chuẩn DAW (radius 2px + bevel sáng trên)
     for (const note of this.notes) {
       const nx = this.beatToX(note.startBeat);
-      const nw = Math.max(10, note.durationBeats * bw - 1.5);
-      const ny = this.midiToY(note.midi) + 2;
-      const nh = rh - 4;
+      const nw = Math.max(9, note.durationBeats * bw - 1.5);
+      const ny = this.midiToY(note.midi) + 1.5;
+      const nh = rh - 3;
 
       if (nx + nw < kw || nx > w || ny + nh < hh || ny > h) continue;
 
@@ -750,70 +748,66 @@ export class PianoRoll {
       const isActiveNow =
         isPlaying && playBeat >= note.startBeat && playBeat < note.startBeat + note.durationBeats;
 
-      // Đổ bóng glow nhẹ cho nốt đang phát hoặc đang chọn
-      if (isSelected || isActiveNow) {
-        ctx.save();
-        ctx.shadowColor = isActiveNow ? 'rgba(45, 212, 191, 0.75)' : 'rgba(34, 211, 238, 0.55)';
-        ctx.shadowBlur = isActiveNow ? 12 : 8;
-        this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 5);
-        ctx.fillStyle = isActiveNow ? '#5EEAD4' : '#2DD4BF';
-        ctx.fill();
-        ctx.restore();
+      this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 2);
+      if (isActiveNow) {
+        ctx.fillStyle = '#34D399';
+      } else if (isSelected) {
+        ctx.fillStyle = '#2DD4BF';
       } else {
-        const grad = ctx.createLinearGradient(nx, ny, nx, ny + nh);
-        grad.addColorStop(0, '#2DD4BF');
-        grad.addColorStop(1, '#0D9488');
-        this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 5);
-        ctx.fillStyle = grad;
-        ctx.fill();
+        ctx.fillStyle = '#14B8A6';
+      }
+      ctx.fill();
+
+      // Vạch sáng cạnh trên tạo khối phần cứng sắc nét
+      if (nw > 4) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.30)';
+        ctx.fillRect(nx + 1.5, ny + 1, Math.max(0, nw - 2), 1.5);
       }
 
-      // Viền sắc nét
-      this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 5);
-      ctx.strokeStyle = isSelected ? '#FFFFFF' : 'rgba(204, 251, 241, 0.55)';
-      ctx.lineWidth = isSelected ? 1.8 : 1;
+      // Viền ngoài sắc nét
+      this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 2);
+      ctx.strokeStyle = isSelected ? '#FFFFFF' : '#093B34';
+      ctx.lineWidth = isSelected ? 1.6 : 1;
       ctx.stroke();
 
       // Tay nắm kéo độ dài cạnh phải
-      if (nw >= 22) {
-        ctx.fillStyle = 'rgba(11, 14, 20, 0.35)';
-        ctx.fillRect(nx + nw - 4.5, ny + 4, 2, nh - 8);
+      if (nw >= 20) {
+        ctx.fillStyle = 'rgba(11, 14, 18, 0.42)';
+        ctx.fillRect(nx + nw - 4, ny + 3, 1.5, nh - 6);
       }
 
-      // Tên nốt bên trong thanh nốt nếu đủ rộng
-      if (nw >= 28) {
-        ctx.fillStyle = '#042F2E';
-        ctx.font = '700 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      // Tên nốt Monospace ngay bên trong thanh nốt
+      if (nw >= 26) {
+        ctx.fillStyle = '#07221E';
+        ctx.font = `700 10px ${monoFont}`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(midiToNoteName(note.midi, preferFlats), nx + 5, ny + nh / 2 + 0.5);
+        ctx.fillText(midiToNoteName(note.midi, preferFlats), nx + 4.5, ny + nh / 2 + 0.5);
       }
     }
 
-    // 2f. Thanh chạy thời gian (Playhead 60fps)
+    // 2f. Kim chạy thời gian DAW (Playhead màu cam-đỏ #F95B3D)
     if (isPlaying || playBeat > 0) {
-      const px = this.beatToX(playBeat);
+      const px = Math.round(this.beatToX(playBeat)) + 0.5;
       if (px >= kw && px <= w) {
-        ctx.save();
-        ctx.strokeStyle = '#38BDF8';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.8)';
-        ctx.shadowBlur = 8;
+        ctx.strokeStyle = '#F95B3D';
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
         ctx.moveTo(px, hh);
         ctx.lineTo(px, h);
         ctx.stroke();
-        ctx.restore();
       }
     }
 
     ctx.restore(); // Kết thúc clip lưới chính
 
-    // 3. Bàn phím đàn dọc bên trái (clip bên dưới header)
+    // 3. Bàn phím đàn chân thực bên trái (phím trắng sáng ngà + phím đen nổi khối 3D)
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, hh, kw, h - hh);
     ctx.clip();
+
+    const blackKeyW = Math.round(kw * 0.62);
 
     for (let r = firstRow; r <= lastRow; r++) {
       const midi = MAX_MIDI - r;
@@ -824,54 +818,81 @@ export class PianoRoll {
       const isRoot = pc === this.keyPc;
       const isPressed = this.activePianoKey === midi;
 
-      if (isPressed) {
-        ctx.fillStyle = '#2DD4BF';
-      } else if (black) {
-        ctx.fillStyle = '#111622';
+      if (!black) {
+        // Phím trắng sáng ngà #D4D7DD
+        ctx.fillStyle = isPressed ? '#10B981' : inScale ? '#DCDEE3' : '#C8CCD3';
+        ctx.fillRect(0, y, kw - 1, rh);
+
+        // Phân tách phím trắng rõ ràng
+        ctx.strokeStyle = '#9BA1AD';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(y + rh) - 0.5);
+        ctx.lineTo(kw - 1, Math.round(y + rh) - 0.5);
+        ctx.stroke();
+
+        // Chấm/thanh báo nốt chủ âm hoặc âm giai ở mép phải phím trắng
+        if (isRoot) {
+          ctx.fillStyle = '#10B981';
+          ctx.fillRect(kw - 4, y + 1.5, 3, rh - 3);
+        } else if (inScale) {
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.55)';
+          ctx.fillRect(kw - 3, y + 4, 2, rh - 8);
+        }
+
+        // Nhãn nốt C3, C4, C5, C6 sắc nét (và tên nốt chủ âm)
+        if (pc === 0 || isRoot || isPressed) {
+          ctx.fillStyle = isPressed ? '#052E24' : '#181A1F';
+          ctx.font = pc === 0 || isRoot ? `700 10px ${monoFont}` : `600 9px ${monoFont}`;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(midiToNoteName(midi, preferFlats), kw - 7, y + rh / 2 + 0.5);
+        }
       } else {
-        ctx.fillStyle = inScale ? '#1F293B' : '#171E2C';
-      }
-      ctx.fillRect(0, y, kw - 1, rh - 0.5);
+        // Nền phần nối phím trắng phía bên phải của hàng phím đen
+        ctx.fillStyle = '#CFD2D9';
+        ctx.fillRect(blackKeyW - 1, y, kw - blackKeyW, rh);
 
-      // Thanh đánh dấu nốt chủ âm (Root) & nốt thuộc âm giai ở mép phải phím
-      if (isRoot) {
-        ctx.fillStyle = '#2DD4BF';
-        ctx.fillRect(kw - 4, y + 2, 3, rh - 4);
-      } else if (inScale) {
-        ctx.fillStyle = 'rgba(129, 140, 248, 0.55)';
-        ctx.fillRect(kw - 3, y + 5, 2, rh - 10);
-      }
+        // Đường chia giữa 2 phím trắng lân cận chạy qua chính giữa hàng phím đen
+        ctx.strokeStyle = '#9BA1AD';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(blackKeyW - 1, Math.round(y + rh / 2) + 0.5);
+        ctx.lineTo(kw - 1, Math.round(y + rh / 2) + 0.5);
+        ctx.stroke();
 
-      // Nhãn tên nốt (luôn hiện nốt C và nốt chủ âm; hiện thêm tên khi đủ cao)
-      if (pc === 0 || isRoot || isPressed) {
-        ctx.fillStyle = isPressed ? '#042F2E' : isRoot ? '#5EEAD4' : '#CBD5E1';
-        ctx.font =
-          pc === 0 || isRoot
-            ? '700 10px ui-monospace, SFMono-Regular, Consolas, monospace'
-            : '500 9.5px ui-monospace, SFMono-Regular, Consolas, monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(midiToNoteName(midi, preferFlats), 6, y + rh / 2 + 0.5);
-      } else if (!black) {
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.42)';
-        ctx.font = '500 9px ui-monospace, SFMono-Regular, Consolas, monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(midiToNoteName(midi, preferFlats), 6, y + rh / 2 + 0.5);
-      }
+        if (isRoot) {
+          ctx.fillStyle = '#10B981';
+          ctx.fillRect(kw - 4, y + 1.5, 3, rh - 3);
+        } else if (inScale) {
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.55)';
+          ctx.fillRect(kw - 3, y + 4, 2, rh - 8);
+        }
 
-      // Viền ngăn phím
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, y + rh);
-      ctx.lineTo(kw, y + rh);
-      ctx.stroke();
+        // Phím đen nổi khối tối màu #181A1F đè lên bên trái
+        ctx.fillStyle = isPressed ? '#10B981' : '#181A1F';
+        ctx.fillRect(0, y + 1, blackKeyW, rh - 2);
+
+        // Highlight nhẹ phía trên phím đen + viền tối bên dưới tạo cảm giác 3D phần cứng
+        ctx.fillStyle = isPressed ? '#34D399' : '#262932';
+        ctx.fillRect(0, y + 1, blackKeyW - 2, 2);
+        ctx.strokeStyle = '#0A0B0E';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0.5, y + 1.5, blackKeyW - 1, rh - 3);
+
+        if (isPressed || isRoot) {
+          ctx.fillStyle = isPressed ? '#052E24' : '#9CA3AF';
+          ctx.font = `600 8.5px ${monoFont}`;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(midiToNoteName(midi, preferFlats), blackKeyW - 4, y + rh / 2 + 0.5);
+        }
+      }
     }
 
-    // Viền phải bàn phím
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
-    ctx.lineWidth = 1;
+    // Viền phải ngăn cách bàn phím với lưới MIDI
+    ctx.strokeStyle = '#111216';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(kw - 0.5, hh);
     ctx.lineTo(kw - 0.5, h);
@@ -879,18 +900,25 @@ export class PianoRoll {
 
     ctx.restore();
 
-    // 4. Thanh thước nhịp & tên hợp âm phía trên cùng
-    ctx.fillStyle = '#0F141F';
+    // 4. Thước đo nhịp DAW (Time Ruler) phía trên cùng
+    ctx.fillStyle = '#15171B';
     ctx.fillRect(0, 0, w, hh);
 
     // Ô góc trên trái
-    ctx.fillStyle = '#131A28';
+    ctx.fillStyle = '#1A1C20';
     ctx.fillRect(0, 0, kw, hh);
-    ctx.fillStyle = '#94A3B8';
-    ctx.font = '700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#9CA3AF';
+    ctx.font = `700 9.5px ${monoFont}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('MIDI', kw / 2, hh / 2 + 0.5);
+    ctx.fillText('PIANO', kw / 2, hh / 2 + 0.5);
+
+    ctx.strokeStyle = '#2C3038';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(kw - 0.5, 0);
+    ctx.lineTo(kw - 0.5, hh);
+    ctx.stroke();
 
     ctx.save();
     ctx.beginPath();
@@ -906,36 +934,63 @@ export class PianoRoll {
       const isCur = bar === activeBar;
 
       if (isCur) {
-        ctx.fillStyle = 'rgba(99, 102, 241, 0.22)';
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.14)';
         ctx.fillRect(bx, 0, barW, hh);
       }
 
-      // Đường phân tách ô nhịp
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+      // Vạch chia ô nhịp trên thước
+      ctx.strokeStyle = '#4B5262';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(Math.round(bx) + 0.5, 0);
       ctx.lineTo(Math.round(bx) + 0.5, hh);
       ctx.stroke();
 
-      // Số ô nhịp + tên hợp âm
-      ctx.fillStyle = isCur ? '#E0E7FF' : '#94A3B8';
-      ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      // Số ô nhịp lớn + tên hợp âm cạnh phải số ô
+      ctx.fillStyle = isCur ? '#34D399' : '#E5E7EB';
+      ctx.font = `700 11px ${monoFont}`;
       ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      const label = vc ? `Ô ${bar + 1} · ${vc.symbol}` : `Ô ${bar + 1}`;
-      ctx.fillText(label, bx + 8, hh / 2 + 0.5);
+      ctx.textBaseline = 'top';
+      ctx.fillText(String(bar + 1), bx + 5, 3.5);
+
+      if (vc) {
+        ctx.fillStyle = isCur ? '#93C5FD' : '#6B7280';
+        ctx.font = `600 10px ${monoFont}`;
+        ctx.fillText(vc.symbol, bx + 18, 4);
+      }
+
+      // Vạch chia phách phụ 1.2, 1.3, 1.4 ở nửa dưới thước đo
+      for (let sub = 1; sub < 4; sub++) {
+        const sx = Math.round(this.beatToX(bar * 4 + sub)) + 0.5;
+        if (sx < kw || sx > w) continue;
+        ctx.strokeStyle = '#323640';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, hh - 9);
+        ctx.lineTo(sx, hh);
+        ctx.stroke();
+
+        if (bw >= 38) {
+          ctx.fillStyle = '#6B7280';
+          ctx.font = `500 9px ${monoFont}`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(`${bar + 1}.${sub + 1}`, sx + 3, hh - 2);
+        }
+      }
     }
 
-    // Mũi tên playhead trên thanh thước
+    // Đầu tam giác Playhead màu cam-đỏ trên thước đo
     if (isPlaying || playBeat > 0) {
-      const px = this.beatToX(playBeat);
+      const px = Math.round(this.beatToX(playBeat)) + 0.5;
       if (px >= kw && px <= w) {
-        ctx.fillStyle = '#38BDF8';
+        ctx.fillStyle = '#F95B3D';
         ctx.beginPath();
-        ctx.moveTo(px - 5, hh - 9);
-        ctx.lineTo(px + 5, hh - 9);
+        ctx.moveTo(px - 6, hh - 11);
+        ctx.lineTo(px + 6, hh - 11);
+        ctx.lineTo(px + 6, hh - 7);
         ctx.lineTo(px, hh);
+        ctx.lineTo(px - 6, hh - 7);
         ctx.closePath();
         ctx.fill();
       }
@@ -943,8 +998,8 @@ export class PianoRoll {
 
     ctx.restore();
 
-    // Đường viền đáy header
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    // Đường viền đáy thước đo
+    ctx.strokeStyle = '#2C3038';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, hh - 0.5);

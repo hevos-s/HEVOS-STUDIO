@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0B0E14" />
+  <meta name="theme-color" content="#121316" />
   <title>HEVOS STUDIO — Phòng thu Phác thảo</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131822'/%3E%3Cpath d='M6 19v-6m5 10V9m5 14V7m5 12v-8m5 6v-4' stroke='%232DD4BF' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./style.css?v=5" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231A1C20'/%3E%3Cpath d='M6 19v-6m5 10V9m5 14V7m5 12v-8m5 6v-4' stroke='%2310B981' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./style.css?v=6" />
   <!-- Thư viện ngoài duy nhất: Tone.js -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
@@ -62,6 +62,24 @@
           <span class="dot-sep">·</span>
           <span id="mobile-bpm-badge">84 BPM</span>
         </button>
+      </div>
+
+      <!-- Màn hình LCD/OLED chìm hiển thị đồng hồ Transport, BPM & Tông (Desktop) -->
+      <div id="transport-lcd" class="daw-lcd desktop-only" aria-label="Màn hình thông số Transport">
+        <div class="lcd-cell">
+          <span class="lcd-label">VỊ TRÍ</span>
+          <span id="lcd-pos" class="lcd-val lcd-pos">1.1.1</span>
+        </div>
+        <div class="lcd-divider"></div>
+        <div class="lcd-cell">
+          <span class="lcd-label">BPM</span>
+          <span class="lcd-val lcd-bpm" data-display="bpm">84</span>
+        </div>
+        <div class="lcd-divider"></div>
+        <div class="lcd-cell">
+          <span class="lcd-label">TÔNG</span>
+          <span id="lcd-key" class="lcd-val lcd-key">Eb TRƯỞNG</span>
+        </div>
       </div>
 
       <!-- Cài đặt tổng trên Desktop -->
@@ -352,12 +370,16 @@
               <span class="strip-val mono-val" data-vol-label="chords">78%</span>
             </div>
             <div class="strip-body">
-              <input type="range" class="studio-range range-indigo" min="0" max="100" value="78" data-vol="chords" aria-label="Âm lượng Hợp âm" />
+              <div class="fader-wrap">
+                <input type="range" class="studio-range daw-fader range-indigo" min="0" max="100" value="78" data-vol="chords" aria-label="Âm lượng Hợp âm" />
+                <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
               <div class="ms-btns">
                 <button type="button" class="ms-btn" data-mute="chords" title="Tắt tiếng Hợp âm">M</button>
                 <button type="button" class="ms-btn" data-solo="chords" title="Nghe riêng Hợp âm">S</button>
               </div>
             </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="chords"></div></div>
           </div>
 
           <!-- Kênh 2: Giai điệu MIDI -->
@@ -368,12 +390,16 @@
               <span class="strip-val mono-val" data-vol-label="melody">82%</span>
             </div>
             <div class="strip-body">
-              <input type="range" class="studio-range range-cyan" min="0" max="100" value="82" data-vol="melody" aria-label="Âm lượng Giai điệu MIDI" />
+              <div class="fader-wrap">
+                <input type="range" class="studio-range daw-fader range-cyan" min="0" max="100" value="82" data-vol="melody" aria-label="Âm lượng Giai điệu MIDI" />
+                <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
               <div class="ms-btns">
                 <button type="button" class="ms-btn" data-mute="melody" title="Tắt tiếng Giai điệu MIDI">M</button>
                 <button type="button" class="ms-btn" data-solo="melody" title="Nghe riêng Giai điệu MIDI">S</button>
               </div>
             </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="melody"></div></div>
           </div>
 
           <!-- Kênh 3: Trống -->
@@ -384,12 +410,16 @@
               <span class="strip-val mono-val" data-vol-label="drums">68%</span>
             </div>
             <div class="strip-body">
-              <input type="range" class="studio-range range-amber" min="0" max="100" value="68" data-vol="drums" aria-label="Âm lượng Trống" />
+              <div class="fader-wrap">
+                <input type="range" class="studio-range daw-fader range-amber" min="0" max="100" value="68" data-vol="drums" aria-label="Âm lượng Trống" />
+                <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
               <div class="ms-btns">
                 <button type="button" class="ms-btn" data-mute="drums" title="Tắt tiếng Trống">M</button>
                 <button type="button" class="ms-btn" data-solo="drums" title="Nghe riêng Trống">S</button>
               </div>
             </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="drums"></div></div>
           </div>
 
           <!-- Kênh 4: Giọng thu nháp -->
@@ -401,12 +431,16 @@
               <span class="strip-val mono-val" data-vol-label="vocal">75%</span>
             </div>
             <div class="strip-body">
-              <input type="range" class="studio-range range-rose" min="0" max="100" value="75" data-vol="vocal" aria-label="Âm lượng Giọng thu nháp" />
+              <div class="fader-wrap">
+                <input type="range" class="studio-range daw-fader range-rose" min="0" max="100" value="75" data-vol="vocal" aria-label="Âm lượng Giọng thu nháp" />
+                <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
               <div class="ms-btns">
                 <button type="button" class="ms-btn" data-mute="vocal" title="Tắt tiếng Giọng thu nháp">M</button>
                 <button type="button" class="ms-btn" data-solo="vocal" title="Nghe riêng Giọng thu nháp">S</button>
               </div>
             </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="vocal"></div></div>
           </div>
         </div>
 
@@ -565,6 +599,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=5"></script>
+  <script type="module" src="./js/app.js?v=6"></script>
 </body>
 </html>

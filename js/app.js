@@ -12,21 +12,21 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=5';
+} from './theory.js?v=6';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=5';
+} from './audioEngine.js?v=6';
 import {
   VocalCapture,
   drawVocalWaveform,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=5';
-import { PianoRoll } from './pianoRoll.js?v=5';
-import { downloadMidiFile } from './midiExport.js?v=5';
+} from './pitchToMidi.js?v=6';
+import { PianoRoll } from './pianoRoll.js?v=6';
+import { downloadMidiFile } from './midiExport.js?v=6';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -101,6 +101,8 @@ const el = {
   mobileQuickStatus: $('#mobile-quick-status'),
   mobileKeyBadge: $('#mobile-key-badge'),
   mobileBpmBadge: $('#mobile-bpm-badge'),
+  lcdPos: $('#lcd-pos'),
+  lcdKey: $('#lcd-key'),
 
   presetSelect: $('#preset-select'),
   vibeChips: $('#vibe-chips'),
@@ -319,12 +321,15 @@ function syncGlobalControlsUI() {
     el.presetSelect.value = state.activePresetId;
   }
 
-  // Mobile quick status pill
+  // Mobile quick status pill & Desktop LCD Key readout
   const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
   const keyName = pcToNoteName(state.keyPc, preferFlats);
   const scaleShort = SCALES[state.scaleType]?.shortLabel || 'Trưởng';
   el.mobileKeyBadge.textContent = `${keyName} ${scaleShort}`;
   el.mobileBpmBadge.textContent = `${state.bpm} BPM`;
+  if (el.lcdKey) {
+    el.lcdKey.textContent = `${keyName} ${scaleShort.toUpperCase()}`;
+  }
 
   // Highlight vibe chip đang khớp
   const activePreset = PROGRESSION_PRESETS.find((p) => p.id === state.activePresetId);
@@ -402,6 +407,10 @@ function startPlayheadWatch() {
         );
         lastHighlightedBar = -1;
       }
+      if (el.lcdPos) el.lcdPos.textContent = '1.1.1';
+      $$('[data-meter]').forEach((m) => {
+        m.style.width = '0%';
+      });
       return;
     }
 
@@ -412,6 +421,18 @@ function startPlayheadWatch() {
       $$('.chord-card', el.chordStrip).forEach((card, idx) => {
         card.classList.toggle('active-bar', idx === curBar);
       });
+    }
+
+    if (el.lcdPos) {
+      const beatInBar = Math.floor(beat % 4) + 1;
+      const step16 = Math.floor((beat % 1) * 4) + 1;
+      el.lcdPos.textContent = `${curBar + 1}.${beatInBar}.${step16}`;
+    }
+
+    const levels = audioEngine.getChannelLevels();
+    for (const [ch, lvl] of Object.entries(levels)) {
+      const barEl = $(`[data-meter="${ch}"]`);
+      if (barEl) barEl.style.width = `${Math.round(lvl * 100)}%`;
     }
 
     if (state.recordPhase === 'recording') {

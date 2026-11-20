@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=5';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=6';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -413,6 +413,17 @@ class AudioEngine {
       drums:  new Tone.Gain(0.7).connect(this.masterBus),
       vocal:  new Tone.Gain(0.75).connect(this.masterBus),
     };
+
+    // Đồng hồ đo mức tín hiệu từng kênh (Post-fader Level Meters)
+    this.channelMeters = {
+      chords: new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
+      melody: new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
+      drums:  new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
+      vocal:  new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
+    };
+    Object.keys(this.channels).forEach((key) => {
+      this.channels[key].connect(this.channelMeters[key]);
+    });
 
     // Nối Chorus vào kênh hợp âm một lần duy nhất
     this.chordChorus.connect(this.channels.chords);
@@ -970,6 +981,24 @@ class AudioEngine {
     if (loopSec <= 0) return 0;
     const sec = ((Tone.Transport.seconds % loopSec) + loopSec) % loopSec;
     return (sec / loopSec) * totalBeats;
+  }
+
+  /**
+   * Đọc mức tín hiệu tức thời [0..1] trên 4 kênh Mixer cho đèn Level Meter
+   */
+  getChannelLevels() {
+    const empty = { chords: 0, melody: 0, drums: 0, vocal: 0 };
+    if (!this.initialized || !this.isPlaying || !this.channelMeters) return empty;
+    const out = {};
+    for (const [key, meter] of Object.entries(this.channelMeters)) {
+      let raw = 0;
+      try {
+        const val = meter.getValue();
+        raw = Array.isArray(val) ? Math.max(...val) : Number(val) || 0;
+      } catch (_) {}
+      out[key] = raw > 0.0005 ? Math.min(1, Math.pow(raw * 2.8, 0.62)) : 0;
+    }
+    return out;
   }
 
   /**
