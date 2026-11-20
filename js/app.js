@@ -566,10 +566,14 @@ async function toggleVocalRecording() {
     return;
   }
 
+  // Mở khóa Native AudioContext cho Micro ngay trong sự kiện chạm nút của người dùng (trước mọi await)
+  vocalCapture.prepareNativeContext();
+
   // Bắt đầu phiên thu mới
   try {
     await audioEngine.ensureReady();
   } catch (err) {
+    vocalCapture.close();
     showToast(err.message || 'Không thể khởi động bộ máy âm thanh.', true);
     return;
   }
@@ -594,10 +598,18 @@ async function toggleVocalRecording() {
       },
     });
   } catch (err) {
-    showToast(
-      'Không mở được Micro. Vui lòng cấp quyền Micro trên trình duyệt và thử lại.',
-      true
-    );
+    vocalCapture.close();
+    const errName = err && err.name ? err.name : 'Error';
+    const errMsg = err && err.message ? err.message : String(err);
+    if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+      showToast(
+        'Không mở được Micro. Vui lòng cấp quyền Micro trên trình duyệt và thử lại.',
+        true
+      );
+    } else {
+      console.error('[HEVOS STUDIO Mic Error]', err);
+      showToast(`Lỗi thu âm Micro (${errName}: ${errMsg})`, true);
+    }
     return;
   }
 
@@ -663,25 +675,30 @@ async function finishVocalRecording() {
   recStopTimer = null;
 
   audioEngine.stop();
-  const buffer = vocalCapture.finishCapture();
+  const take = vocalCapture.finishCapture();
   state.recordPhase = 'idle';
   updatePlayButtonUI();
   updateRecordButtonUI();
   resetLiveMeter();
 
-  if (!buffer || buffer.length < 1024) {
+  if (!take || !take.pcmData || take.pcmData.length < 1024) {
     showToast('Bản thu quá ngắn, chưa nhận được tín hiệu giọng hát.', true);
     return;
   }
 
-  state.rawVocalBuffer = buffer;
-  audioEngine.setRawVocalBuffer(buffer);
-  drawVocalWaveform(el.vocalWaveform, buffer);
+  state.rawVocalBuffer = take;
+  drawVocalWaveform(el.vocalWaveform, take);
   syncMixerUI();
 
   el.vocalStatusBadge.classList.remove('active');
   el.vocalStatusBadge.classList.add('ready-take');
   el.vocalStatusBadge.textContent = `Đã thu ${state.totalBars} ô`;
+
+  try {
+    await audioEngine.setRawVocalBuffer(take.wavBlob);
+  } catch (err) {
+    console.warn('[HEVOS STUDIO Vocal Playback Load]', err);
+  }
 
   runVocalTranscription(false);
 }

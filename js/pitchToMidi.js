@@ -173,9 +173,62 @@ function medianOf(values) {
 }
 
 /**
- * Chuyển đổi trực tiếp dữ liệu AudioBuffer thu từ micro thành mảng nốt MIDI sạch sẽ
+ * Đóng gói mảng sóng âm PCM Float32 (mono) thành file Blob chuẩn RIFF/WAVE 16-bit PCM.
+ * Chạy thuần JS, không phụ thuộc MediaRecorder nên tương thích 100% iOS Safari & Android.
  */
-export function transcribeAudioBufferToMidi(audioBuffer, options) {
+export function encodePcmToWavBlob(pcmFloat32, sampleRate = 44100) {
+  const sr = Math.max(8000, Math.round(sampleRate || 44100));
+  const numSamples = pcmFloat32 ? pcmFloat32.length : 0;
+  const dataBytes = numSamples * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);       // PCM fmt chunk size
+  view.setUint16(20, 1, true);        // Format = 1 (PCM)
+  view.setUint16(22, 1, true);        // Channels = 1 (Mono)
+  view.setUint32(24, sr, true);       // SampleRate
+  view.setUint32(28, sr * 2, true);   // ByteRate = sr * channels * 2
+  view.setUint16(32, 2, true);        // BlockAlign = channels * 2
+  view.setUint16(34, 16, true);       // BitsPerSample = 16
+  writeStr(36, 'data');
+  view.setUint32(40, dataBytes, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const clamped = Math.max(-1, Math.min(1, pcmFloat32[i]));
+    const int16 = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+    view.setInt16(offset, Math.round(int16), true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function extractPcmAndRate(vocalSource) {
+  if (!vocalSource) return { rawData: null, origSr: 44100 };
+  if (vocalSource.pcmData instanceof Float32Array) {
+    return { rawData: vocalSource.pcmData, origSr: vocalSource.sampleRate || 44100 };
+  }
+  if (typeof vocalSource.getChannelData === 'function' && vocalSource.length > 0) {
+    return { rawData: vocalSource.getChannelData(0), origSr: vocalSource.sampleRate || 44100 };
+  }
+  return { rawData: null, origSr: 44100 };
+}
+
+/**
+ * Chuyển đổi trực tiếp dữ liệu PCM / AudioBuffer thu từ micro thành mảng nốt MIDI sạch sẽ
+ */
+export function transcribeAudioBufferToMidi(vocalSource, options) {
   const {
     bpm = 84,
     totalBars = 4,
@@ -189,10 +242,8 @@ export function transcribeAudioBufferToMidi(audioBuffer, options) {
     minNoteDurationSec = 0.085,
   } = options;
 
-  if (!audioBuffer || audioBuffer.length === 0) return [];
-
-  const rawData = audioBuffer.getChannelData(0);
-  const origSr = audioBuffer.sampleRate;
+  const { rawData, origSr } = extractPcmAndRate(vocalSource);
+  if (!rawData || rawData.length === 0) return [];
 
   // Bù trễ phần cứng micro (~38ms) để nốt MIDI vào đúng phách hơn
   const latencyCompSamples = Math.min(Math.floor(origSr * 0.038), Math.floor(rawData.length * 0.1));
@@ -422,13 +473,12 @@ export function transcribeAudioBufferToMidi(audioBuffer, options) {
 }
 
 /**
- * Bộ quản lý luồng Micro: đo âm lượng + tên nốt trực tiếp và ghi PCM chuẩn đa thiết bị
+ * Bộ quản lý luồng Micro: dùng Native AudioContext riêng biệt, thu PCM thuần & đóng gói WAV Blob
  */
 export class VocalCapture {
   constructor() {
     this.stream = null;
     this.audioCtx = null;
-    this.ownsContext = false;
     this.sourceNode = null;
     this.analyser = null;
     this.processorNode = null;
@@ -442,83 +492,119 @@ export class VocalCapture {
 
     this._meterRaf = null;
     this._liveBuf = new Float32Array(2048);
+    this._byteBuf = null;
     this._onLiveStats = null;
   }
 
   /**
-   * Kiểm tra các MIME type ghi âm hỗ trợ (tiện tham khảo / tương thích trình duyệt)
+   * Khởi tạo & mở khóa Native AudioContext riêng ngay trong thao tác chạm nút của người dùng
+   * (tránh đụng độ với standardized-audio-context của Tone.js trên iOS Safari).
    */
-  static getSupportedAudioMime() {
-    if (typeof MediaRecorder === 'undefined') return 'pcm-webaudio';
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/aac',
-      'audio/ogg;codecs=opus',
-    ];
-    for (const mime of candidates) {
-      if (MediaRecorder.isTypeSupported(mime)) return mime;
+  prepareNativeContext() {
+    const NativeAudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!NativeAudioCtx) return null;
+    if (!this.audioCtx || this.audioCtx.state === 'closed') {
+      this.audioCtx = new NativeAudioCtx();
     }
-    return 'pcm-webaudio';
+    if (this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
+    return this.audioCtx;
+  }
+
+  _cleanupNodesAndStream() {
+    this.isMonitoring = false;
+    this.isCapturing = false;
+    if (this._meterRaf) {
+      cancelAnimationFrame(this._meterRaf);
+      this._meterRaf = null;
+    }
+    try { if (this.processorNode) this.processorNode.disconnect(); } catch (_) {}
+    try { if (this.analyser) this.analyser.disconnect(); } catch (_) {}
+    try { if (this.sourceNode) this.sourceNode.disconnect(); } catch (_) {}
+    try { if (this.silentGain) this.silentGain.disconnect(); } catch (_) {}
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    this.processorNode = null;
+    this.analyser = null;
+    this.sourceNode = null;
+    this.silentGain = null;
+    this.chunks = [];
+    this.totalSamples = 0;
   }
 
   /**
-   * Mở micro, bật đồng hồ đo âm lượng & nhận diện nốt theo thời gian thực
+   * Mở micro bằng Native AudioContext thuần, dự phòng ràng buộc thiết bị & đo cao độ thực
    */
   async openMic({ echoCancellation = false, onLiveStats = null } = {}) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Trình duyệt này không hỗ trợ thu âm Micro (cần kết nối HTTPS hoặc localhost).');
     }
 
-    this.close();
+    this._cleanupNodesAndStream();
     this._onLiveStats = onLiveStats;
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        autoGainControl: false,
-        noiseSuppression: false,
-        echoCancellation: Boolean(echoCancellation),
-      },
-    });
-
-    // Tái sử dụng AudioContext của Tone nếu đang chạy (tránh xung đột trên iOS Safari)
-    if (window.Tone && window.Tone.context && window.Tone.context.rawContext) {
-      this.audioCtx = window.Tone.context.rawContext;
-      this.ownsContext = false;
-    } else {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      this.audioCtx = new AudioCtx();
-      this.ownsContext = true;
+    // Đảm bảo luôn có Native AudioContext thuần (không dùng Tone.context)
+    const micAudioCtx = this.prepareNativeContext();
+    if (!micAudioCtx) {
+      throw new Error('Trình duyệt không hỗ trợ Web AudioContext.');
     }
 
-    if (this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
+    try {
+      // Thử xin micro với cấu hình ưu tiên thu mộc cho âm nhạc; tự lùi về { audio: true } nếu thiết bị không khớp
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: Boolean(echoCancellation),
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+      } catch (constraintErr) {
+        if (
+          constraintErr &&
+          (constraintErr.name === 'OverconstrainedError' ||
+            constraintErr.name === 'ConstraintNotSatisfiedError')
+        ) {
+          this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+          throw constraintErr;
+        }
+      }
+
+      if (micAudioCtx.state !== 'running') {
+        await micAudioCtx.resume();
+      }
+
+      this.sampleRate = micAudioCtx.sampleRate || 44100;
+      this.sourceNode = micAudioCtx.createMediaStreamSource(this.stream);
+      this.analyser = micAudioCtx.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.analyser.smoothingTimeConstant = 0.25;
+
+      // Nối vào gain = 0 để không gây hú loa (feedback) nhưng vẫn kích hoạt xử lý PCM
+      this.silentGain = micAudioCtx.createGain();
+      this.silentGain.gain.value = 0;
+
+      this.sourceNode.connect(this.analyser);
+
+      // Ghi PCM thô trực tiếp qua Native AudioContext (không dùng MediaRecorder)
+      await this._setupPcmNode(micAudioCtx);
+
+      this.isMonitoring = true;
+      this._startMeterLoop();
+    } catch (err) {
+      this.close();
+      throw err;
     }
-
-    this.sampleRate = this.audioCtx.sampleRate;
-    this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
-    this.analyser = this.audioCtx.createAnalyser();
-    this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.25;
-
-    // Nối vào gain = 0 để không gây hú loa (feedback) nhưng vẫn kích hoạt xử lý PCM
-    this.silentGain = this.audioCtx.createGain();
-    this.silentGain.gain.value = 0;
-
-    this.sourceNode.connect(this.analyser);
-
-    // Ghi PCM thô trực tiếp qua Web Audio (ổn định 100% trên cả iOS Safari & Android/Desktop)
-    await this._setupPcmNode();
-
-    this.isMonitoring = true;
-    this._startMeterLoop();
   }
 
-  async _setupPcmNode() {
+  async _setupPcmNode(micAudioCtx) {
     // Ưu tiên AudioWorklet (inline Blob) nếu trình duyệt hỗ trợ, dự phòng ScriptProcessorNode
     let workletOk = false;
-    if (this.audioCtx.audioWorklet && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+    if (micAudioCtx.audioWorklet && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
       try {
         const workletCode = `
           class PcmRecorderProcessor extends AudioWorkletProcessor {
@@ -532,14 +618,14 @@ export class VocalCapture {
           }
           registerProcessor('pcm-recorder-processor', PcmRecorderProcessor);
         `;
-        if (!this.audioCtx._meloWorkletLoaded) {
+        if (!micAudioCtx._hevosWorkletLoaded) {
           const blob = new Blob([workletCode], { type: 'application/javascript' });
           const blobUrl = URL.createObjectURL(blob);
-          await this.audioCtx.audioWorklet.addModule(blobUrl);
+          await micAudioCtx.audioWorklet.addModule(blobUrl);
           URL.revokeObjectURL(blobUrl);
-          this.audioCtx._meloWorkletLoaded = true;
+          micAudioCtx._hevosWorkletLoaded = true;
         }
-        const node = new AudioWorkletNode(this.audioCtx, 'pcm-recorder-processor');
+        const node = new AudioWorkletNode(micAudioCtx, 'pcm-recorder-processor');
         node.port.onmessage = (ev) => {
           if (!this.isCapturing) return;
           const chunk = ev.data;
@@ -548,7 +634,7 @@ export class VocalCapture {
         };
         this.sourceNode.connect(node);
         node.connect(this.silentGain);
-        this.silentGain.connect(this.audioCtx.destination);
+        this.silentGain.connect(micAudioCtx.destination);
         this.processorNode = node;
         workletOk = true;
       } catch (_) {
@@ -557,7 +643,7 @@ export class VocalCapture {
     }
 
     if (!workletOk) {
-      const sp = this.audioCtx.createScriptProcessor(2048, 1, 1);
+      const sp = micAudioCtx.createScriptProcessor(2048, 1, 1);
       sp.onaudioprocess = (e) => {
         if (!this.isCapturing) return;
         const input = e.inputBuffer.getChannelData(0);
@@ -568,7 +654,7 @@ export class VocalCapture {
       };
       this.sourceNode.connect(sp);
       sp.connect(this.silentGain);
-      this.silentGain.connect(this.audioCtx.destination);
+      this.silentGain.connect(micAudioCtx.destination);
       this.processorNode = sp;
     }
   }
@@ -583,31 +669,45 @@ export class VocalCapture {
   }
 
   /**
-   * Dừng ghi, đóng micro và trả về AudioBuffer chuẩn để phát lại & phân tích MIDI
+   * Dừng ghi, đóng micro và trả về { pcmData, sampleRate, wavBlob }
    */
   finishCapture() {
     this.isCapturing = false;
-    let audioBuffer = null;
+    let result = null;
 
-    if (this.totalSamples > 0 && this.audioCtx) {
-      audioBuffer = this.audioCtx.createBuffer(1, this.totalSamples, this.sampleRate);
-      const dest = audioBuffer.getChannelData(0);
+    if (this.totalSamples > 0) {
+      const pcmData = new Float32Array(this.totalSamples);
       let offset = 0;
       for (const chunk of this.chunks) {
-        dest.set(chunk, offset);
+        pcmData.set(chunk, offset);
         offset += chunk.length;
       }
+      const sampleRate = this.sampleRate || 44100;
+      const wavBlob = encodePcmToWavBlob(pcmData, sampleRate);
+      result = { pcmData, sampleRate, wavBlob };
     }
 
     this.close();
-    return audioBuffer;
+    return result;
   }
 
   _startMeterLoop() {
     let lastPitchTime = 0;
     const loop = (now) => {
       if (!this.isMonitoring || !this.analyser) return;
-      this.analyser.getFloatTimeDomainData(this._liveBuf);
+
+      if (typeof this.analyser.getFloatTimeDomainData === 'function') {
+        this.analyser.getFloatTimeDomainData(this._liveBuf);
+      } else {
+        if (!this._byteBuf || this._byteBuf.length !== this._liveBuf.length) {
+          this._byteBuf = new Uint8Array(this._liveBuf.length);
+        }
+        this.analyser.getByteTimeDomainData(this._byteBuf);
+        for (let i = 0; i < this._byteBuf.length; i++) {
+          this._liveBuf[i] = (this._byteBuf[i] - 128) / 128;
+        }
+      }
+
       const rms = computeRms(this._liveBuf);
       // Quy đổi biên độ dễ nhìn trên đồng hồ (0..1)
       const level = Math.min(1, Math.pow(rms * 6.5, 0.72));
@@ -641,36 +741,22 @@ export class VocalCapture {
   }
 
   close() {
-    this.isMonitoring = false;
-    this.isCapturing = false;
-    if (this._meterRaf) {
-      cancelAnimationFrame(this._meterRaf);
-      this._meterRaf = null;
+    this._cleanupNodesAndStream();
+    if (this.audioCtx) {
+      try {
+        if (this.audioCtx.state !== 'closed') {
+          this.audioCtx.close().catch(() => {});
+        }
+      } catch (_) {}
+      this.audioCtx = null;
     }
-    try { if (this.processorNode) this.processorNode.disconnect(); } catch (_) {}
-    try { if (this.analyser) this.analyser.disconnect(); } catch (_) {}
-    try { if (this.sourceNode) this.sourceNode.disconnect(); } catch (_) {}
-    try { if (this.silentGain) this.silentGain.disconnect(); } catch (_) {}
-    if (this.stream) {
-      this.stream.getTracks().forEach((t) => t.stop());
-      this.stream = null;
-    }
-    if (this.ownsContext && this.audioCtx) {
-      try { this.audioCtx.close(); } catch (_) {}
-    }
-    this.processorNode = null;
-    this.analyser = null;
-    this.sourceNode = null;
-    this.silentGain = null;
-    this.chunks = [];
-    this.totalSamples = 0;
   }
 }
 
 /**
  * Vẽ sóng âm thu nhỏ (Waveform Preview) của đoạn giọng vừa ngân lên Canvas
  */
-export function drawVocalWaveform(canvas, audioBuffer) {
+export function drawVocalWaveform(canvas, vocalSource) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -695,12 +781,11 @@ export function drawVocalWaveform(canvas, audioBuffer) {
   ctx.lineTo(w, h / 2);
   ctx.stroke();
 
-  if (!audioBuffer || audioBuffer.length === 0) {
+  const { rawData: data } = extractPcmAndRate(vocalSource);
+  if (!data || data.length === 0) {
     ctx.restore();
     return;
   }
-
-  const data = audioBuffer.getChannelData(0);
   const step = Math.max(1, Math.floor(data.length / w));
   let maxPeak = 0.05;
   for (let i = 0; i < data.length; i += Math.max(1, Math.floor(step / 4))) {

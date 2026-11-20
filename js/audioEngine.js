@@ -343,6 +343,8 @@ class AudioEngine {
 
     this.vocalPlayer = null;
     this.hasRawVocal = false;
+    this._vocalObjectUrl = null;
+    this._pendingVocalSource = null;
 
     // Tone.Part & scheduled event IDs
     this.chordPart = null;
@@ -664,9 +666,9 @@ class AudioEngine {
   }
 
   /**
-   * Gắn bản thu giọng mộc (AudioBuffer) vào kênh Giọng thu nháp
+   * Gắn bản thu giọng mộc (Blob WAV từ PCM hoặc AudioBuffer) vào kênh Giọng thu nháp
    */
-  setRawVocalBuffer(audioBuffer) {
+  async setRawVocalBuffer(source) {
     if (this.vocalPlayer) {
       try {
         this.vocalPlayer.stop();
@@ -674,17 +676,37 @@ class AudioEngine {
       } catch (_) {}
       this.vocalPlayer = null;
     }
+    if (this._vocalObjectUrl) {
+      try { URL.revokeObjectURL(this._vocalObjectUrl); } catch (_) {}
+      this._vocalObjectUrl = null;
+    }
 
-    this.hasRawVocal = Boolean(audioBuffer);
-    if (!audioBuffer || !this.initialized) {
-      this._pendingVocalBuffer = audioBuffer || null;
+    const blobOrBuffer = source && source.wavBlob instanceof Blob ? source.wavBlob : source;
+    this.hasRawVocal = Boolean(blobOrBuffer);
+    if (!blobOrBuffer || !this.initialized) {
+      this._pendingVocalSource = blobOrBuffer || null;
       return;
     }
 
     const Tone = window.Tone;
-    const toneBuf = new Tone.ToneAudioBuffer(audioBuffer);
+    let toneBuf;
+    if (blobOrBuffer instanceof Blob) {
+      const url = URL.createObjectURL(blobOrBuffer);
+      this._vocalObjectUrl = url;
+      toneBuf = new Tone.ToneAudioBuffer();
+      try {
+        await toneBuf.load(url);
+      } catch (_) {
+        const arrBuf = await blobOrBuffer.arrayBuffer();
+        const decoded = await Tone.context.decodeAudioData(arrBuf);
+        toneBuf = new Tone.ToneAudioBuffer(decoded);
+      }
+    } else {
+      toneBuf = new Tone.ToneAudioBuffer(blobOrBuffer);
+    }
+
     this.vocalPlayer = new Tone.Player(toneBuf).connect(this.vocalHPF);
-    this._pendingVocalBuffer = null;
+    this._pendingVocalSource = null;
 
     if (this.initialized) {
       this.rebuildSchedule();
@@ -723,11 +745,11 @@ class AudioEngine {
     if (!this.initialized) return;
     const Tone = window.Tone;
 
-    // Nếu có vocal buffer chờ từ trước lúc init
-    if (this._pendingVocalBuffer && !this.vocalPlayer) {
-      const toneBuf = new Tone.ToneAudioBuffer(this._pendingVocalBuffer);
-      this.vocalPlayer = new Tone.Player(toneBuf).connect(this.vocalHPF);
-      this._pendingVocalBuffer = null;
+    // Nếu có vocal source chờ từ trước lúc init
+    if (this._pendingVocalSource && !this.vocalPlayer) {
+      const pending = this._pendingVocalSource;
+      this._pendingVocalSource = null;
+      this.setRawVocalBuffer(pending).catch(() => {});
     }
 
     this._clearParts();
