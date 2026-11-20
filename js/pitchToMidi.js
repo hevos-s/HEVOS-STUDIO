@@ -3,7 +3,7 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=11';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=12';
 
 const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
 const MAX_VOCAL_HZ = 1050;  // ~C6
@@ -643,9 +643,29 @@ export class VocalCapture {
 
     this._meterRaf = null;
     this._liveBuf = new Float32Array(2048);
-    this._byteBuf = null;
+    this._byteBuf = new Uint8Array(2048);
+    this._downBuf512 = new Float32Array(512);
+    this._downBuf1024 = new Float32Array(1024);
+    this._bpHpfBuf = new Float32Array(1024);
+    this._bpOutBuf512 = new Float32Array(512);
+    this._bpOutBuf1024 = new Float32Array(1024);
     this._onLiveStats = null;
     this._onPcmChunk = null;
+
+    this._onVisibility = () => {
+      if (typeof document === 'undefined') return;
+      if (document.hidden) {
+        if (this._meterRaf) {
+          cancelAnimationFrame(this._meterRaf);
+          this._meterRaf = null;
+        }
+      } else if (this.isMonitoring && this.analyser && this._meterRaf === null) {
+        this._startMeterLoop();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._onVisibility);
+    }
   }
 
   /**
@@ -953,17 +973,57 @@ export class VocalCapture {
     return result;
   }
 
+  _bandpassInPlaceReusable(input, sr, outBuf) {
+    const len = input.length;
+    const hpf = this._bpHpfBuf;
+    const dt = 1 / Math.max(8000, sr);
+    const rcHpf = 1 / (2 * Math.PI * 70);
+    const alphaHpf = rcHpf / (rcHpf + dt);
+    let prevX = input[0];
+    let prevY = 0;
+    hpf[0] = 0;
+    for (let i = 1; i < len; i++) {
+      const x = input[i];
+      prevY = alphaHpf * (prevY + x - prevX);
+      hpf[i] = prevY;
+      prevX = x;
+    }
+
+    const rcLpf = 1 / (2 * Math.PI * 950);
+    const alphaLpf = dt / (rcLpf + dt);
+    let lpfY = hpf[0];
+    outBuf[0] = lpfY;
+    for (let i = 1; i < len; i++) {
+      lpfY = lpfY + alphaLpf * (hpf[i] - lpfY);
+      outBuf[i] = lpfY;
+    }
+    return outBuf;
+  }
+
   _startMeterLoop() {
+    if (this._meterRaf) {
+      cancelAnimationFrame(this._meterRaf);
+      this._meterRaf = null;
+    }
+    let lastMeterTime = 0;
     let lastPitchTime = 0;
+    const METER_INTERVAL_MS = 40; // Tối đa 25fps cho VU Meter & theo dõi mic
+
     const loop = (now) => {
-      if (!this.isMonitoring || !this.analyser) return;
+      this._meterRaf = null;
+      if (!this.isMonitoring || !this.analyser || (typeof document !== 'undefined' && document.hidden)) {
+        return;
+      }
+
+      if (now - lastMeterTime < METER_INTERVAL_MS) {
+        this._meterRaf = requestAnimationFrame(loop);
+        return;
+      }
+      lastMeterTime = now;
 
       if (typeof this.analyser.getFloatTimeDomainData === 'function') {
         this.analyser.getFloatTimeDomainData(this._liveBuf);
       } else {
-        if (!this._byteBuf || this._byteBuf.length !== this._liveBuf.length) {
-          this._byteBuf = new Uint8Array(this._liveBuf.length);
-        }
         this.analyser.getByteTimeDomainData(this._byteBuf);
         for (let i = 0; i < this._byteBuf.length; i++) {
           this._liveBuf[i] = (this._byteBuf[i] - 128) / 128;
@@ -979,19 +1039,26 @@ export class VocalCapture {
         if (a > peak) peak = a;
       }
       const rms = Math.sqrt(sumSq / this._liveBuf.length);
-      // Quy đổi biên độ dễ nhìn trên đồng hồ VU (0..1)
       const level = Math.min(1, Math.pow(rms * 5.2, 0.68));
 
       let liveNote = null;
       let liveFreq = null;
 
-      // Chạy bắt cao độ trực tiếp mỗi ~50ms bằng YIN để tiết kiệm pin mobile mà vẫn mượt
-      if (now - lastPitchTime > 48) {
+      if (now - lastPitchTime > 52) {
         lastPitchTime = now;
         if (rms > 0.008) {
           const factor = this.sampleRate >= 40000 ? 4 : 2;
-          const down = bandpassVocalPcm(downsampleBuffer(this._liveBuf, factor), this.sampleRate / factor);
-          const det = detectPitchYIN(down, this.sampleRate / factor, 0.18);
+          const downBuf = factor === 4 ? this._downBuf512 : this._downBuf1024;
+          const bpOut = factor === 4 ? this._bpOutBuf512 : this._bpOutBuf1024;
+          const outLen = downBuf.length;
+          for (let i = 0; i < outLen; i++) {
+            let sum = 0;
+            const base = i * factor;
+            for (let k = 0; k < factor; k++) sum += this._liveBuf[base + k];
+            downBuf[i] = sum / factor;
+          }
+          this._bandpassInPlaceReusable(downBuf, this.sampleRate / factor, bpOut);
+          const det = detectPitchYIN(bpOut, this.sampleRate / factor, 0.18);
           if (det) {
             liveFreq = det.freq;
             const m = freqToMidi(det.freq);
@@ -1029,7 +1096,7 @@ export class VocalCapture {
 export function drawVocalWaveform(canvas, vocalSource) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   const rect = canvas.getBoundingClientRect();
   const w = Math.max(120, Math.floor(rect.width || canvas.clientWidth || 240));
   const h = Math.max(24, Math.floor(rect.height || canvas.clientHeight || 32));

@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=11';
+} from './theory.js?v=12';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=11';
-import { applyAutoTunePcm } from './autoTune.js?v=11';
+} from './pitchToMidi.js?v=12';
+import { applyAutoTunePcm } from './autoTune.js?v=12';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=11';
+} from './audioEngine.js?v=12';
 
 export const VOCAL_PRESETS = [
   {
@@ -374,6 +374,7 @@ export class VocalStudio {
     this.activeTrackId = 'lead';
 
     // Trạng thái Transport độc lập
+    this.isSectionActive = false;
     this.isPlaying = false;
     this.isExporting = false;
     this.recordPhase = 'idle'; // 'idle' | 'countin' | 'recording'
@@ -384,6 +385,9 @@ export class VocalStudio {
     this._playTargetDurSec = 0;
     this._recStartOffsetSec = 0;
     this._rafId = null;
+    this._lastTimelineDrawMs = 0;
+    this._lastVuUpdateMs = 0;
+    this._vuEls = null;
     this._countInTimers = [];
     this._countInCancelled = false;
     this._activeSources = [];
@@ -423,6 +427,7 @@ export class VocalStudio {
         rawPcm: null,
         tunedPcm: null,
         playablePcm: null,
+        wavePeaks: null,
         sampleRate: 44100,
         startTimeSec: 0,
         durationSec: 0,
@@ -445,6 +450,7 @@ export class VocalStudio {
         rawPcm: null,
         tunedPcm: null,
         playablePcm: null,
+        wavePeaks: null,
         sampleRate: 44100,
         startTimeSec: 0,
         durationSec: 0,
@@ -462,10 +468,53 @@ export class VocalStudio {
 
     if (this.root) {
       this._render();
+      this._cacheVuElements();
       this._bindEvents();
       this._syncAllUI();
       this.resizeAndRedraw();
     }
+
+    this._onVisibilityChange = () => {
+      if (typeof document === 'undefined') return;
+      if (document.hidden) {
+        if (this._rafId) {
+          cancelAnimationFrame(this._rafId);
+          this._rafId = null;
+        }
+      } else if (this.isSectionActive && this.isPlaying) {
+        this._startTimelineLoop();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._onVisibilityChange);
+    }
+  }
+
+  setSectionActive(active) {
+    this.isSectionActive = Boolean(active);
+    if (!this.isSectionActive) {
+      if (this._rafId) {
+        cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+      }
+    } else {
+      this.resizeAndRedraw();
+      if (this.isPlaying && (typeof document === 'undefined' || !document.hidden)) {
+        this._startTimelineLoop();
+      }
+    }
+  }
+
+  _cacheVuElements() {
+    if (!this.root) {
+      this._vuEls = null;
+      return;
+    }
+    this._vuEls = {
+      fill: this.root.querySelector('#vs-vu-fill'),
+      peak: this.root.querySelector('#vs-vu-peak'),
+      note: this.root.querySelector('#vs-live-note'),
+    };
   }
 
   _ensurePlayContext() {
@@ -539,10 +588,43 @@ export class VocalStudio {
     return !target.muted && (!anySolo || Boolean(target.solo));
   }
 
+  _rebuildWavePeaks(trackId) {
+    const tr = this.tracks[trackId];
+    if (!tr) return;
+    const pcm = tr.autoTune.enabled && tr.tunedPcm ? tr.tunedPcm : tr.rawPcm;
+    if (!pcm || pcm.length === 0) {
+      tr.wavePeaks = null;
+      return;
+    }
+    const numBins = 360;
+    const step = Math.max(1, Math.floor(pcm.length / numBins));
+    const peaks = new Float32Array(numBins);
+    let maxP = 0.08;
+    for (let b = 0; b < numBins; b++) {
+      const start = b * step;
+      const end = Math.min(pcm.length, start + step);
+      const stride = Math.max(1, Math.floor((end - start) / 16));
+      let p = 0;
+      for (let i = start; i < end; i += stride) {
+        const a = Math.abs(pcm[i]);
+        if (a > p) p = a;
+      }
+      peaks[b] = p;
+      if (p > maxP) maxP = p;
+    }
+    for (let b = 0; b < numBins; b++) {
+      peaks[b] = peaks[b] / maxP;
+    }
+    tr.wavePeaks = peaks;
+  }
+
   _rebuildPlayablePcm(trackId) {
     const tr = this.tracks[trackId];
     if (!tr || !tr.rawPcm) {
-      if (tr) tr.playablePcm = null;
+      if (tr) {
+        tr.playablePcm = null;
+        tr.wavePeaks = null;
+      }
       return;
     }
     let pcm = tr.autoTune.enabled && tr.tunedPcm ? tr.tunedPcm : tr.rawPcm;
@@ -554,6 +636,7 @@ export class VocalStudio {
     }
     tr.playablePcm = pcm;
     tr.durationSec = pcm.length / (tr.sampleRate || 44100);
+    this._rebuildWavePeaks(trackId);
   }
 
   _render() {
@@ -2009,6 +2092,7 @@ export class VocalStudio {
 
     this.isPlaying = true;
     this.currentTimeSec = startOffset;
+    if (this.cb.onPlaybackStateChange) this.cb.onPlaybackStateChange(true);
     this._updateTransportButtonsUI();
     this._startTimelineLoop();
   }
@@ -2046,6 +2130,7 @@ export class VocalStudio {
     }
     this._stopActiveSources();
     this.isPlaying = false;
+    if (this.cb.onPlaybackStateChange) this.cb.onPlaybackStateChange(false);
     this._updateTransportButtonsUI();
     this._updateTimelineClockUI();
     this._redrawAllWaveforms();
@@ -2069,15 +2154,30 @@ export class VocalStudio {
     }
     this._stopActiveSources();
     this.isPlaying = false;
+    if (this.cb.onPlaybackStateChange) this.cb.onPlaybackStateChange(false);
     this._updateTransportButtonsUI();
     this._updateTimelineClockUI();
     this._redrawAllWaveforms();
   }
 
   _startTimelineLoop() {
-    if (this._rafId) cancelAnimationFrame(this._rafId);
-    const tick = () => {
-      if (!this.isPlaying || !this.playCtx) return;
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    if (!this.isPlaying || !this.isSectionActive || (typeof document !== 'undefined' && document.hidden)) {
+      return;
+    }
+
+    const TIMELINE_INTERVAL_MS = 35; // ~28fps cho đồng hồ thời gian & vẽ playhead waveform
+    this._lastTimelineDrawMs = 0;
+
+    const tick = (now) => {
+      this._rafId = null;
+      if (!this.isPlaying || !this.playCtx || !this.isSectionActive || (typeof document !== 'undefined' && document.hidden)) {
+        return;
+      }
+
       const elapsed = Math.max(0, this.playCtx.currentTime - this._playStartCtxTime);
       this.currentTimeSec = this._playStartOffsetSec + elapsed;
 
@@ -2098,14 +2198,18 @@ export class VocalStudio {
         this.currentTimeSec = totalDur;
         this._stopActiveSources();
         this.isPlaying = false;
+        if (this.cb.onPlaybackStateChange) this.cb.onPlaybackStateChange(false);
         this._updateTransportButtonsUI();
         this._updateTimelineClockUI();
         this._redrawAllWaveforms();
         return;
       }
 
-      this._updateTimelineClockUI();
-      this._redrawAllWaveforms();
+      if (now - this._lastTimelineDrawMs >= TIMELINE_INTERVAL_MS) {
+        this._lastTimelineDrawMs = now;
+        this._updateTimelineClockUI();
+        this._redrawAllWaveforms();
+      }
       this._rafId = requestAnimationFrame(tick);
     };
     this._rafId = requestAnimationFrame(tick);
@@ -2437,6 +2541,7 @@ export class VocalStudio {
     tr.rawPcm = null;
     tr.tunedPcm = null;
     tr.playablePcm = null;
+    tr.wavePeaks = null;
     tr.durationSec = 0;
     tr.startTimeSec = 0;
     tr.isProcessingAt = false;
@@ -2683,24 +2788,27 @@ export class VocalStudio {
   // ============================================================================
   _updateLiveVu({ level, noteName }) {
     if (!this.root) return;
-    const fill = this.root.querySelector('#vs-vu-fill');
-    const peakEl = this.root.querySelector('#vs-vu-peak');
-    const noteEl = this.root.querySelector('#vs-live-note');
-    const pct = Math.min(100, Math.round((level || 0) * 100));
-    if (fill) fill.style.width = `${pct}%`;
-    if (peakEl) peakEl.style.left = `${pct}%`;
+    if (!this._vuEls) this._cacheVuElements();
+    const { fill, peak: peakEl, note: noteEl } = this._vuEls || {};
     if (noteName !== undefined && noteEl) {
       noteEl.innerHTML = `Nốt: <strong>${noteName || '—'}</strong>`;
     }
+    const now = performance.now();
+    if (now - this._lastVuUpdateMs < 40) return; // Tối đa 25fps cho VU Meter
+    this._lastVuUpdateMs = now;
+
+    const norm = Math.max(0, Math.min(1, level || 0));
+    const pct = Math.min(100, Math.round(norm * 100));
+    if (fill) fill.style.transform = `scaleX(${norm.toFixed(3)})`;
+    if (peakEl) peakEl.style.transform = `translateX(${pct}%)`;
   }
 
   _resetLiveVu() {
     if (!this.root) return;
-    const fill = this.root.querySelector('#vs-vu-fill');
-    const peakEl = this.root.querySelector('#vs-vu-peak');
-    const noteEl = this.root.querySelector('#vs-live-note');
-    if (fill) fill.style.width = '0%';
-    if (peakEl) peakEl.style.left = '0%';
+    if (!this._vuEls) this._cacheVuElements();
+    const { fill, peak: peakEl, note: noteEl } = this._vuEls || {};
+    if (fill) fill.style.transform = 'scaleX(0)';
+    if (peakEl) peakEl.style.transform = 'translateX(0%)';
     if (noteEl) noteEl.innerHTML = 'Nốt: <strong>—</strong>';
   }
 
@@ -2991,7 +3099,7 @@ export class VocalStudio {
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 16) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -3048,7 +3156,7 @@ export class VocalStudio {
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 16) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -3100,36 +3208,33 @@ export class VocalStudio {
     } else {
       const pcm = tr.autoTune.enabled && tr.tunedPcm ? tr.tunedPcm : tr.rawPcm;
       if (pcm && pcm.length > 0 && totalTimeline > 0) {
-        const sr = tr.sampleRate || 44100;
-        const clipStartSec = Math.max(0, (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000);
-        const clipDurSec = pcm.length / sr;
-        const startX = Math.max(0, Math.min(w - 2, (clipStartSec / totalTimeline) * w));
-        const clipW = Math.max(4, Math.min(w - startX, (clipDurSec / totalTimeline) * w));
+        if (!tr.wavePeaks) this._rebuildWavePeaks(trackId);
+        const peaks = tr.wavePeaks;
+        if (peaks && peaks.length > 0) {
+          const sr = tr.sampleRate || 44100;
+          const clipStartSec = Math.max(0, (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000);
+          const clipDurSec = pcm.length / sr;
+          const startX = Math.max(0, Math.min(w - 2, (clipStartSec / totalTimeline) * w));
+          const fullClipW = Math.max(4, (clipDurSec / totalTimeline) * w);
+          const clipW = Math.min(w - startX, fullClipW);
 
-        let maxPeak = 0.08;
-        const sampleStride = Math.max(1, Math.floor(pcm.length / 300));
-        for (let i = 0; i < pcm.length; i += sampleStride) {
-          const a = Math.abs(pcm[i]);
-          if (a > maxPeak) maxPeak = a;
-        }
+          ctx.fillStyle = tr.muted
+            ? 'rgba(113, 113, 122, 0.35)'
+            : tr.autoTune.enabled && trackId === 'lead'
+              ? '#FFFFFF'
+              : tr.waveColor;
 
-        ctx.fillStyle = tr.muted
-          ? 'rgba(113, 113, 122, 0.35)'
-          : tr.autoTune.enabled && trackId === 'lead'
-            ? '#FFFFFF'
-            : tr.waveColor;
-
-        for (let dx = 0; dx < clipW; dx += 2.5) {
-          const s0 = Math.floor((dx / clipW) * pcm.length);
-          const s1 = Math.min(pcm.length, s0 + Math.max(1, Math.floor(pcm.length / (clipW / 2.5))));
-          const innerStep = Math.max(1, Math.floor((s1 - s0) / 12));
-          let peak = 0;
-          for (let j = s0; j < s1; j += innerStep) {
-            const a = Math.abs(pcm[j]);
-            if (a > peak) peak = a;
+          const numBins = peaks.length;
+          for (let dx = 0; dx < clipW; dx += 2.5) {
+            const b0 = Math.min(numBins - 1, Math.floor((dx / fullClipW) * numBins));
+            const b1 = Math.min(numBins - 1, Math.floor(((dx + 2.5) / fullClipW) * numBins));
+            let peak = 0;
+            for (let b = b0; b <= b1; b++) {
+              if (peaks[b] > peak) peak = peaks[b];
+            }
+            const barH = Math.max(2, peak * (h - 8));
+            ctx.fillRect(startX + dx, (h - barH) / 2, 1.6, barH);
           }
-          const barH = Math.max(2, (peak / maxPeak) * (h - 8));
-          ctx.fillRect(startX + dx, (h - barH) / 2, 1.6, barH);
         }
       }
     }

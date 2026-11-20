@@ -10,8 +10,8 @@
 //   Raised-Cosine Crossfade 15ms bảo toàn phụ âm gió & Soft Limiter trần 0.92
 // ============================================================================
 
-import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=11';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=11';
+import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=12';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=12';
 
 const yieldUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=11`, `./js/app.js?v=11`, `./theory.js?v=11`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=12`, `./js/app.js?v=12`, `./theory.js?v=12`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=11`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=12`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 4 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -37,10 +37,10 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | Tệp tin | Vai trò |
 | :--- | :--- |
 | `index.html` | Khung HTML5 chính, canvas 3D `#bg-3d-canvas`, thanh điều hướng 4 phân khu, Editorial Hub & 3 không gian làm việc |
-| `style.css` | Hệ thống giao diện 3D kính mờ tối (Desktop & Tablet) + đại phẫu Mobile (`@media (max-width: 768px)`) với thanh đáy cố định |
+| `style.css` | Hệ thống giao diện tối tương phản cao (`rgba(13, 14, 22, 0.88)`), chỉ giữ `backdrop-filter: blur(12px)` ở Navbar/Mobile Bottom Bar, thanh VU dùng GPU `transform: scaleX()` + đại phẫu Mobile (`@media (max-width: 768px)`) |
 | `PROJECT_NOTES.md` | Sổ tay kiến trúc & thông số kỹ thuật dự án |
-| `js/ambientScene.js` | Không gian âm thanh 3D Three.js (Harmonic Soundwave Orb, 3 vòng quỹ đạo tần số, bụi sáng bokeh, cảm ứng `Tone.Analyser` + Vocal Studio, parallax chuột/cuộn, tối ưu 60fps & `pixelRatio <= 1.5`) |
-| `js/app.js` | Điều phối trung tâm, trạng thái ứng dụng, đồng bộ Desktop/Mobile, điều hướng 4 phân khu, nối Audio -> 3D Scene & IntersectionObserver |
+| `js/ambientScene.js` | Không gian âm thanh 3D Three.js (Harmonic Soundwave Orb `24x24`, 3 vòng quỹ đạo tần số, tối đa 96/64 hạt bụi sáng, cảm ứng `Tone.Analyser` + Vocal Studio, khóa trần 32fps ở Tổng quan / 12fps & tự nghỉ ở phòng làm việc, buffer Desktop <= 1280px `dpr=1`) |
+| `js/app.js` | Điều phối trung tâm, trạng thái ứng dụng, đồng bộ Desktop/Mobile, điều hướng 4 phân khu, ngắt vòng lặp ở tab ẩn & `visibilitychange`, nối Audio -> 3D Scene |
 | `js/audioEngine.js` | Bộ máy âm thanh `Tone.js` (4 tiếng đàn, 4 kiểu đệm, trống GM, giai điệu MIDI, đếm nhịp, mixer & xuất loop audio) |
 | `js/autoTune.js` | Bộ xử lý Auto-Tune khóa tông thế hệ mới: Zero-Phase Butterworth Bandpass -> Exact FFT-YIN (`2048/256`) + Parabolic Interpolation -> Lọc trung vị 5 khung -> Khóa pha & nội suy sub-sample TD-PSOLA + Raised-Cosine Crossfade `15ms` + Soft Limiter `0.92` |
 | `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 (`.mid`, PPQ = 480, tối đa 4 track) |

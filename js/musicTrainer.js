@@ -3,7 +3,7 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { midiToFreq } from './theory.js?v=11';
+import { midiToFreq } from './theory.js?v=12';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -20,12 +20,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=11';
+} from './trainerData.js?v=12';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=11';
+} from './staffRenderer.js?v=12';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -77,6 +77,25 @@ export class MusicTrainer {
     this._nextNoteTimer = null;
     this._refNotes = [];
     this._activeRefNoteKey = null;
+
+    this._onVisibilityChange = () => {
+      if (document.hidden) {
+        if (this._rafId !== null) {
+          cancelAnimationFrame(this._rafId);
+          this._rafId = null;
+        }
+        if (this._timerInterval !== null) {
+          clearInterval(this._timerInterval);
+          this._timerInterval = null;
+        }
+      } else if (this.isSectionActive && this.session && this.session.active) {
+        this._startCountdownTimer();
+        if (this.view === 'drill-scroll') {
+          this._resumeScrollLoop();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
 
     this._bindKeyboardShortcuts();
     this.render();
@@ -866,10 +885,37 @@ export class MusicTrainer {
     this._spawnScrollNote(s.scrollingView.targetX + s.pixelsPerBeat * 1.45);
     this._spawnScrollNote(s.scrollingView.targetX + s.pixelsPerBeat * 2.45);
 
+    this._resumeScrollLoop();
+  }
+
+  _resumeScrollLoop() {
+    const s = this.session;
+    if (
+      !s ||
+      !s.active ||
+      !s.scrollingView ||
+      this.view !== 'drill-scroll' ||
+      !this.isSectionActive ||
+      document.hidden
+    ) {
+      return;
+    }
+
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+
     s.lastFrameTs = performance.now();
 
     const step = (now) => {
-      if (!this.session || !this.session.active || this.view !== 'drill-scroll') {
+      if (
+        !this.session ||
+        !this.session.active ||
+        this.view !== 'drill-scroll' ||
+        !this.isSectionActive ||
+        document.hidden
+      ) {
         this._rafId = null;
         return;
       }

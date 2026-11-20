@@ -12,25 +12,25 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=11';
+} from './theory.js?v=12';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=11';
+} from './audioEngine.js?v=12';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=11';
-import { PianoRoll } from './pianoRoll.js?v=11';
-import { downloadMidiFile } from './midiExport.js?v=11';
-import { MusicTrainer } from './musicTrainer.js?v=11';
-import { VocalStudio } from './vocalStudio.js?v=11';
-import { createAmbientScene } from './ambientScene.js?v=11';
+} from './pitchToMidi.js?v=12';
+import { PianoRoll } from './pianoRoll.js?v=12';
+import { downloadMidiFile } from './midiExport.js?v=12';
+import { MusicTrainer } from './musicTrainer.js?v=12';
+import { VocalStudio } from './vocalStudio.js?v=12';
+import { createAmbientScene } from './ambientScene.js?v=12';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -93,7 +93,10 @@ let vocalStudio = null;
 let ambientScene = null;
 let recStopTimer = null;
 let uiRafId = null;
+let lastPlayheadDrawMs = 0;
+let channelMeters = null;
 let lastHighlightedBar = -1;
+const PLAYHEAD_WATCH_INTERVAL = 1000 / 28;
 
 // ============================================================================
 // DOM References
@@ -438,47 +441,75 @@ function updateRecordButtonUI() {
 // ============================================================================
 // Vòng lặp đồng bộ thanh chạy & tô sáng ô nhịp hợp âm đang phát (60fps)
 // ============================================================================
+function resetChannelMeters() {
+  if (channelMeters) {
+    for (const m of Object.values(channelMeters)) {
+      m.style.transform = 'scaleX(0)';
+    }
+  } else {
+    $$('[data-meter]').forEach((m) => {
+      m.style.transform = 'scaleX(0)';
+    });
+  }
+}
+
+function stopPlayheadWatch() {
+  if (uiRafId !== null) {
+    cancelAnimationFrame(uiRafId);
+    uiRafId = null;
+  }
+  if (lastHighlightedBar !== -1) {
+    $$('.chord-card.active-bar', el.chordStrip).forEach((c) =>
+      c.classList.remove('active-bar')
+    );
+    lastHighlightedBar = -1;
+  }
+  if (el.lcdPos) el.lcdPos.textContent = '1.1.1';
+  resetChannelMeters();
+}
+
 function startPlayheadWatch() {
   if (uiRafId !== null) return;
-  const step = () => {
-    if (!audioEngine.isPlaying) {
+  if (!audioEngine.isPlaying || state.activeSection !== 'studio' || document.hidden) return;
+  lastPlayheadDrawMs = 0;
+
+  const step = (now) => {
+    if (!audioEngine.isPlaying || state.activeSection !== 'studio' || document.hidden) {
       uiRafId = null;
-      if (lastHighlightedBar !== -1) {
-        $$('.chord-card.active-bar', el.chordStrip).forEach((c) =>
-          c.classList.remove('active-bar')
-        );
-        lastHighlightedBar = -1;
+      if (!audioEngine.isPlaying) {
+        stopPlayheadWatch();
       }
-      if (el.lcdPos) el.lcdPos.textContent = '1.1.1';
-      $$('[data-meter]').forEach((m) => {
-        m.style.width = '0%';
-      });
       return;
     }
 
-    const beat = audioEngine.getCurrentBeat();
-    const curBar = Math.floor(beat / 4) % state.totalBars;
-    if (curBar !== lastHighlightedBar) {
-      lastHighlightedBar = curBar;
-      $$('.chord-card', el.chordStrip).forEach((card, idx) => {
-        card.classList.toggle('active-bar', idx === curBar);
-      });
-    }
+    if (now - lastPlayheadDrawMs >= PLAYHEAD_WATCH_INTERVAL) {
+      lastPlayheadDrawMs = now;
+      const beat = audioEngine.getCurrentBeat();
+      const curBar = Math.floor(beat / 4) % state.totalBars;
+      if (curBar !== lastHighlightedBar) {
+        lastHighlightedBar = curBar;
+        $$('.chord-card', el.chordStrip).forEach((card, idx) => {
+          card.classList.toggle('active-bar', idx === curBar);
+        });
+        if (state.recordPhase === 'recording' && el.vocalStatusBadge) {
+          el.vocalStatusBadge.textContent = `Đang thu · Ô ${curBar + 1}/${state.totalBars}`;
+        }
+      }
 
-    if (el.lcdPos) {
-      const beatInBar = Math.floor(beat % 4) + 1;
-      const step16 = Math.floor((beat % 1) * 4) + 1;
-      el.lcdPos.textContent = `${curBar + 1}.${beatInBar}.${step16}`;
-    }
+      if (el.lcdPos) {
+        const beatInBar = Math.floor(beat % 4) + 1;
+        const step16 = Math.floor((beat % 1) * 4) + 1;
+        el.lcdPos.textContent = `${curBar + 1}.${beatInBar}.${step16}`;
+      }
 
-    const levels = audioEngine.getChannelLevels();
-    for (const [ch, lvl] of Object.entries(levels)) {
-      const barEl = $(`[data-meter="${ch}"]`);
-      if (barEl) barEl.style.width = `${Math.round(lvl * 100)}%`;
-    }
-
-    if (state.recordPhase === 'recording') {
-      el.vocalStatusBadge.textContent = `Đang thu · Ô ${curBar + 1}/${state.totalBars}`;
+      const levels = audioEngine.getChannelLevels();
+      for (const [ch, lvl] of Object.entries(levels)) {
+        const barEl = channelMeters ? channelMeters[ch] : $(`[data-meter="${ch}"]`);
+        if (barEl) {
+          const s = Math.max(0, Math.min(1, lvl));
+          barEl.style.transform = `scaleX(${s.toFixed(3)})`;
+        }
+      }
     }
 
     uiRafId = requestAnimationFrame(step);
@@ -623,6 +654,7 @@ async function updateEditingBarChord(partial) {
   // Nghe thử hợp âm vừa chọn ngay lập tức
   if (state.voicedChords[idx]) {
     try {
+      if (ambientScene) ambientScene.wake(1800);
       await audioEngine.auditionChord(state.voicedChords[idx]);
     } catch (_) {}
   }
@@ -658,7 +690,7 @@ async function toggleVocalRecording() {
     echoCancellation: state.echoCancellation,
     micGain: state.micGain,
     onLiveStats: ({ level, noteName }) => {
-      el.micMeterFill.style.width = `${Math.round(level * 100)}%`;
+      el.micMeterFill.style.transform = `scaleX(${Math.max(0, Math.min(1, level)).toFixed(3)})`;
       if (noteName !== undefined) {
         el.livePitchReadout.innerHTML = `Nốt: <strong>${noteName || '—'}</strong>`;
       }
@@ -722,6 +754,7 @@ async function toggleVocalRecording() {
   el.vocalStatusBadge.textContent = `Đang thu · Ô 1/${state.totalBars}`;
 
   await audioEngine.play(true, { muteVocal: true });
+  if (ambientScene) ambientScene.wake(8000);
   vocalCapture.beginCapture();
   updatePlayButtonUI();
   pianoRoll.startAnimationLoop();
@@ -786,7 +819,7 @@ async function finishVocalRecording() {
 }
 
 function resetLiveMeter() {
-  el.micMeterFill.style.width = '0%';
+  el.micMeterFill.style.transform = 'scaleX(0)';
   el.livePitchReadout.innerHTML = 'Nốt: <strong>—</strong>';
   if (!state.rawVocalBuffer) {
     el.vocalStatusBadge.classList.remove('active', 'ready-take');
@@ -1092,6 +1125,7 @@ function setAppSection(section) {
     musicTrainer.stopActiveSession();
   }
   audioEngine.stopTrainerAudio();
+  stopPlayheadWatch();
 
   state.activeSection = target;
   el.app.dataset.section = target;
@@ -1123,6 +1157,12 @@ function setAppSection(section) {
   if (el.trainerRoot) {
     el.trainerRoot.classList.toggle('hidden', target !== 'trainer');
   }
+  if (pianoRoll) {
+    pianoRoll.setActive(target === 'studio');
+  }
+  if (vocalStudio) {
+    vocalStudio.setSectionActive(target === 'vocal');
+  }
   if (musicTrainer) {
     musicTrainer.setSectionActive(target === 'trainer');
   }
@@ -1134,8 +1174,6 @@ function setAppSection(section) {
         drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
       }
     });
-  } else if (target === 'vocal' && vocalStudio) {
-    vocalStudio.resizeAndRedraw();
   }
 
   if (ambientScene) {
@@ -1223,10 +1261,13 @@ function bindEvents() {
       if (audioEngine.isPlaying) {
         audioEngine.stop();
         updatePlayButtonUI();
+        stopPlayheadWatch();
+        if (pianoRoll) pianoRoll.stopAnimationLoop();
       } else {
         await audioEngine.play(false);
         if (ambientScene) {
           ambientScene.connectTone(audioEngine.getMasterOutputNode());
+          ambientScene.wake(8000);
         }
         updatePlayButtonUI();
         pianoRoll.startAnimationLoop();
@@ -1368,6 +1409,7 @@ function bindEvents() {
     const idx = state.editingBarIndex;
     if (idx !== null && state.voicedChords[idx]) {
       try {
+        if (ambientScene) ambientScene.wake(1800);
         await audioEngine.auditionChord(state.voicedChords[idx]);
       } catch (_) {}
     }
@@ -1587,6 +1629,17 @@ function bindEvents() {
       performRedo();
     }
   });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (uiRafId !== null) {
+        cancelAnimationFrame(uiRafId);
+        uiRafId = null;
+      }
+    } else if (audioEngine.isPlaying && state.activeSection === 'studio') {
+      startPlayheadWatch();
+    }
+  });
 }
 
 function setupHubScrollReveal() {
@@ -1650,6 +1703,7 @@ function init() {
       state.selectedNoteId = noteId;
     },
     onAudition: (midi) => {
+      if (ambientScene) ambientScene.wake(1800);
       audioEngine.auditionMelodyNote(midi).catch(() => {});
     },
   });
@@ -1690,9 +1744,23 @@ function init() {
       onTakesChanged: () => {
         syncMixerUI();
       },
+      onPlaybackStateChange: (playing) => {
+        if (playing && ambientScene) {
+          ambientScene.wake(8000);
+        }
+      },
       showToast,
     });
   }
+
+  channelMeters = {};
+  $$('[data-meter]').forEach((m) => {
+    if (m.dataset.meter) channelMeters[m.dataset.meter] = m;
+  });
+
+  if (pianoRoll) pianoRoll.setActive(state.activeSection === 'studio');
+  if (vocalStudio) vocalStudio.setSectionActive(state.activeSection === 'vocal');
+  if (musicTrainer) musicTrainer.setSectionActive(state.activeSection === 'trainer');
 
   syncGlobalControlsUI();
   renderChordStrip();

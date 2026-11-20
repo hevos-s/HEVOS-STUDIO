@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=11';
+} from './theory.js?v=12';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6
@@ -38,12 +38,13 @@ export class PianoRoll {
     // Trạng thái hiển thị & cuộn
     this.width = 600;
     this.height = 340;
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     this.scrollX = 0;
     this.scrollY = 0;
     this._initializedScroll = false;
 
-    // Playhead 60fps
+    // Playhead & quản lý vòng lặp theo hiển thị phân khu / tab
+    this.isActive = false;
     this.getPlayheadBeat = callbacks.getPlayheadBeat || (() => 0);
     this.getIsPlaying = callbacks.getIsPlaying || (() => false);
     this._rafId = null;
@@ -58,6 +59,14 @@ export class PianoRoll {
 
     this._bindEvents();
     this._setupResizeObserver();
+    this._onVisibilityChange = () => {
+      if (document.hidden) {
+        this.stopAnimationLoop();
+      } else if (this.isActive && this.getIsPlaying()) {
+        this.startAnimationLoop();
+      }
+    };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
     this.requestDraw();
   }
 
@@ -198,11 +207,28 @@ export class PianoRoll {
     return null;
   }
 
-  // --- Quản lý vòng lặp vẽ 60fps ---
+  // --- Quản lý vòng lặp vẽ theo trạng thái hoạt động ---
+  setActive(active) {
+    this.isActive = Boolean(active);
+    if (!this.isActive) {
+      this.stopAnimationLoop();
+    } else {
+      this.requestDraw();
+    }
+  }
+
+  stopAnimationLoop() {
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
   startAnimationLoop() {
-    if (this._rafId !== null) return;
+    if (!this.isActive || document.hidden || this._rafId !== null) return;
     const tick = () => {
       this._rafId = null;
+      if (!this.isActive || document.hidden) return;
       this.draw();
       if (this.getIsPlaying() || this.dragState || this.activePianoKey !== null) {
         this._rafId = requestAnimationFrame(tick);
@@ -213,6 +239,7 @@ export class PianoRoll {
 
   requestDraw() {
     this._dirty = true;
+    if (!this.isActive || document.hidden) return;
     if (this._rafId === null) {
       this.startAnimationLoop();
     }
@@ -224,7 +251,7 @@ export class PianoRoll {
       if (rect.width < 10 || rect.height < 10) return;
       this.width = Math.floor(rect.width);
       this.height = Math.floor(rect.height);
-      this.dpr = window.devicePixelRatio || 1;
+      this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
 
       this.canvas.width = Math.floor(this.width * this.dpr);
       this.canvas.height = Math.floor(this.height * this.dpr);
