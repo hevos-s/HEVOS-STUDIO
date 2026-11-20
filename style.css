@@ -714,6 +714,16 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-clear-midi {
+  height: 28px;
+  padding: 0 9px;
+  gap: 5px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .icon-btn {
@@ -1674,6 +1684,12 @@ button {
   .icon-btn {
     width: 40px;
     height: 40px;
+  }
+
+  .btn-clear-midi {
+    min-height: 40px;
+    padding: 0 11px;
+    font-size: 12px;
   }
 
   .headphone-banner {

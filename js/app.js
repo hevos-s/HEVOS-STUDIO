@@ -12,21 +12,21 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=4';
+} from './theory.js?v=5';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=4';
+} from './audioEngine.js?v=5';
 import {
   VocalCapture,
   drawVocalWaveform,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=4';
-import { PianoRoll } from './pianoRoll.js?v=4';
-import { downloadMidiFile } from './midiExport.js?v=4';
+} from './pitchToMidi.js?v=5';
+import { PianoRoll } from './pianoRoll.js?v=5';
+import { downloadMidiFile } from './midiExport.js?v=5';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -119,6 +119,7 @@ const el = {
   btnZoomOut: $('#btn-zoom-out'),
   btnZoomIn: $('#btn-zoom-in'),
   btnClearMelody: $('#btn-clear-melody'),
+  btnClearMelodyLabel: $('#btn-clear-melody-label'),
 
   headphoneBanner: $('#headphone-banner'),
   btnDismissHeadphone: $('#btn-dismiss-headphone'),
@@ -189,7 +190,16 @@ function syncAudioEngine() {
   });
 }
 
+function updateClearMelodyButton() {
+  const count = state.melodyNotes.length;
+  el.btnClearMelody.disabled = count === 0;
+  if (el.btnClearMelodyLabel) {
+    el.btnClearMelodyLabel.textContent = count > 0 ? `Xóa hết MIDI (${count})` : 'Xóa hết MIDI';
+  }
+}
+
 function syncPianoRoll() {
+  updateClearMelodyButton();
   if (!pianoRoll) return;
   pianoRoll.setData({
     notes: state.melodyNotes,
@@ -1197,13 +1207,14 @@ function bindEvents() {
   el.btnZoomIn.addEventListener('click', () => pianoRoll.setZoom(pianoRoll.zoom + 0.22));
 
   el.btnClearMelody.addEventListener('click', () => {
-    if (state.melodyNotes.length === 0) return;
+    const count = state.melodyNotes.length;
+    if (count === 0) return;
     pushUndoSnapshot();
     state.melodyNotes = [];
     state.selectedNoteId = null;
     syncPianoRoll();
     syncAudioEngine();
-    showToast('Đã xóa toàn bộ giai điệu (có thể bấm Hoàn tác để khôi phục).');
+    showToast(`Đã xóa toàn bộ ${count} nốt MIDI (bấm Hoàn tác để khôi phục).`);
   });
 
   // Vocal HUD controls
@@ -1373,6 +1384,7 @@ function init() {
     onHistoryPush: () => pushUndoSnapshot(),
     onChange: (nextNotes) => {
       state.melodyNotes = nextNotes;
+      updateClearMelodyButton();
       syncAudioEngine();
     },
     onSelect: (noteId) => {
