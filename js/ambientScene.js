@@ -138,7 +138,8 @@ export class AmbientAudioScene {
     const h = Math.max(1, window.innerHeight);
     this.isMobile = w < 768;
 
-    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    const maxPr = w > 1024 ? 1.5 : 2;
+    const pr = Math.min(window.devicePixelRatio || 1, maxPr);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
 
@@ -419,11 +420,17 @@ export class AmbientAudioScene {
   connectTone(masterNode = null) {
     if (!this.supported || typeof window.Tone === 'undefined') return false;
     const Tone = window.Tone;
-    if (!Tone.context || Tone.context.state !== 'running') return false;
+    const ctx = typeof Tone.getContext === 'function' ? Tone.getContext() : Tone.context;
+    if (!ctx || ctx.state !== 'running') return false;
 
     const targetNode =
       typeof Tone.getDestination === 'function' ? Tone.getDestination() : masterNode;
     if (!targetNode || typeof targetNode.connect !== 'function') return false;
+
+    if (this.analyser && this.analyser.context !== ctx) {
+      this.analyser = null;
+      this.connectedToneNode = null;
+    }
 
     if (this.analyser && this.connectedToneNode === targetNode) {
       return true;
@@ -472,7 +479,9 @@ export class AmbientAudioScene {
     let rawHigh = 0;
     let hasToneSignal = false;
 
-    if (this.analyser && window.Tone?.context?.state === 'running') {
+    const tone = typeof window !== 'undefined' ? window.Tone : null;
+    const toneCtx = tone ? (typeof tone.getContext === 'function' ? tone.getContext() : tone.context) : null;
+    if (this.analyser && toneCtx && toneCtx.state === 'running') {
       try {
         const vals = this.analyser.getValue();
         if (vals && vals.length >= 32) {
@@ -595,7 +604,9 @@ export class AmbientAudioScene {
   _stepFrame(dt) {
     this._elapsed += dt;
 
-    if (!this.analyser && window.Tone?.context?.state === 'running') {
+    const tone = typeof window !== 'undefined' ? window.Tone : null;
+    const toneCtx = tone ? (typeof tone.getContext === 'function' ? tone.getContext() : tone.context) : null;
+    if (!this.analyser && toneCtx && toneCtx.state === 'running') {
       this.connectTone(this.connectedToneNode);
     }
 

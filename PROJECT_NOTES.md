@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=15`, `./js/app.js?v=15`, `./theory.js?v=15`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=16`, `./js/app.js?v=16`, `./theory.js?v=16`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=15`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=16`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -60,3 +60,4 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 - **iOS Safari Microphone**: Phải gọi `navigator.mediaDevices.getUserMedia(...)` trực tiếp trong chuỗi đồng bộ của sự kiện chạm (`pointerdown`/`click`), không `await` bất kỳ thứ gì trước đó, và tạo Native `AudioContext` sau khi nhận stream.
 - **Tách biệt Audio Context**: `VocalStudio` dùng `this.playCtx` (Native `AudioContext` độc lập) với `this._visualBus` + `this._visualAnalyser` để không đụng độ `Tone.Transport` của `Sáng tác Beat`.
 - **CSS Fixed Bottom Bar trên Mobile**: Tuyệt đối không đặt `backdrop-filter` hoặc `transform` trực tiếp lên `.global-app-bar` vì sẽ biến nó thành containing block giữ chặt `#section-switcher.global-nav` (`position: fixed; bottom: 0`). Thay vào đó đặt `backdrop-filter` lên pseudo-element `.global-app-bar::before`.
+- **Tối ưu Âm thanh PC Desktop (`window.innerWidth > 768`) vs Mobile**: Trên Desktop cấu hình riêng `Tone.setContext(new Tone.Context({ latencyHint: 'playback', lookAhead: 0.25 }))`, giới hạn `dpr <= 1.5` trên `> 1024px`, dựng lười (`lazy`) các Vocal FX chains, và hỗ trợ động mọi sample rate `44.1 / 48 / 96 kHz` kèm đồng pha Stereo L/R trong `autoTune.js` (`Mobile <= 768px` giữ nguyên cấu hình nhẹ ban đầu).

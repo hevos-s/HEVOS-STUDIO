@@ -1,9 +1,9 @@
-// ============================================================================
+﻿// ============================================================================
 // pitchToMidi.js — Thu âm Micro đa nền tảng (Desktop/iOS/Android), đo cao độ
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=15';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=16';
 
 const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
 const MAX_VOCAL_HZ = 1050;  // ~C6
@@ -883,7 +883,18 @@ export class VocalCapture {
             process(inputs) {
               const input = inputs[0];
               if (input && input[0] && input[0].length > 0) {
-                this.port.postMessage(new Float32Array(input[0]));
+                const len = input[0].length;
+                if (input.length >= 2 && input[1] && input[1].length === len) {
+                  const mono = new Float32Array(len);
+                  const ch0 = input[0];
+                  const ch1 = input[1];
+                  for (let i = 0; i < len; i++) {
+                    mono[i] = (ch0[i] + ch1[i]) * 0.5;
+                  }
+                  this.port.postMessage(mono);
+                } else {
+                  this.port.postMessage(new Float32Array(input[0]));
+                }
               }
               return true;
             }

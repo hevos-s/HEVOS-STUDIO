@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // app.js — Điều phối trung tâm HEVOS STUDIO
 // Quản lý trạng thái, đồng bộ Desktop & Mobile, Thu Mic -> MIDI, Lưu & Xuất
 // ============================================================================
@@ -12,26 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=15';
+} from './theory.js?v=16';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=15';
+} from './audioEngine.js?v=16';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=15';
-import { PianoRoll } from './pianoRoll.js?v=15';
-import { downloadMidiFile } from './midiExport.js?v=15';
-import { MusicTrainer } from './musicTrainer.js?v=15';
-import { VocalStudio } from './vocalStudio.js?v=15';
-import { ArrangementStudio } from './arrangementStudio.js?v=15';
-import { createAmbientScene } from './ambientScene.js?v=15';
+} from './pitchToMidi.js?v=16';
+import { PianoRoll } from './pianoRoll.js?v=16';
+import { downloadMidiFile } from './midiExport.js?v=16';
+import { MusicTrainer } from './musicTrainer.js?v=16';
+import { VocalStudio } from './vocalStudio.js?v=16';
+import { ArrangementStudio } from './arrangementStudio.js?v=16';
+import { createAmbientScene } from './ambientScene.js?v=16';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 

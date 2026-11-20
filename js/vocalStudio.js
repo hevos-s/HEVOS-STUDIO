@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // vocalStudio.js — Phòng Thu Vocal Độc Lập Hoàn Toàn (Standalone Vocal Booth)
 // - Tách biệt 100% khỏi Tone.Transport của mục Sáng tác Beat
 // - Track 0: Nhập Beat MP3/WAV/M4A/OGG từ máy, Thu mộc tự do, hoặc Render Beat từ Sáng tác
@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=15';
+} from './theory.js?v=16';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=15';
-import { applyAutoTunePcm } from './autoTune.js?v=15';
+} from './pitchToMidi.js?v=16';
+import { applyAutoTunePcm } from './autoTune.js?v=16';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=15';
+} from './audioEngine.js?v=16';
 
 export const VOCAL_PRESETS = [
   {
@@ -523,7 +523,16 @@ export class VocalStudio {
       throw new Error('Trình duyệt không hỗ trợ Web AudioContext.');
     }
     if (!this.playCtx || this.playCtx.state === 'closed') {
-      this.playCtx = new NativeCtx();
+      const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
+      if (isDesktop) {
+        try {
+          this.playCtx = new NativeCtx({ latencyHint: 'playback' });
+        } catch (_) {
+          this.playCtx = new NativeCtx();
+        }
+      } else {
+        this.playCtx = new NativeCtx();
+      }
       this._visualBus = this.playCtx.createGain();
       this._visualAnalyser = this.playCtx.createAnalyser();
       this._visualAnalyser.fftSize = 128;
@@ -2611,7 +2620,18 @@ export class VocalStudio {
 
     if (renderDur <= 0.05) return null;
 
-    const sr = 44100;
+    const leadTr = this.tracks.lead;
+    const backTr = this.tracks.backing;
+    const sr = Math.max(
+      8000,
+      Math.round(
+        (leadTr && leadTr.rawPcm && leadTr.sampleRate) ||
+        (backTr && backTr.rawPcm && backTr.sampleRate) ||
+        (this.beatTrack.audioBuffer && this.beatTrack.audioBuffer.sampleRate) ||
+        (this.playCtx && this.playCtx.sampleRate) ||
+        44100
+      )
+    );
     const totalFrames = Math.ceil(renderDur * sr);
     const offline = new OfflineAudioContext(2, totalFrames, sr);
 

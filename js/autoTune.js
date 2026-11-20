@@ -1,17 +1,15 @@
 // ============================================================================
-// autoTune.js — Bộ máy Auto-Tune Khóa Tông TD-PSOLA Liên Tục & Đồng Cực
-// - Khử lệch DC (DC Offset Removal) & giữ nguyên độ dài khớp từng mẫu (1:1 Sync)
-// - Dò cao độ chính xác Radix-2 FFT-YIN (windowSize = 2048, hopSize = 256, 75–850 Hz)
-//   kết hợp Nội suy Parabol, chống nhảy quãng tám & Lọc trung vị 5 khung
-// - Tách Pitch Trend & Vibrato tự nhiên (4.5–8 Hz), trượt Exponential Retune Glide
-//   (110ms @ 30% -> 15ms @ 90%), giới hạn dịch tối đa ±2.5 bán cung giữ màu giọng
-// - Đánh dấu Pitch Marks đồng cực toàn cục & chạy lưới tổng hợp PSOLA liên tục
-//   cho cả nguyên âm lẫn phụ âm (pitchRatio = 1.0), chuẩn hóa weightSum[i] từng mẫu,
-//   cửa sổ Hann rộng max(2*T0, 2*T1), nén nhẹ làm ấm & Soft Limiter trần 0.92
+// autoTune.js — Bộ máy Auto-Tune Khóa Tông TD-PSOLA Động Sample Rate (44.1 / 48 / 96 kHz)
+// - Không hardcode 44100: tự động co giãn cửa sổ, bước nhảy & bán kính Pitch Marks theo sampleRate thực tế
+// - Gộp trung bình sạch Stereo Mic PC khi phân tích & tổng hợp đồng pha L/R chuẩn xác từng sample (1:1)
+// - Radix-2 FFT-YIN zero-padded cho mọi kích thước cửa sổ + Nội suy Parabol (75–850 Hz) + Chống nhảy quãng tám
+// - Tách Pitch Trend (~186ms) & Vibrato tự nhiên (4.5–8 Hz) + Trượt Exponential Retune Glide (±2.5 bán cung)
+// - Đánh dấu Pitch Marks đồng cực toàn cục & lưới PSOLA liên tục có chuẩn hóa weightSum[i]
+//   (tại phụ âm gió/lặng đặt T1 = T0 & neo 1:1 tránh comb-filter, triệt tiêu 100% rè/click)
 // ============================================================================
 
-import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=15';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=15';
+import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=16';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=16';
 
 const yieldUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -19,9 +17,16 @@ const MIN_F0_HZ = 75;
 const MAX_F0_HZ = 850;
 const UNVOICED_F0_HZ = 150;
 const MAX_SHIFT_SEMIS = 2.5;
+const MAX_VOICED_ZCR_HZ = 3800;
 
 // Cache bảng twiddle & bit-reversal cho Radix-2 FFT
 const FFT_CACHE = new Map();
+
+function nextPow2(n) {
+  let p = 1;
+  while (p < n) p <<= 1;
+  return p;
+}
 
 function getFftTables(n) {
   if (FFT_CACHE.has(n)) return FFT_CACHE.get(n);
@@ -117,7 +122,10 @@ function computeSliceRms(pcm, start, end) {
   return Math.sqrt(sumSq / n);
 }
 
-function computeZeroCrossingRate(pcm, start, end) {
+/**
+ * Tần số cắt không (ZCR tính theo Hz) độc lập với sampleRate 44.1 / 48 / 96 kHz
+ */
+function computeZeroCrossingHz(pcm, start, end, sr) {
   const lo = Math.max(1, start + 1);
   const hi = Math.min(pcm.length, end);
   if (hi <= lo) return 0;
@@ -130,7 +138,8 @@ function computeZeroCrossingRate(pcm, start, end) {
       prevSign = curSign;
     }
   }
-  return crossings / (hi - lo);
+  const durSec = (hi - lo) / sr;
+  return durSec > 0 ? (crossings / durSec) * 0.5 : 0;
 }
 
 /**
@@ -206,31 +215,39 @@ function zeroPhaseBandpassVocal(pcm, sr) {
 }
 
 /**
- * Mạch nén nhẹ làm ấm giọng hát (Threshold -16dB, Ratio 2.0, Attack 10ms, Release 85ms)
+ * Mạch nén nhẹ liên kết kênh làm ấm giọng hát (Threshold -16dB, Ratio 2:1, Attack 10ms, Release 85ms)
  */
-function applyGentleWarmCompression(pcm, sr) {
+function applyGentleWarmCompression(channels, sr) {
+  const chCount = channels.length;
+  if (chCount === 0) return;
+  const n = channels[0].length;
   const threshold = 0.16;
-  const invRatio = 0.5; // Ratio 2:1
+  const invRatio = 0.5;
   const atk = Math.exp(-1 / Math.max(1, sr * 0.010));
   const rel = Math.exp(-1 / Math.max(1, sr * 0.085));
   let env = 0;
 
-  for (let i = 0; i < pcm.length; i++) {
-    const x = pcm[i];
-    if (!Number.isFinite(x)) {
-      pcm[i] = 0;
-      continue;
+  for (let i = 0; i < n; i++) {
+    let peak = 0;
+    for (let ch = 0; ch < chCount; ch++) {
+      const v = channels[ch][i];
+      if (!Number.isFinite(v)) {
+        channels[ch][i] = 0;
+      } else {
+        const av = Math.abs(v);
+        if (av > peak) peak = av;
+      }
     }
-    const ax = Math.abs(x);
-    env = ax > env ? atk * env + (1 - atk) * ax : rel * env + (1 - rel) * ax;
+    env = peak > env ? atk * env + (1 - atk) * peak : rel * env + (1 - rel) * peak;
     let gain = 1.06;
     if (env > threshold) {
       const targetEnv = threshold + (env - threshold) * invRatio;
       gain *= targetEnv / Math.max(1e-7, env);
     }
-    pcm[i] = x * gain;
+    for (let ch = 0; ch < chCount; ch++) {
+      channels[ch][i] *= gain;
+    }
   }
-  return pcm;
 }
 
 /**
@@ -256,14 +273,15 @@ export function softLimitPcm(pcm, ceiling = 0.92) {
 }
 
 /**
- * Dò cao độ Radix-2 FFT YIN chuẩn xác từng mẫu (75–850 Hz) + Nội suy Parabol
+ * Dò cao độ Radix-2 FFT YIN zero-padded cho MỌI kích thước khung (~46ms theo 44.1 / 48 / 96 kHz)
  */
 export function detectPitchYIN2048(frame, sampleRate, yinThreshold = 0.16) {
-  const N = frame.length;
-  const isPow2 = (N & (N - 1)) === 0 && N >= 512;
+  const N = frame ? frame.length : 0;
+  if (N < 64) return null;
+  const sr = Math.max(8000, Number(sampleRate) || 44100);
   const halfW = N >> 1;
-  const minLag = Math.max(4, Math.floor(sampleRate / MAX_F0_HZ));
-  const maxLag = Math.min(halfW - 4, Math.ceil(sampleRate / MIN_F0_HZ));
+  const minLag = Math.max(4, Math.floor(sr / MAX_F0_HZ));
+  const maxLag = Math.min(halfW - 4, Math.ceil(sr / MIN_F0_HZ));
   if (maxLag <= minLag + 4) return null;
 
   let mean = 0;
@@ -282,20 +300,21 @@ export function detectPitchYIN2048(frame, sampleRate, yinThreshold = 0.16) {
   if (energyA < 1e-8) return null;
 
   const diff = new Float64Array(maxLag + 3);
-  if (isPow2) {
-    const aRe = new Float64Array(N);
-    const aIm = new Float64Array(N);
-    const bRe = new Float64Array(N);
-    const bIm = new Float64Array(N);
+  const fftSize = nextPow2(N);
+  if (fftSize >= 256) {
+    const aRe = new Float64Array(fftSize);
+    const aIm = new Float64Array(fftSize);
+    const bRe = new Float64Array(fftSize);
+    const bIm = new Float64Array(fftSize);
     for (let i = 0; i < halfW; i++) aRe[i] = x[i];
     for (let i = 0; i < N; i++) bRe[i] = x[i];
 
     fftInPlace(aRe, aIm, false);
     fftInPlace(bRe, bIm, false);
 
-    const cRe = new Float64Array(N);
-    const cIm = new Float64Array(N);
-    for (let k = 0; k < N; k++) {
+    const cRe = new Float64Array(fftSize);
+    const cIm = new Float64Array(fftSize);
+    for (let k = 0; k < fftSize; k++) {
       cRe[k] = aRe[k] * bRe[k] + aIm[k] * bIm[k];
       cIm[k] = aRe[k] * bIm[k] - aIm[k] * bRe[k];
     }
@@ -378,31 +397,19 @@ export function detectPitchYIN2048(frame, sampleRate, yinThreshold = 0.16) {
     }
   }
 
-  const freq = sampleRate / refinedTau;
+  const freq = sr / refinedTau;
   if (freq < MIN_F0_HZ || freq > MAX_F0_HZ) return null;
 
   const clarity = clamp(1 - cmndf[bestTau], 0, 1);
   return { freq, period: refinedTau, clarity };
 }
 
-function readPcmLinear(pcm, pos) {
-  if (pos <= 0) return pcm[0];
-  const last = pcm.length - 1;
-  if (pos >= last) return pcm[last];
-  const idx = Math.floor(pos);
-  const frac = pos - idx;
-  return pcm[idx] + (pcm[idx + 1] - pcm[idx]) * frac;
-}
+export const detectPitchYIN = detectPitchYIN2048;
 
 /**
- * Chỉnh cao độ Auto-Tune TD-PSOLA Liên tục Đồng cực (Khớp nhịp 1:1, Hết Rè, Giữ Vibrato)
- *
- * @param {Float32Array} rawPcm
- * @param {number} sampleRate
- * @param {object} options
- * @returns {Promise<{ pcmData: Float32Array, sampleRate: number, wavBlob: Blob, stats: object }>}
+ * Lõi xử lý Auto-Tune TD-PSOLA chung cho Mono & Stereo (khóa chung đường Pitch Marks toàn bài)
  */
-export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {}) {
+async function _runAutoTuneChannels(channelArrays, sampleRate, options = {}) {
   const {
     keyPc = 0,
     scaleType = 'major',
@@ -410,40 +417,63 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     onProgress = null,
   } = options;
 
-  const sr = Math.max(8000, Math.round(sampleRate || 44100));
-  const N = rawPcm ? rawPcm.length : 0;
+  const sr = Math.max(8000, Math.round(Number(sampleRate) || 44100));
+  const chCount = channelArrays ? channelArrays.length : 0;
+  const N = chCount > 0 && channelArrays[0] ? channelArrays[0].length : 0;
   const normStrength = clamp(Number(strength) || 0, 0, 1);
 
-  if (!rawPcm || N < 2048 || normStrength <= 0.01) {
-    const copy = new Float32Array(rawPcm || 0);
+  // Kích thước cửa sổ phân tích & bước nhảy co giãn chuẩn theo sampleRate thực tế (44.1 / 48 / 96 kHz)
+  const windowSize = Math.max(512, Math.round(sr * 0.046));
+  const hopSize = Math.max(64, Math.round(sr * 0.0058));
+
+  if (chCount === 0 || N < windowSize || normStrength <= 0.01) {
+    const outChannels = [];
+    for (let ch = 0; ch < chCount; ch++) {
+      outChannels.push(new Float32Array(channelArrays[ch] || 0));
+    }
     if (onProgress) onProgress(100);
     return {
-      pcmData: copy,
+      outChannels,
       sampleRate: sr,
-      wavBlob: encodePcmToWavBlob(copy, sr),
       stats: { voicedFrames: 0, totalFrames: 0, avgCorrectionCents: 0 },
     };
   }
 
-  // --- BƯỚC 1: Khử lệch DC (DC Offset Removal) chống bụp đầu/cuối & lệch cực sóng ---
-  let dcSum = 0;
-  for (let i = 0; i < N; i++) {
-    const v = rawPcm[i];
-    if (Number.isFinite(v)) dcSum += v;
+  // --- BƯỚC 1: Khử lệch DC từng kênh & gộp Mono trung bình sạch cho phân tích ---
+  const cleanChannels = new Array(chCount);
+  for (let ch = 0; ch < chCount; ch++) {
+    const raw = channelArrays[ch];
+    let dcSum = 0;
+    for (let i = 0; i < N; i++) {
+      const v = raw[i];
+      if (Number.isFinite(v)) dcSum += v;
+    }
+    const dcMean = dcSum / N;
+    const clean = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const v = raw[i];
+      clean[i] = Number.isFinite(v) ? v - dcMean : 0;
+    }
+    cleanChannels[ch] = clean;
   }
-  const dcMean = dcSum / N;
-  const cleanPcm = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    const v = rawPcm[i];
-    cleanPcm[i] = Number.isFinite(v) ? v - dcMean : 0;
+
+  let monoClean;
+  if (chCount === 1) {
+    monoClean = cleanChannels[0];
+  } else {
+    monoClean = new Float32Array(N);
+    const invCh = 1 / chCount;
+    for (let i = 0; i < N; i++) {
+      let acc = 0;
+      for (let ch = 0; ch < chCount; ch++) acc += cleanChannels[ch][i];
+      monoClean[i] = acc * invCh;
+    }
   }
 
   // Tín hiệu lọc thông dải 75–850 Hz pha 0 chỉ dùng cho phân tích f0 & dò Pitch Marks đồng cực
-  const bpPcm = zeroPhaseBandpassVocal(cleanPcm, sr);
+  const bpPcm = zeroPhaseBandpassVocal(monoClean, sr);
 
-  // --- BƯỚC 2: Phân tích cao độ từng khung (windowSize = 2048, hopSize = 256) ---
-  const windowSize = 2048;
-  const hopSize = 256;
+  // --- BƯỚC 2: Phân tích cao độ từng khung (windowSize ~ 46ms, hopSize ~ 5.8ms) ---
   const halfWin = windowSize >> 1;
   const numFrames = Math.max(1, Math.ceil(N / hopSize));
 
@@ -455,8 +485,8 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     const winStart = Math.max(0, Math.min(N - windowSize, center - halfWin));
     const winEnd = Math.min(N, winStart + windowSize);
 
-    const rms = computeSliceRms(cleanPcm, center - hopSize * 2, center + hopSize * 2);
-    const zcr = computeZeroCrossingRate(cleanPcm, center - hopSize * 2, center + hopSize * 2);
+    const rms = computeSliceRms(monoClean, center - hopSize * 2, center + hopSize * 2);
+    const zcrHz = computeZeroCrossingHz(monoClean, center - hopSize * 2, center + hopSize * 2, sr);
     rmsList[i] = rms;
 
     let det = null;
@@ -468,7 +498,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     frames[i] = {
       center,
       rms,
-      zcr,
+      zcrHz,
       rawF0: det ? det.freq : null,
       rawMidi: det ? freqToMidi(det.freq) : null,
       clarity: det ? det.clarity : 0,
@@ -479,7 +509,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
       targetMidi: null,
     };
 
-    if (i > 0 && i % 200 === 0) {
+    if (i > 0 && i % 160 === 0) {
       if (onProgress) onProgress(Math.min(35, Math.round((i / numFrames) * 35)));
       await yieldUi();
     }
@@ -493,7 +523,12 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   let voicedCount = 0;
   for (let i = 0; i < numFrames; i++) {
     const f = frames[i];
-    if (f.rms >= voiceGate && f.rawMidi !== null && f.clarity >= 0.68 && f.zcr < 0.25) {
+    if (
+      f.rms >= voiceGate &&
+      f.rawMidi !== null &&
+      f.clarity >= 0.70 &&
+      f.zcrHz < MAX_VOICED_ZCR_HZ
+    ) {
       f.voiced = true;
       f.midi = f.rawMidi;
       f.f0 = f.rawF0;
@@ -502,12 +537,12 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   }
 
   if (voicedCount < 3) {
-    softLimitPcm(cleanPcm, 0.92);
+    applyGentleWarmCompression(cleanChannels, sr);
+    for (let ch = 0; ch < chCount; ch++) softLimitPcm(cleanChannels[ch], 0.92);
     if (onProgress) onProgress(100);
     return {
-      pcmData: cleanPcm,
+      outChannels: cleanChannels,
       sampleRate: sr,
-      wavBlob: encodePcmToWavBlob(cleanPcm, sr),
       stats: { voicedFrames: 0, totalFrames: numFrames, avgCorrectionCents: 0 },
     };
   }
@@ -538,7 +573,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   // Hàn khe đứt 1–2 khung giữa âm tiết đang ngân ổn định
   for (let i = 1; i < numFrames - 2; i++) {
     if (frames[i].voiced) continue;
-    if (frames[i].rms < voiceGate * 0.95 || frames[i].zcr >= 0.24) continue;
+    if (frames[i].rms < voiceGate * 0.95 || frames[i].zcrHz >= MAX_VOICED_ZCR_HZ) continue;
     const prev = frames[i - 1];
     const next1 = frames[i + 1];
     const next2 = frames[i + 2];
@@ -550,7 +585,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
       prev.voiced &&
       !next1.voiced &&
       next1.rms >= voiceGate * 0.95 &&
-      next1.zcr < 0.24 &&
+      next1.zcrHz < MAX_VOICED_ZCR_HZ &&
       next2 &&
       next2.voiced &&
       Math.abs(prev.midi - next2.midi) <= 2.5
@@ -582,7 +617,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     const centerVal = cleanMidi[i];
     let wSum = 0;
     let valSum = 0;
-    // Cửa sổ ±16 khung (~190ms) phủ trọn 1 chu kỳ rung 5–6Hz để đường trend ổn định, không nhảy bậc
+    // Cửa sổ ±16 khung (~186ms ở mọi sampleRate) phủ trọn 1 chu kỳ rung 5–6Hz để đường trend ổn định
     for (let k = -16; k <= 16; k++) {
       const idx = i + k;
       if (idx < 0 || idx >= numFrames || cleanMidi[idx] === null) continue;
@@ -595,8 +630,9 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   }
 
   const hopSec = hopSize / sr;
-  // Thời gian trượt mượt: ~110ms @ 30%, ~48ms @ 65%, ~15ms @ 90%
-  const glideTimeSec = 0.008 + 0.165 * Math.pow(1 - normStrength, 1.35);
+  const pullAmount = Math.pow(normStrength, 0.65);
+  const vibratoKeep = 0.92 - 0.42 * normStrength;
+  const glideTimeSec = 0.010 + 0.165 * Math.pow(1 - normStrength, 1.35);
   const glideAlpha = 1 - Math.exp(-hopSec / glideTimeSec);
   const unvoicedDecayAlpha = 1 - Math.exp(-hopSec / 0.018);
 
@@ -611,8 +647,8 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     if (!f.voiced || cleanMidi[i] === null || trendMidi[i] === null) {
       // Hồi mượt pitchRatio về 1.0 khi sang phụ âm/lặng thay vì cắt ngang
       smoothedShift = smoothedShift + unvoicedDecayAlpha * (0 - smoothedShift);
-      if (Math.abs(smoothedShift) < 0.005) smoothedShift = 0;
-      f.pitchRatio = Math.pow(2, smoothedShift / 12);
+      if (Math.abs(smoothedShift) < 0.01) smoothedShift = 0;
+      f.pitchRatio = smoothedShift === 0 ? 1.0 : Math.pow(2, smoothedShift / 12);
       f.f0 = lastValidF0;
       prevScaleMidi = null;
       prevTrendMidi = null;
@@ -635,9 +671,8 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
       }
     }
 
-    // Kéo tâm đường trend về nốt mục tiêu, giữ lại độ rung tự nhiên (30% -> 85% vibrato)
-    const vibratoKeep = 0.85 - 0.55 * normStrength;
-    const targetTrend = trend + normStrength * (chosenScaleMidi - trend);
+    // Kéo tâm đường trend về đúng nốt trong âm giai, giữ lại độ rung tự nhiên của giọng hát
+    const targetTrend = trend + pullAmount * (chosenScaleMidi - trend);
     const desiredInstantMidi = targetTrend + vibratoKeep * vibrato;
     const rawShift = clamp(desiredInstantMidi - cur, -MAX_SHIFT_SEMIS, MAX_SHIFT_SEMIS);
 
@@ -709,10 +744,13 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
 
   const maxT0 = Math.ceil(sr / MIN_F0_HZ);
   const minT0 = Math.floor(sr / MAX_F0_HZ);
+  const maxHalfT = Math.max(24, Math.round(sr * 0.0048));
+  const minSpanSamples = Math.max(64, Math.round(sr * 0.0015));
 
   const trackPolarityMark = (curPos, t0, dir) => {
     const curInt = Math.round(curPos);
-    const halfT = Math.max(10, Math.min(180, Math.round(t0 * 0.42)));
+    const halfT = Math.max(10, Math.min(maxHalfT, Math.round(t0 * 0.45)));
+    const tplWidth = 2 * halfT + 1;
     const stepLo = Math.max(minT0, Math.round(t0 * 0.84));
     const stepHi = Math.min(maxT0, Math.round(t0 * 1.16));
 
@@ -747,8 +785,10 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
         }
       }
       const ncc = dot / Math.sqrt(tplNorm * Math.max(1e-9, candNorm));
+      const candRms = Math.sqrt(candNorm / tplWidth);
+      const normAmp = (globalPolarity * bpPcm[candInt]) / (candRms + 1e-6);
       const signMatch = globalPolarity * bpPcm[candInt] >= 0 ? 0.12 : -0.28;
-      const peakWeight = globalPolarity * bpPcm[candInt] * 0.25;
+      const peakWeight = 0.08 * clamp(normAmp, -1.5, 1.5);
       const score = ncc + signMatch + peakWeight;
       scores[off - (stepLo - 1)] = score;
 
@@ -777,7 +817,7 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   // Dựng 1 dải Pitch Marks liên tục toàn bài từ sample 0 đến N - 1
   const allMarks = [];
   const allMarksVoiced = [];
-  const uvStep = Math.round(sr / UNVOICED_F0_HZ); // ~294 samples (~6.7ms)
+  const uvStep = Math.max(32, Math.round(sr / UNVOICED_F0_HZ));
 
   const fillUnvoicedGap = (fromPos, toPos) => {
     const span = toPos - fromPos;
@@ -795,9 +835,9 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     const [fS, fE] = voicedSpans[spIdx];
     const sStart = Math.max(2, fS * hopSize);
     const sEnd = Math.min(N - 3, (fE + 1) * hopSize);
-    if (sEnd - sStart < 64) continue;
+    if (sEnd - sStart < minSpanSamples) continue;
 
-    // Chọn điểm neo đầu tiên có biên độ cùng cực lớn nhất trong vùng đầu
+    // Chọn điểm neo có năng lượng & cùng cực rõ nhất trong vùng
     let maxRmsFi = fS;
     for (let fi = fS; fi <= fE; fi++) {
       if (frames[fi].rms > frames[maxRmsFi].rms) maxRmsFi = fi;
@@ -887,12 +927,15 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
   await yieldUi();
 
   // --- BƯỚC 6: Lưới Tổng Hợp PSOLA Liên Tục 1:1 + Chuẩn Hóa Trọng Số Từng Mẫu ---
-  const outPcm = new Float32Array(N);
+  const outChannels = new Array(chCount);
+  for (let ch = 0; ch < chCount; ch++) outChannels[ch] = new Float32Array(N);
   const weightSum = new Float32Array(N);
+  const minHalfW = Math.max(16, Math.round(sr * 0.00055));
 
   let q = allMarks[0];
   let kPtr = 0;
   let stepCounter = 0;
+  const lastIdx = N - 1;
 
   while (q < N + uvStep * 0.5) {
     while (
@@ -904,40 +947,57 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
 
     const pCenter = allMarks[kPtr];
     const markVoiced = allMarksVoiced[kPtr];
-    const qClamped = clamp(q, 0, N - 1);
+    const qClamped = clamp(q, 0, lastIdx);
     const { f0: localF0, pitchRatio: localRatio } = getInterpFrameAt(qClamped);
 
+    const isUnvoicedUnity = !markVoiced && Math.abs(localRatio - 1.0) < 0.003;
     let t0;
     if (markVoiced) {
       t0 = clamp(sr / Math.max(MIN_F0_HZ, localF0), minT0, maxT0);
+    } else if (isUnvoicedUnity) {
+      t0 = uvStep;
     } else {
-      const nextDiff =
-        kPtr + 1 < allMarks.length ? allMarks[kPtr + 1] - pCenter : uvStep;
-      const prevDiff =
-        kPtr > 0 ? pCenter - allMarks[kPtr - 1] : uvStep;
+      const nextDiff = kPtr + 1 < allMarks.length ? allMarks[kPtr + 1] - pCenter : uvStep;
+      const prevDiff = kPtr > 0 ? pCenter - allMarks[kPtr - 1] : uvStep;
       t0 = clamp(Math.max(nextDiff, prevDiff), minT0, maxT0);
     }
 
-    const t1 = clamp(t0 / Math.max(0.5, localRatio), minT0, maxT0);
+    const effectiveRatio = isUnvoicedUnity ? 1.0 : localRatio;
+    const t1 = isUnvoicedUnity ? uvStep : clamp(t0 / Math.max(0.5, effectiveRatio), minT0, maxT0);
 
-    // Độ rộng cửa sổ Hann R = max(T0, T1) -> toàn cửa sổ max(2*T0, 2*T1) chặn gợn biên độ
-    const halfW = Math.max(24, Math.max(t0, t1));
+    // Phụ âm gió/hơi thở unvoiced neo srcCenter = q để khớp 1:1 từng sample, loại bỏ comb-filter
+    const srcCenter = isUnvoicedUnity ? q : pCenter;
+    const halfW = Math.max(minHalfW, Math.max(t0, t1));
     const dstFrom = Math.max(0, Math.ceil(q - halfW));
-    const dstTo = Math.min(N - 1, Math.floor(q + halfW));
+    const dstTo = Math.min(lastIdx, Math.floor(q + halfW));
 
     for (let dst = dstFrom; dst <= dstTo; dst++) {
       const delta = dst - q;
       const u = delta / halfW;
       if (u <= -1 || u >= 1) continue;
       const hann = 0.5 * (1 + Math.cos(Math.PI * u));
-      const srcPos = pCenter + delta;
-      const sample = readPcmLinear(cleanPcm, srcPos);
-      outPcm[dst] += sample * hann;
+
+      const srcPos = srcCenter + delta;
+      if (srcPos <= 0) {
+        for (let ch = 0; ch < chCount; ch++) outChannels[ch][dst] += cleanChannels[ch][0] * hann;
+      } else if (srcPos >= lastIdx) {
+        for (let ch = 0; ch < chCount; ch++) outChannels[ch][dst] += cleanChannels[ch][lastIdx] * hann;
+      } else {
+        const idx0 = Math.floor(srcPos);
+        const frac = srcPos - idx0;
+        const idx1 = idx0 + 1;
+        for (let ch = 0; ch < chCount; ch++) {
+          const chArr = cleanChannels[ch];
+          const sample = chArr[idx0] + (chArr[idx1] - chArr[idx0]) * frac;
+          outChannels[ch][dst] += sample * hann;
+        }
+      }
       weightSum[dst] += hann;
     }
 
-    // Khi ở khung vô thanh (pitchRatio ≈ 1.0), kéo đồng bộ nhẹ q về pCenter để tái tạo 1:1
-    if (!markVoiced && Math.abs(localRatio - 1.0) < 0.002) {
+    if (isUnvoicedUnity) {
+      q += uvStep;
+    } else if (!markVoiced && Math.abs(effectiveRatio - 1.0) < 0.008) {
       const alignPull = clamp((pCenter - q) * 0.22, -t0 * 0.15, t0 * 0.15);
       q += Math.max(minT0 * 0.65, t1 + alignPull);
     } else {
@@ -951,25 +1011,29 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
     }
   }
 
-  // Chuẩn hóa trọng số cho từng mẫu (Per-Sample Overlap-Add Normalization)
+  // Chuẩn hóa trọng số từng mẫu (Per-Sample Overlap-Add Normalization)
   for (let i = 0; i < N; i++) {
     const w = weightSum[i];
     if (w > 1e-4) {
-      outPcm[i] /= w;
+      const invW = 1 / w;
+      for (let ch = 0; ch < chCount; ch++) {
+        outChannels[ch][i] *= invW;
+      }
     } else {
-      outPcm[i] = cleanPcm[i];
+      for (let ch = 0; ch < chCount; ch++) {
+        outChannels[ch][i] = cleanChannels[ch][i];
+      }
     }
   }
 
   // Làm ấm nhẹ & khóa trần đỉnh an toàn ở 0.92
-  applyGentleWarmCompression(outPcm, sr);
-  softLimitPcm(outPcm, 0.92);
+  applyGentleWarmCompression(outChannels, sr);
+  for (let ch = 0; ch < chCount; ch++) softLimitPcm(outChannels[ch], 0.92);
 
   if (onProgress) onProgress(100);
   return {
-    pcmData: outPcm,
+    outChannels,
     sampleRate: sr,
-    wavBlob: encodePcmToWavBlob(outPcm, sr),
     stats: {
       voicedFrames: voicedCount,
       totalFrames: numFrames,
@@ -979,18 +1043,78 @@ export async function applyAutoTunePcm(rawPcm, sampleRate = 44100, options = {})
 }
 
 /**
- * Hỗ trợ chỉnh trực tiếp AudioBuffer giữ nguyên 100% sampleRate, numberOfChannels và length
+ * Chỉnh cao độ Auto-Tune TD-PSOLA cho mảng PCM hoặc AudioBuffer (tự đọc sampleRate động)
+ *
+ * @param {Float32Array|AudioBuffer} rawInput
+ * @param {number} sampleRate
+ * @param {object} options
+ * @returns {Promise<{ pcmData: Float32Array, sampleRate: number, wavBlob: Blob, stats: object }>}
  */
-export async function applyAutoTuneAudioBuffer(audioBuffer, options = {}) {
-  if (!audioBuffer) return null;
-  const sr = audioBuffer.sampleRate || 44100;
-  const len = audioBuffer.length;
-  const chCount = audioBuffer.numberOfChannels || 1;
+export async function applyAutoTunePcm(rawInput, sampleRate = 44100, options = {}) {
+  if (typeof AudioBuffer !== 'undefined' && rawInput instanceof AudioBuffer) {
+    const sr = Math.max(8000, Math.round(rawInput.sampleRate || sampleRate || 44100));
+    const chCount = rawInput.numberOfChannels || 1;
+    const chArrays = [];
+    for (let ch = 0; ch < chCount; ch++) {
+      chArrays.push(rawInput.getChannelData(ch));
+    }
+    const { outChannels, stats } = await _runAutoTuneChannels(chArrays, sr, options);
+    const len = rawInput.length;
+    let pcmData;
+    if (outChannels.length === 1) {
+      pcmData = outChannels[0];
+    } else {
+      pcmData = new Float32Array(len);
+      const invCh = 1 / outChannels.length;
+      for (let i = 0; i < len; i++) {
+        let sum = 0;
+        for (let ch = 0; ch < outChannels.length; ch++) sum += outChannels[ch][i];
+        pcmData[i] = sum * invCh;
+      }
+    }
+    return {
+      pcmData,
+      sampleRate: sr,
+      wavBlob: encodePcmToWavBlob(pcmData, sr),
+      stats,
+    };
+  }
+
+  const sr = Math.max(8000, Math.round(Number(sampleRate) || 44100));
+  const { outChannels, stats } = await _runAutoTuneChannels(
+    rawInput ? [rawInput] : [],
+    sr,
+    options
+  );
+  const pcmData = outChannels[0] || new Float32Array(0);
+  return {
+    pcmData,
+    sampleRate: sr,
+    wavBlob: encodePcmToWavBlob(pcmData, sr),
+    stats,
+  };
+}
+
+/**
+ * Hỗ trợ chỉnh trực tiếp AudioBuffer giữ nguyên 100% inputBuffer.sampleRate (44.1 / 48 / 96 kHz),
+ * numberOfChannels (Mono/Stereo đồng pha L/R) và length tuyệt đối 1:1
+ */
+export async function applyAutoTuneAudioBuffer(inputBuffer, options = {}) {
+  if (!inputBuffer) return null;
+  const sr = Math.max(8000, Math.round(inputBuffer.sampleRate || 44100));
+  const len = inputBuffer.length;
+  const chCount = Math.max(1, inputBuffer.numberOfChannels || 1);
+
+  const inChannels = [];
+  for (let ch = 0; ch < chCount; ch++) {
+    inChannels.push(inputBuffer.getChannelData(ch));
+  }
+
+  const { outChannels } = await _runAutoTuneChannels(inChannels, sr, options);
   const outBuf = new AudioBuffer({ numberOfChannels: chCount, length: len, sampleRate: sr });
 
   for (let ch = 0; ch < chCount; ch++) {
-    const res = await applyAutoTunePcm(audioBuffer.getChannelData(ch), sr, options);
-    outBuf.getChannelData(ch).set(res.pcmData.subarray(0, len));
+    outBuf.getChannelData(ch).set(outChannels[ch].subarray(0, len));
   }
   return outBuf;
 }
