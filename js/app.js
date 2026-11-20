@@ -12,21 +12,21 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js';
+} from './theory.js?v=3';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js';
+} from './audioEngine.js?v=3';
 import {
   VocalCapture,
   drawVocalWaveform,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js';
-import { PianoRoll } from './pianoRoll.js';
-import { downloadMidiFile } from './midiExport.js';
+} from './pitchToMidi.js?v=3';
+import { PianoRoll } from './pianoRoll.js?v=3';
+import { downloadMidiFile } from './midiExport.js?v=3';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -566,50 +566,53 @@ async function toggleVocalRecording() {
     return;
   }
 
-  // Mở khóa Native AudioContext cho Micro ngay trong sự kiện chạm nút của người dùng (trước mọi await)
-  vocalCapture.prepareNativeContext();
-
-  // Bắt đầu phiên thu mới
-  try {
-    await audioEngine.ensureReady();
-  } catch (err) {
-    vocalCapture.close();
-    showToast(err.message || 'Không thể khởi động bộ máy âm thanh.', true);
-    return;
-  }
-
   // Trên mobile tự chuyển sang Tab Giai điệu để thấy đếm vào, sóng âm và nốt MIDI
   if (window.innerWidth < 768) {
     setMobileTab('melody');
   }
 
-  audioEngine.stop();
-  updatePlayButtonUI();
+  if (audioEngine.isPlaying) {
+    audioEngine.stop();
+    updatePlayButtonUI();
+  }
 
-  // Mở micro trước khi đếm vào để không bị trễ do hộp thoại xin quyền
+  // Gọi đồng thời openMic() VÀ audioEngine.ensureReady() ngay trong sự kiện chạm của người dùng
+  // để không mất user-gesture activation trước getUserMedia trên iOS Safari
+  const micPromise = vocalCapture.openMic({
+    echoCancellation: state.echoCancellation,
+    onLiveStats: ({ level, noteName }) => {
+      el.micMeterFill.style.width = `${Math.round(level * 100)}%`;
+      if (noteName !== undefined) {
+        el.livePitchReadout.innerHTML = `Nốt: <strong>${noteName || '—'}</strong>`;
+      }
+    },
+  });
+  const audioReadyPromise = audioEngine.ensureReady();
+
   try {
-    await vocalCapture.openMic({
-      echoCancellation: state.echoCancellation,
-      onLiveStats: ({ level, noteName }) => {
-        el.micMeterFill.style.width = `${Math.round(level * 100)}%`;
-        if (noteName !== undefined) {
-          el.livePitchReadout.innerHTML = `Nốt: <strong>${noteName || '—'}</strong>`;
-        }
-      },
-    });
+    await micPromise;
   } catch (err) {
     vocalCapture.close();
+    audioReadyPromise.catch(() => {});
     const errName = err && err.name ? err.name : 'Error';
     const errMsg = err && err.message ? err.message : String(err);
+    console.error('[HEVOS STUDIO Mic Error]', err);
     if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
       showToast(
-        'Không mở được Micro. Vui lòng cấp quyền Micro trên trình duyệt và thử lại.',
+        `Chưa cấp quyền Micro (${errName}: ${errMsg}). Hãy mở Cài đặt Safari → Micro cho trang này rồi tải lại.`,
         true
       );
     } else {
-      console.error('[HEVOS STUDIO Mic Error]', err);
       showToast(`Lỗi thu âm Micro (${errName}: ${errMsg})`, true);
     }
+    return;
+  }
+
+  try {
+    await audioReadyPromise;
+  } catch (err) {
+    vocalCapture.close();
+    showToast(err.message || 'Không thể khởi động bộ máy âm thanh.', true);
     return;
   }
 

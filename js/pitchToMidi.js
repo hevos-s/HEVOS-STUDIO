@@ -3,7 +3,7 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=3';
 
 const MIN_VOCAL_HZ = 85;    // ~F2
 const MAX_VOCAL_HZ = 1100;  // ~C#6
@@ -536,7 +536,10 @@ export class VocalCapture {
   }
 
   /**
-   * Mở micro bằng Native AudioContext thuần, dự phòng ràng buộc thiết bị & đo cao độ thực
+   * Mở micro bằng Native AudioContext thuần:
+   * - Gọi getUserMedia() ngay lập tức (không await trước đó để giữ user gesture iOS Safari)
+   * - Tạo Native AudioContext SAU khi có stream để tránh chuyển chế độ sample-rate AVAudioSession
+   * - Bỏ AudioWorklet Blob trên iOS/iPadOS để dùng ScriptProcessorNode ổn định 100%
    */
   async openMic({ echoCancellation = false, onLiveStats = null } = {}) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -544,16 +547,18 @@ export class VocalCapture {
     }
 
     this._cleanupNodesAndStream();
+    if (this.audioCtx) {
+      try {
+        if (this.audioCtx.state !== 'closed') {
+          this.audioCtx.close().catch(() => {});
+        }
+      } catch (_) {}
+      this.audioCtx = null;
+    }
     this._onLiveStats = onLiveStats;
 
-    // Đảm bảo luôn có Native AudioContext thuần (không dùng Tone.context)
-    const micAudioCtx = this.prepareNativeContext();
-    if (!micAudioCtx) {
-      throw new Error('Trình duyệt không hỗ trợ Web AudioContext.');
-    }
-
     try {
-      // Thử xin micro với cấu hình ưu tiên thu mộc cho âm nhạc; tự lùi về { audio: true } nếu thiết bị không khớp
+      // Thử xin micro ưu tiên thu mộc; nếu lỗi không phải thiếu quyền/thiết bị thì lùi về { audio: true }
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -563,10 +568,11 @@ export class VocalCapture {
           },
         });
       } catch (constraintErr) {
+        const name = constraintErr && constraintErr.name ? constraintErr.name : '';
         if (
-          constraintErr &&
-          (constraintErr.name === 'OverconstrainedError' ||
-            constraintErr.name === 'ConstraintNotSatisfiedError')
+          name !== 'NotAllowedError' &&
+          name !== 'PermissionDeniedError' &&
+          name !== 'NotFoundError'
         ) {
           this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } else {
@@ -574,8 +580,16 @@ export class VocalCapture {
         }
       }
 
+      // Tạo Native AudioContext SAU khi getUserMedia thành công (khớp sample rate PlayAndRecord trên iOS)
+      const NativeAudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!NativeAudioCtx) {
+        throw new Error('Trình duyệt không hỗ trợ Web AudioContext.');
+      }
+      const micAudioCtx = new NativeAudioCtx();
+      this.audioCtx = micAudioCtx;
+
       if (micAudioCtx.state !== 'running') {
-        await micAudioCtx.resume();
+        await micAudioCtx.resume().catch(() => {});
       }
 
       this.sampleRate = micAudioCtx.sampleRate || 44100;
@@ -602,9 +616,18 @@ export class VocalCapture {
   }
 
   async _setupPcmNode(micAudioCtx) {
-    // Ưu tiên AudioWorklet (inline Blob) nếu trình duyệt hỗ trợ, dự phòng ScriptProcessorNode
+    const isIOS =
+      /iP(ad|hone|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    // Trên iOS/iPadOS dùng thẳng ScriptProcessorNode để tránh lỗi Blob AudioWorklet trên WebKit
     let workletOk = false;
-    if (micAudioCtx.audioWorklet && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+    if (
+      !isIOS &&
+      micAudioCtx.audioWorklet &&
+      typeof Blob !== 'undefined' &&
+      typeof URL !== 'undefined'
+    ) {
       try {
         const workletCode = `
           class PcmRecorderProcessor extends AudioWorkletProcessor {
