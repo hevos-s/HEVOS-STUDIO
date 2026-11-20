@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=14';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=15';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -365,8 +365,17 @@ class AudioEngine {
     this.drumPart = null;
     this.vocalEventId = null;
 
-    // Chống trùng timestamp cho các bộ gõ monophonic
-    this._lastDrumTime = { kick: -1, snare: -1, rim: -1, hat: -1, click: -1 };
+    // Chống trùng timestamp & khóa bật tắt Playback
+    this._lastTriggerTime = {
+      chord: -1,
+      melody: -1,
+      kick: -1,
+      snare: -1,
+      rim: -1,
+      hat: -1,
+      click: -1,
+    };
+    this._playStartPromise = null;
     this._countInTimers = [];
     this._countInCancelled = false;
     this._loopEndCallbackId = null;
@@ -381,9 +390,14 @@ class AudioEngine {
     }
     const Tone = window.Tone;
     await Tone.start();
-    if (Tone.context.state !== 'running') {
+    if (Tone.context && Tone.context.state !== 'running') {
       await Tone.context.resume();
     }
+    try {
+      if (Tone.context) {
+        Tone.context.lookAhead = 0.15;
+      }
+    } catch (_) {}
     if (!this.initialized) {
       this._initGraph();
     }
@@ -392,30 +406,37 @@ class AudioEngine {
   _initGraph() {
     const Tone = window.Tone;
 
-    // Chuỗi Master ấm tai, chống vỡ tiếng
-    this.masterLimiter = new Tone.Limiter(-1.5).toDestination();
+    // Mạch bảo vệ Master Bus: Compressor nhẹ -> Limiter (-1 dBFS) -> Destination
+    this.masterLimiter = new Tone.Limiter(-1.0).toDestination();
+    this.masterComp = new Tone.Compressor({
+      threshold: -16,
+      ratio: 3,
+      knee: 12,
+      attack: 0.015,
+      release: 0.18,
+    }).connect(this.masterLimiter);
     this.masterEQ = new Tone.EQ3({
-      low: 1.2,
+      low: 0.8,
       mid: 0,
-      high: -1.2,
+      high: -0.8,
       lowFrequency: 180,
       highFrequency: 4600,
-    }).connect(this.masterLimiter);
-    this.masterBus = new Tone.Gain(0.92).connect(this.masterEQ);
+    }).connect(this.masterComp);
+    this.masterBus = new Tone.Gain(0.85).connect(this.masterEQ);
 
-    // Reverb chung song song (Dry luôn kêu ngay không chờ tạo IR)
+    // Reverb chung song song (tạo headroom sạch, không dồn rè)
     this.reverbSend = new Tone.Gain(1);
-    this.reverb = new Tone.Reverb({ decay: 2.3, preDelay: 0.018, wet: 1 });
-    this.reverbReturn = new Tone.Gain(0.32).connect(this.masterBus);
+    this.reverb = new Tone.Reverb({ decay: 1.85, preDelay: 0.018, wet: 1 });
+    this.reverbReturn = new Tone.Gain(0.24).connect(this.masterBus);
     this.reverbSend.connect(this.reverb);
     this.reverb.connect(this.reverbReturn);
 
-    // Chorus ấm cho đàn đệm
+    // Chorus ấm nhẹ cho đàn đệm
     this.chordChorus = new Tone.Chorus({
-      frequency: 1.3,
-      delayTime: 3.4,
-      depth: 0.42,
-      wet: 0.34,
+      frequency: 1.25,
+      delayTime: 3.2,
+      depth: 0.30,
+      wet: 0.25,
     }).start();
 
     // 5 Kênh Mixer độc lập (thêm Hát bè vocal2)
@@ -668,69 +689,70 @@ class AudioEngine {
 
     let synth;
     let filter;
-    const revSend = new Tone.Gain(0.32).connect(this.reverbSend);
+    const revSend = new Tone.Gain(0.24).connect(this.reverbSend);
 
     if (timbreId === 'piano') {
       filter = new Tone.Filter(2600, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        maxPolyphony: 14,
-        volume: -11,
+        maxPolyphony: 64,
+        volume: -13,
         oscillator: {
           type: 'custom',
           partials: [1, 0.45, 0.22, 0.10, 0.045, 0.018],
         },
-        envelope: { attack: 0.007, decay: 1.85, sustain: 0.16, release: 1.3 },
+        envelope: { attack: 0.007, decay: 1.45, sustain: 0.16, release: 0.85 },
       });
-      revSend.gain.value = 0.40;
+      revSend.gain.value = 0.28;
       synth.connect(filter);
       filter.connect(this.channels.chords);
       filter.connect(revSend);
     } else if (timbreId === 'pad') {
-      filter = new Tone.Filter(1400, 'lowpass');
+      filter = new Tone.Filter(1450, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        maxPolyphony: 14,
-        volume: -14,
-        oscillator: { type: 'fatsawtooth', count: 3, spread: 24 },
-        envelope: { attack: 0.26, decay: 0.9, sustain: 0.68, release: 1.6 },
+        maxPolyphony: 64,
+        volume: -16,
+        oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
+        envelope: { attack: 0.22, decay: 0.8, sustain: 0.62, release: 0.90 },
       });
-      revSend.gain.value = 0.62;
+      revSend.gain.value = 0.42;
       synth.connect(filter);
       filter.connect(this.chordChorus);
       filter.connect(revSend);
     } else if (timbreId === 'guitar') {
-      filter = new Tone.Filter(3300, 'lowpass');
+      filter = new Tone.Filter(3200, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        maxPolyphony: 14,
-        volume: -10,
+        maxPolyphony: 64,
+        volume: -12,
         oscillator: {
           type: 'custom',
           partials: [1, 0.68, 0.44, 0.28, 0.16, 0.08, 0.035],
         },
-        envelope: { attack: 0.004, decay: 0.9, sustain: 0.04, release: 0.48 },
+        envelope: { attack: 0.004, decay: 0.85, sustain: 0.04, release: 0.45 },
       });
-      revSend.gain.value = 0.24;
+      revSend.gain.value = 0.20;
       synth.connect(filter);
       filter.connect(this.channels.chords);
       filter.connect(revSend);
     } else {
-      // Mặc định: Warm Rhodes / Electric Piano
-      filter = new Tone.Filter(2700, 'lowpass');
+      // Mặc định: Warm Rhodes / Electric Piano (Headroom sạch + release gọn chống dồn giọng)
+      filter = new Tone.Filter(2600, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        maxPolyphony: 14,
-        volume: -10,
+        maxPolyphony: 64,
+        volume: -12,
         harmonicity: 2,
-        modulationIndex: 1.5,
+        modulationIndex: 1.4,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.012, decay: 1.6, sustain: 0.28, release: 1.35 },
+        envelope: { attack: 0.010, decay: 1.35, sustain: 0.24, release: 0.72 },
         modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.008, decay: 0.45, sustain: 0.05, release: 0.35 },
+        modulationEnvelope: { attack: 0.008, decay: 0.40, sustain: 0.05, release: 0.30 },
       });
-      revSend.gain.value = 0.36;
+      revSend.gain.value = 0.26;
       synth.connect(filter);
       filter.connect(this.chordChorus);
       filter.connect(revSend);
     }
 
+    synth.maxPolyphony = 64;
     this.chordSynths[timbreId] = synth;
     return synth;
   }
@@ -741,64 +763,65 @@ class AudioEngine {
 
     let synth;
     let filter;
-    const revSend = new Tone.Gain(0.36).connect(this.reverbSend);
+    const revSend = new Tone.Gain(0.28).connect(this.reverbSend);
 
     if (timbreId === 'lead') {
       filter = new Tone.Filter(2350, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        maxPolyphony: 8,
-        volume: -10,
+        maxPolyphony: 64,
+        volume: -12,
         oscillator: { type: 'fatsawtooth', count: 2, spread: 14 },
-        envelope: { attack: 0.022, decay: 0.35, sustain: 0.58, release: 0.35 },
+        envelope: { attack: 0.020, decay: 0.32, sustain: 0.56, release: 0.35 },
       });
-      revSend.gain.value = 0.34;
+      revSend.gain.value = 0.26;
     } else if (timbreId === 'flute') {
       filter = new Tone.Filter(2900, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        maxPolyphony: 8,
-        volume: -7,
+        maxPolyphony: 64,
+        volume: -10,
         oscillator: { type: 'custom', partials: [1, 0.26, 0.09, 0.03] },
-        envelope: { attack: 0.06, decay: 0.28, sustain: 0.70, release: 0.50 },
+        envelope: { attack: 0.055, decay: 0.28, sustain: 0.68, release: 0.50 },
       });
-      revSend.gain.value = 0.50;
+      revSend.gain.value = 0.38;
     } else if (timbreId === 'ep') {
-      filter = new Tone.Filter(3600, 'lowpass');
+      filter = new Tone.Filter(3500, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        maxPolyphony: 8,
-        volume: -8,
+        maxPolyphony: 64,
+        volume: -10,
         harmonicity: 2,
-        modulationIndex: 2.1,
+        modulationIndex: 2.0,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.008, decay: 1.1, sustain: 0.22, release: 0.85 },
+        envelope: { attack: 0.008, decay: 1.0, sustain: 0.22, release: 0.68 },
         modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.005, decay: 0.3, sustain: 0.05, release: 0.25 },
+        modulationEnvelope: { attack: 0.005, decay: 0.28, sustain: 0.05, release: 0.22 },
       });
-      revSend.gain.value = 0.32;
+      revSend.gain.value = 0.26;
     } else {
       // Mặc định: Chuông êm / Pluck
-      filter = new Tone.Filter(3800, 'lowpass');
+      filter = new Tone.Filter(3600, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        maxPolyphony: 8,
-        volume: -7,
+        maxPolyphony: 64,
+        volume: -10,
         harmonicity: 3,
-        modulationIndex: 1.45,
+        modulationIndex: 1.4,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.005, decay: 0.92, sustain: 0.12, release: 0.78 },
+        envelope: { attack: 0.005, decay: 0.85, sustain: 0.12, release: 0.62 },
         modulation: { type: 'triangle' },
-        modulationEnvelope: { attack: 0.004, decay: 0.24, sustain: 0.02, release: 0.2 },
+        modulationEnvelope: { attack: 0.004, decay: 0.22, sustain: 0.02, release: 0.18 },
       });
-      revSend.gain.value = 0.40;
+      revSend.gain.value = 0.30;
     }
 
     synth.connect(filter);
     filter.connect(this.channels.melody);
     filter.connect(revSend);
+    synth.maxPolyphony = 64;
     this.melodySynths[timbreId] = synth;
     return synth;
   }
 
   /**
-   * Cập nhật âm lượng, Mute và Solo cho Mixer 4 kênh (không nổ tiếng)
+   * Cập nhật âm lượng, Mute và Solo cho Mixer (tạo Headroom sạch ~ -5dB, chống NaN)
    */
   applyMixer(mixer) {
     this.state.mixer = JSON.parse(JSON.stringify(mixer));
@@ -806,11 +829,14 @@ class AudioEngine {
 
     for (const [key, ch] of Object.entries(mixer)) {
       const node = this.channels[key];
-      if (!node) continue;
+      if (!node || !ch) continue;
       const isAudible = isMixerChannelAudible(mixer, key);
-      const norm = Math.max(0, Math.min(100, ch.volume)) / 100;
-      const gain = isAudible ? Math.pow(norm, 1.55) * 1.15 : 0;
-      node.gain.rampTo(gain, 0.03);
+      const rawVol = Number.isFinite(Number(ch.volume)) ? Number(ch.volume) : 75;
+      const norm = Math.max(0, Math.min(100, rawVol)) / 100;
+      const gain = isAudible ? Math.pow(norm, 1.55) * 0.58 : 0;
+      if (Number.isFinite(gain)) {
+        node.gain.rampTo(gain, 0.03);
+      }
     }
   }
 
@@ -884,9 +910,10 @@ class AudioEngine {
   }
 
   _rampParam(param, val, dur = 0.025) {
-    if (param == null) return;
+    if (param == null || !Number.isFinite(val)) return;
+    const safeDur = Number.isFinite(dur) ? Math.max(0.005, dur) : 0.025;
     if (typeof param.rampTo === 'function') {
-      param.rampTo(val, dur);
+      param.rampTo(val, safeDur);
     } else if ('value' in param) {
       param.value = val;
     }
@@ -1069,40 +1096,83 @@ class AudioEngine {
     });
   }
 
+  _resetTriggerTimes() {
+    this._lastTriggerTime = {
+      chord: -1,
+      melody: -1,
+      trainer: -1,
+      kick: -1,
+      snare: -1,
+      rim: -1,
+      hat: -1,
+      click: -1,
+    };
+  }
+
+  _nextSafeTime(key, rawTime) {
+    const Tone = window.Tone;
+    const now = Tone && typeof Tone.now === 'function' ? Tone.now() : 0;
+    const floorNow = Number.isFinite(now) ? now + 0.005 : 0.005;
+    const baseTime = Number.isFinite(rawTime) ? rawTime : floorNow;
+    let prev = this._lastTriggerTime[key];
+    if (!Number.isFinite(prev) || prev > floorNow + 2.5) {
+      prev = floorNow - 0.001;
+    }
+    const safeTime = Math.max(baseTime, floorNow, prev + 0.0005);
+    this._lastTriggerTime[key] = safeTime;
+    return safeTime;
+  }
+
+  _releaseAllSynths() {
+    Object.values(this.chordSynths).forEach((s) => {
+      try {
+        s.releaseAll();
+      } catch (_) {}
+    });
+    Object.values(this.melodySynths).forEach((s) => {
+      try {
+        s.releaseAll();
+      } catch (_) {}
+    });
+    this._resetTriggerTimes();
+  }
+
   _clearParts() {
     const Tone = window.Tone;
     if (this.chordPart) {
-      this.chordPart.dispose();
+      try { this.chordPart.stop(); this.chordPart.dispose(); } catch (_) {}
       this.chordPart = null;
     }
     if (this.melodyPart) {
-      this.melodyPart.dispose();
+      try { this.melodyPart.stop(); this.melodyPart.dispose(); } catch (_) {}
       this.melodyPart = null;
     }
     if (this.drumPart) {
-      this.drumPart.dispose();
+      try { this.drumPart.stop(); this.drumPart.dispose(); } catch (_) {}
       this.drumPart = null;
     }
     if (this.vocalEventId !== null) {
-      Tone.Transport.clear(this.vocalEventId);
+      try { Tone.Transport.clear(this.vocalEventId); } catch (_) {}
       this.vocalEventId = null;
     }
     ['lead', 'backing'].forEach((tid) => {
       const tr = this.vocalTracks[tid];
       if (tr && tr.eventId !== null) {
-        Tone.Transport.clear(tr.eventId);
+        try { Tone.Transport.clear(tr.eventId); } catch (_) {}
         tr.eventId = null;
       }
     });
     if (this._loopEndCallbackId !== null) {
-      Tone.Transport.clear(this._loopEndCallbackId);
+      try { Tone.Transport.clear(this._loopEndCallbackId); } catch (_) {}
       this._loopEndCallbackId = null;
     }
     Tone.Transport.cancel(0);
+    this._releaseAllSynths();
   }
 
   /**
    * Hủy sự kiện cũ và lập lịch lại toàn bộ: Hợp âm, Giai điệu, Trống, Giọng thu nháp
+   * Chống trùng lặp timestamp, kiểm tra hữu hạn NaN & tạo khoảng giãn vi mô +0.0005s
    */
   rebuildSchedule() {
     if (!this.initialized) return;
@@ -1117,11 +1187,18 @@ class AudioEngine {
 
     this._clearParts();
 
-    const { bpm, totalBars, humanize, chordStyle, chordTimbre, melodyTimbre, drumPattern, voicedChords, melodyNotes } =
+    const rawBpm = Number(this.state.bpm);
+    const bpm = Number.isFinite(rawBpm) ? Math.max(40, Math.min(240, rawBpm)) : 84;
+    const totalBars = this.state.totalBars === 8 ? 8 : 4;
+    const rawHumanize = Number(this.state.humanize);
+    const humanize = Number.isFinite(rawHumanize) ? Math.max(0, Math.min(100, rawHumanize)) : 55;
+    const { chordStyle, chordTimbre, melodyTimbre, drumPattern, voicedChords, melodyNotes } =
       this.state;
+
     const beatSec = 60 / bpm;
     const totalBeats = totalBars * 4;
     const loopDurationSec = totalBeats * beatSec;
+    if (!Number.isFinite(loopDurationSec) || loopDurationSec <= 0) return;
 
     Tone.Transport.bpm.value = bpm;
     Tone.Transport.loop = true;
@@ -1129,6 +1206,22 @@ class AudioEngine {
     Tone.Transport.loopEnd = loopDurationSec;
 
     this._syncVocalDelayTimes();
+
+    // Hàm giãn mốc thời gian tăng dần tuyệt đối để không bao giờ 2 event của cùng synth bị trùng timestamp
+    const normalizePartEvents = (items) => {
+      items.sort((a, b) => a[0] - b[0]);
+      let prevT = -1;
+      for (let i = 0; i < items.length; i++) {
+        let t = Number.isFinite(items[i][0]) ? items[i][0] : 0;
+        t = Math.max(0, Math.min(loopDurationSec - 0.015, t));
+        if (t <= prevT + 0.0005) {
+          t = Math.min(loopDurationSec - 0.012, prevT + 0.0005);
+        }
+        items[i][0] = t;
+        prevT = t;
+      }
+      return items;
+    };
 
     // --- 1. Lập lịch Hợp âm & Bass (dùng chung nguồn sinh thuần với bộ xuất MIDI) ---
     const chordSynth = this._getChordSynth(chordTimbre);
@@ -1141,23 +1234,30 @@ class AudioEngine {
       humanize,
     });
 
-    const chordPartEvents = accEvents.map((ev) => [
-      Math.max(0, Math.min(loopDurationSec - 0.015, ev.startBeat * beatSec)),
-      {
-        midi: ev.midi,
-        durSec: Math.max(0.06, ev.durationBeat * beatSec),
-        vel: ev.velocity,
-      },
-    ]);
+    const chordPartEvents = normalizePartEvents(
+      accEvents
+        .filter((ev) => Number.isFinite(ev.startBeat) && Number.isFinite(ev.midi))
+        .map((ev, idx) => [
+          Math.max(0, Math.min(loopDurationSec - 0.018, ev.startBeat * beatSec + idx * 0.0001)),
+          {
+            midi: Math.max(24, Math.min(108, Math.round(ev.midi))),
+            durSec: Number.isFinite(ev.durationBeat)
+              ? Math.max(0.05, Math.min(4.0, ev.durationBeat * beatSec))
+              : 0.4,
+            vel: Number.isFinite(ev.velocity)
+              ? Math.max(0.08, Math.min(0.92, ev.velocity))
+              : 0.65,
+          },
+        ])
+    );
 
     this.chordPart = new Tone.Part((time, val) => {
+      if (!Number.isFinite(time) || !val || !Number.isFinite(val.midi)) return;
+      const safeTime = this._nextSafeTime('chord', time);
+      const dur = Number.isFinite(val.durSec) ? Math.max(0.04, Math.min(4.0, val.durSec)) : 0.4;
+      const vel = Number.isFinite(val.vel) ? Math.max(0.05, Math.min(0.92, val.vel)) : 0.65;
       try {
-        chordSynth.triggerAttackRelease(
-          midiToToneNote(val.midi),
-          val.durSec,
-          time,
-          val.vel
-        );
+        chordSynth.triggerAttackRelease(midiToToneNote(val.midi), dur, safeTime, vel);
       } catch (_) {}
     }, chordPartEvents);
     this.chordPart.start(0);
@@ -1170,23 +1270,30 @@ class AudioEngine {
       bpm,
       humanize,
     });
-    const melodyPartEvents = melEvents.map((ev) => [
-      Math.max(0, Math.min(loopDurationSec - 0.01, ev.startBeat * beatSec)),
-      {
-        midi: ev.midi,
-        durSec: Math.max(0.06, ev.durationBeat * beatSec),
-        vel: ev.velocity,
-      },
-    ]);
+    const melodyPartEvents = normalizePartEvents(
+      melEvents
+        .filter((ev) => Number.isFinite(ev.startBeat) && Number.isFinite(ev.midi))
+        .map((ev, idx) => [
+          Math.max(0, Math.min(loopDurationSec - 0.015, ev.startBeat * beatSec + idx * 0.0001)),
+          {
+            midi: Math.max(24, Math.min(108, Math.round(ev.midi))),
+            durSec: Number.isFinite(ev.durationBeat)
+              ? Math.max(0.05, Math.min(4.0, ev.durationBeat * beatSec))
+              : 0.3,
+            vel: Number.isFinite(ev.velocity)
+              ? Math.max(0.08, Math.min(0.92, ev.velocity))
+              : 0.72,
+          },
+        ])
+    );
 
     this.melodyPart = new Tone.Part((time, val) => {
+      if (!Number.isFinite(time) || !val || !Number.isFinite(val.midi)) return;
+      const safeTime = this._nextSafeTime('melody', time);
+      const dur = Number.isFinite(val.durSec) ? Math.max(0.04, Math.min(4.0, val.durSec)) : 0.3;
+      const vel = Number.isFinite(val.vel) ? Math.max(0.05, Math.min(0.92, val.vel)) : 0.72;
       try {
-        melodySynth.triggerAttackRelease(
-          midiToToneNote(val.midi),
-          val.durSec,
-          time,
-          val.vel
-        );
+        melodySynth.triggerAttackRelease(midiToToneNote(val.midi), dur, safeTime, vel);
       } catch (_) {}
     }, melodyPartEvents);
     this.melodyPart.start(0);
@@ -1200,15 +1307,22 @@ class AudioEngine {
         chordStyle,
         humanize,
       });
-      const drumPartEvents = drumEvents.map((ev) => [
-        Math.max(0, Math.min(loopDurationSec - 0.01, ev.startBeat * beatSec)),
-        {
-          type: ev.drumType,
-          vel: ev.velocity,
-          openHat: ev.openHat,
-        },
-      ]);
+      const drumPartEvents = normalizePartEvents(
+        drumEvents
+          .filter((ev) => Number.isFinite(ev.startBeat))
+          .map((ev, idx) => [
+            Math.max(0, Math.min(loopDurationSec - 0.015, ev.startBeat * beatSec + idx * 0.0001)),
+            {
+              type: ev.drumType,
+              vel: Number.isFinite(ev.velocity)
+                ? Math.max(0.08, Math.min(0.92, ev.velocity))
+                : 0.7,
+              openHat: Boolean(ev.openHat),
+            },
+          ])
+      );
       this.drumPart = new Tone.Part((time, ev) => {
+        if (!Number.isFinite(time) || !ev) return;
         this._triggerDrum(ev.type, time, ev.vel, ev.openHat);
       }, drumPartEvents);
       this.drumPart.start(0);
@@ -1299,26 +1413,23 @@ class AudioEngine {
   }
 
   _triggerDrum(type, time, vel, openHat = false) {
-    const safeTime = (key, t) => {
-      const next = Math.max(t, this._lastDrumTime[key] + 0.003);
-      this._lastDrumTime[key] = next;
-      return next;
-    };
+    if (!Number.isFinite(time)) return;
+    const safeVel = Number.isFinite(vel) ? Math.max(0.05, Math.min(0.92, vel)) : 0.65;
 
     try {
       if (type === 'kick') {
-        this.drums.kick.triggerAttackRelease('C1', '8n', safeTime('kick', time), vel);
+        this.drums.kick.triggerAttackRelease('C1', '8n', this._nextSafeTime('kick', time), safeVel);
       } else if (type === 'snare') {
-        this.drums.snareNoise.triggerAttackRelease('16n', safeTime('snare', time), vel);
+        this.drums.snareNoise.triggerAttackRelease('16n', this._nextSafeTime('snare', time), safeVel);
       } else if (type === 'rim') {
-        this.drums.rim.triggerAttackRelease('G3', '32n', safeTime('rim', time), vel);
+        this.drums.rim.triggerAttackRelease('G3', '32n', this._nextSafeTime('rim', time), safeVel);
       } else if (type === 'hat') {
         this.drums.hat.envelope.decay = openHat ? 0.16 : 0.042;
-        this.drums.hat.triggerAttackRelease('32n', safeTime('hat', time), vel);
+        this.drums.hat.triggerAttackRelease('32n', this._nextSafeTime('hat', time), safeVel);
       } else if (type === 'clickAccent') {
-        this.drums.click.triggerAttackRelease('C6', '32n', safeTime('click', time), vel);
+        this.drums.click.triggerAttackRelease('C6', '32n', this._nextSafeTime('click', time), safeVel);
       } else if (type === 'click') {
-        this.drums.click.triggerAttackRelease('G5', '32n', safeTime('click', time), vel);
+        this.drums.click.triggerAttackRelease('G5', '32n', this._nextSafeTime('click', time), safeVel);
       }
     } catch (_) {}
   }
@@ -1327,10 +1438,13 @@ class AudioEngine {
    * Nghe thử ngay 1 nốt giai điệu (khi chạm vào Piano Roll hoặc bàn phím dọc)
    */
   async auditionMelodyNote(midi, duration = 0.28) {
+    if (!Number.isFinite(midi)) return;
     await this.ensureReady();
     const synth = this._getMelodySynth(this.state.melodyTimbre);
+    const dur = Number.isFinite(duration) ? Math.max(0.05, duration) : 0.28;
+    const t = this._nextSafeTime('melody', window.Tone.now() + 0.005);
     try {
-      synth.triggerAttackRelease(midiToToneNote(midi), duration, window.Tone.now(), 0.8);
+      synth.triggerAttackRelease(midiToToneNote(Math.round(midi)), dur, t, 0.78);
     } catch (_) {}
   }
 
@@ -1338,13 +1452,17 @@ class AudioEngine {
    * Nghe thử ngay 1 hợp âm (khi người dùng chọn hợp âm trong Chord Picker)
    */
   async auditionChord(voicedChord) {
+    if (!voicedChord || !Number.isFinite(voicedChord.bassMidi)) return;
     await this.ensureReady();
     const synth = this._getChordSynth(this.state.chordTimbre);
-    const now = window.Tone.now();
-    const notes = [voicedChord.bassMidi, ...voicedChord.upperMidis];
+    const baseNow = window.Tone.now() + 0.005;
+    const notes = [voicedChord.bassMidi, ...(voicedChord.upperMidis || [])];
     notes.forEach((midi, idx) => {
+      if (!Number.isFinite(midi)) return;
+      const t = this._nextSafeTime('chord', baseNow + idx * 0.022);
+      const vel = Math.max(0.2, Math.min(0.9, 0.70 - idx * 0.03));
       try {
-        synth.triggerAttackRelease(midiToToneNote(midi), 0.9, now + idx * 0.022, 0.72 - idx * 0.03);
+        synth.triggerAttackRelease(midiToToneNote(Math.round(midi)), 0.75, t, vel);
       } catch (_) {}
     });
   }
@@ -1354,45 +1472,52 @@ class AudioEngine {
    */
   getRecordLatencyCompSec() {
     const Tone = window.Tone;
-    const lookAhead = Tone && Tone.context ? (Tone.context.lookAhead || 0.1) : 0.1;
+    const lookAhead = Tone && Tone.context ? (Tone.context.lookAhead || 0.15) : 0.15;
     const baseLatency =
       Tone && Tone.context && Tone.context.rawContext && typeof Tone.context.rawContext.baseLatency === 'number'
         ? Tone.context.rawContext.baseLatency
         : 0.02;
-    return Math.max(0.06, Math.min(0.22, lookAhead + 0.03 + baseLatency));
+    return Math.max(0.06, Math.min(0.25, lookAhead + 0.03 + baseLatency));
   }
 
   async play(fromStart = false, { muteVocal = false, recordingTrack = null } = {}) {
-    await this.ensureReady();
-    const Tone = window.Tone;
-    this._muteVocalDuringRecord = Boolean(muteVocal);
-    this._recordingTrackMask = recordingTrack;
-    if (fromStart) {
-      Tone.Transport.stop();
-      Tone.Transport.seconds = 0;
-    }
-    this.rebuildSchedule();
-    Tone.Transport.start('+0.03', fromStart ? 0 : Tone.Transport.seconds);
-    this.isPlaying = true;
+    if (this._playStartPromise) return this._playStartPromise;
+    this._playStartPromise = (async () => {
+      try {
+        await this.ensureReady();
+        const Tone = window.Tone;
+        this._muteVocalDuringRecord = Boolean(muteVocal);
+        this._recordingTrackMask = recordingTrack;
+        if (fromStart || !this.isPlaying) {
+          Tone.Transport.stop();
+          Tone.Transport.seconds = 0;
+        }
+        this.rebuildSchedule();
+        const startPos = fromStart || !this.isPlaying ? 0 : Tone.Transport.seconds;
+        Tone.Transport.start('+0.04', Number.isFinite(startPos) ? startPos : 0);
+        this.isPlaying = true;
+      } finally {
+        this._playStartPromise = null;
+      }
+    })();
+    return this._playStartPromise;
   }
 
   stop() {
     if (!this.initialized) return;
     const Tone = window.Tone;
     this.cancelCountIn();
-    Tone.Transport.stop();
-    Tone.Transport.seconds = 0;
+    try {
+      Tone.Transport.stop();
+      Tone.Transport.seconds = 0;
+      Tone.Transport.cancel(0);
+    } catch (_) {}
     this.isPlaying = false;
     this._muteVocalDuringRecord = false;
     this._recordingTrackMask = null;
 
-    // Nhả hết nốt đang ngân
-    Object.values(this.chordSynths).forEach((s) => {
-      try { s.releaseAll(); } catch (_) {}
-    });
-    Object.values(this.melodySynths).forEach((s) => {
-      try { s.releaseAll(); } catch (_) {}
-    });
+    // Nhả hết nốt đang ngân & reset bộ đếm timestamp
+    this._releaseAllSynths();
     if (this.vocalPlayer) {
       try { this.vocalPlayer.stop(); } catch (_) {}
     }
@@ -1557,14 +1682,18 @@ class AudioEngine {
    * Phát tiếng Piano mẫu & phản hồi riêng cho phân khu Học nhạc (không bị ảnh hưởng bởi Mute Studio)
    */
   async playTrainerPiano(midi, duration = 0.65, velocity = 0.82) {
+    if (!Number.isFinite(midi)) return;
     await this.ensureReady();
     this._ensureTrainerSynths();
+    const t = this._nextSafeTime('trainer', window.Tone.now() + 0.005);
+    const dur = Number.isFinite(duration) ? Math.max(0.05, duration) : 0.65;
+    const vel = Number.isFinite(velocity) ? Math.max(0.1, Math.min(0.95, velocity)) : 0.82;
     try {
       this.trainerPiano.triggerAttackRelease(
-        midiToToneNote(midi),
-        duration,
-        window.Tone.now(),
-        velocity
+        midiToToneNote(Math.round(midi)),
+        dur,
+        t,
+        vel
       );
     } catch (_) {}
   }
@@ -1572,19 +1701,21 @@ class AudioEngine {
   async playTrainerWrong() {
     await this.ensureReady();
     this._ensureTrainerSynths();
+    const t = this._nextSafeTime('trainer', window.Tone.now() + 0.005);
     try {
-      this.trainerWrongSynth.triggerAttackRelease('F2', 0.09, window.Tone.now(), 0.55);
+      this.trainerWrongSynth.triggerAttackRelease('F2', 0.09, t, 0.55);
     } catch (_) {}
   }
 
   async playTrainerClick(accent = false) {
     await this.ensureReady();
     this._ensureTrainerSynths();
+    const t = this._nextSafeTime('click', window.Tone.now() + 0.005);
     try {
       this.trainerClickSynth.triggerAttackRelease(
         accent ? 'C6' : 'G5',
         '32n',
-        window.Tone.now(),
+        t,
         accent ? 0.72 : 0.45
       );
     } catch (_) {}
@@ -1911,6 +2042,9 @@ class AudioEngine {
   }
 
   getMasterOutputNode() {
+    if (typeof window.Tone !== 'undefined' && typeof window.Tone.getDestination === 'function') {
+      return window.Tone.getDestination();
+    }
     return this.initialized ? this.masterLimiter : null;
   }
 }

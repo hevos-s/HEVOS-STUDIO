@@ -12,26 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=14';
+} from './theory.js?v=15';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=14';
+} from './audioEngine.js?v=15';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=14';
-import { PianoRoll } from './pianoRoll.js?v=14';
-import { downloadMidiFile } from './midiExport.js?v=14';
-import { MusicTrainer } from './musicTrainer.js?v=14';
-import { VocalStudio } from './vocalStudio.js?v=14';
-import { ArrangementStudio } from './arrangementStudio.js?v=14';
-import { createAmbientScene } from './ambientScene.js?v=14';
+} from './pitchToMidi.js?v=15';
+import { PianoRoll } from './pianoRoll.js?v=15';
+import { downloadMidiFile } from './midiExport.js?v=15';
+import { MusicTrainer } from './musicTrainer.js?v=15';
+import { VocalStudio } from './vocalStudio.js?v=15';
+import { ArrangementStudio } from './arrangementStudio.js?v=15';
+import { createAmbientScene } from './ambientScene.js?v=15';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -1326,12 +1326,15 @@ function bindEvents() {
     }, { passive: true });
   }
 
-  // Phát / Dừng bên Sáng tác Beat
+  // Phát / Dừng bên Sáng tác Beat (có khóa chống bấm đúp khi Tone.start() đang chạy)
+  let isPlayToggleBusy = false;
   el.btnPlay.addEventListener('click', async () => {
     if (state.recordPhase !== 'idle') {
       cancelRecordingCleanly();
       return;
     }
+    if (isPlayToggleBusy) return;
+    isPlayToggleBusy = true;
     try {
       if (audioEngine.isPlaying) {
         audioEngine.stop();
@@ -1341,7 +1344,7 @@ function bindEvents() {
       } else {
         await audioEngine.play(false);
         if (ambientScene) {
-          ambientScene.connectTone(audioEngine.getMasterOutputNode());
+          ambientScene.connectTone();
           ambientScene.wake(8000);
         }
         updatePlayButtonUI();
@@ -1350,6 +1353,8 @@ function bindEvents() {
       }
     } catch (err) {
       showToast(err.message || 'Lỗi khi phát âm thanh.', true);
+    } finally {
+      isPlayToggleBusy = false;
     }
   });
 

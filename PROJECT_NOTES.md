@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=14`, `./js/app.js?v=14`, `./theory.js?v=14`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=15`, `./js/app.js?v=15`, `./theory.js?v=15`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=14`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=15`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -43,8 +43,8 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | `js/ambientScene.js` | Không gian âm thanh 3D Three.js chuẩn Retina 60fps (`pixelRatio <= 2`, `antialias: true`), Harmonics Orb & 3 vòng quỹ đạo tần số, cảm ứng `Tone.Analyser` + Vocal/Arrangement Studio, tự tạm dừng khi ẩn tab (`visibilitychange`) |
 | `js/app.js` | Điều phối trung tâm, trạng thái ứng dụng, đồng bộ Desktop/Mobile, điều hướng 5 phân khu, cầu nối gửi Beat/Vocal sang Dựng bài, ngắt vòng lặp ở tab ẩn & `visibilitychange`, nối Audio -> 3D Scene |
 | `js/arrangementStudio.js` | Phân khu `Dựng bài & Master`: Kho Clip, Playlist đa kênh (di chuyển, Trim, Fade-In/Out, Split, Duplicate), chuỗi Mastering `buildMasteringChain` (EQ 3 dải · Stereo Width · Glue Comp · Limiter `-0.3dBFS`) & xuất `.wav` 16/24-bit bằng `OfflineAudioContext` |
-| `js/audioEngine.js` | Bộ máy âm thanh `Tone.js` (4 tiếng đàn, 4 kiểu đệm, trống GM, giai điệu MIDI, đếm nhịp, mixer, `renderBeatOffline` bằng `OfflineAudioContext` & xuất loop audio) |
-| `js/autoTune.js` | Bộ xử lý Auto-Tune khóa tông thế hệ mới: Zero-Phase Butterworth Bandpass -> Exact FFT-YIN (`2048/256`) + Parabolic Interpolation -> Lọc trung vị 5 khung -> Khóa pha & nội suy sub-sample TD-PSOLA + Raised-Cosine Crossfade `15ms` + Soft Limiter `0.92` |
+| `js/audioEngine.js` | Bộ máy âm thanh `Tone.js` (`maxPolyphony: 64`, chống trùng timestamp `+0.0005s`, bảo vệ `NaN`, mạch `Compressor -> Limiter -1dBFS`, `lookAhead = 0.15`, `renderBeatOffline` bằng `OfflineAudioContext` & xuất loop audio) |
+| `js/autoTune.js` | Bộ máy Auto-Tune khóa tông TD-PSOLA liên tục & đồng cực: Khử lệch DC -> Zero-Phase Butterworth `75–850Hz` -> FFT-YIN (`2048/256`) + Parabol -> Tách Pitch Trend & Vibrato + Exponential Glide (`±2.5` bán cung) -> Pitch Marks đồng cực toàn cục -> Overlap-Add chuẩn hóa `weightSum[i]` trên cửa sổ Hann `max(2*T0, 2*T1)` (khớp 1:1 cho cả nguyên âm & phụ âm) -> Warm Comp & Soft Limiter `0.92` |
 | `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 (`.mid`, PPQ = 480, tối đa 4 track) |
 | `js/musicTrainer.js` | Giao diện & logic luyện đọc nốt, nốt chạy theo BPM, chấm điểm & ôn tập nốt hay sai |
 | `js/pianoRoll.js` | Bảng vẽ & chỉnh sửa giai điệu MIDI 60fps trên HTML5 Canvas |

@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=14';
+} from './theory.js?v=15';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=14';
-import { applyAutoTunePcm } from './autoTune.js?v=14';
+} from './pitchToMidi.js?v=15';
+import { applyAutoTunePcm } from './autoTune.js?v=15';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=14';
+} from './audioEngine.js?v=15';
 
 export const VOCAL_PRESETS = [
   {

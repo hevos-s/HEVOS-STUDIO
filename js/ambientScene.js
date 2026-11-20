@@ -413,14 +413,16 @@ export class AmbientAudioScene {
   }
 
   /**
-   * Kết nối nhẹ đầu ra Tone.js (read-only) qua Tone.Analyser('fft', 64)
+   * Kết nối song song (read-only) đầu ra Tone.Destination qua Tone.Analyser('fft', 64),
+   * tuyệt đối không gọi disconnect() làm ảnh hưởng đường tiếng của Sáng tác Beat.
    */
   connectTone(masterNode = null) {
     if (!this.supported || typeof window.Tone === 'undefined') return false;
     const Tone = window.Tone;
     if (!Tone.context || Tone.context.state !== 'running') return false;
 
-    const targetNode = masterNode || (typeof Tone.getDestination === 'function' ? Tone.getDestination() : null);
+    const targetNode =
+      typeof Tone.getDestination === 'function' ? Tone.getDestination() : masterNode;
     if (!targetNode || typeof targetNode.connect !== 'function') return false;
 
     if (this.analyser && this.connectedToneNode === targetNode) {
@@ -428,17 +430,13 @@ export class AmbientAudioScene {
     }
 
     try {
-      if (this.analyser) {
-        try {
-          if (this.connectedToneNode) this.connectedToneNode.disconnect(this.analyser);
-        } catch (_) {}
-        try {
-          this.analyser.dispose();
-        } catch (_) {}
+      if (!this.analyser) {
+        this.analyser = new Tone.Analyser('fft', 64);
       }
-      this.analyser = new Tone.Analyser('fft', 64);
-      targetNode.connect(this.analyser);
-      this.connectedToneNode = targetNode;
+      if (this.connectedToneNode !== targetNode) {
+        targetNode.connect(this.analyser);
+        this.connectedToneNode = targetNode;
+      }
       return true;
     } catch (err) {
       console.warn('[HEVOS STUDIO Analyser]', err);
