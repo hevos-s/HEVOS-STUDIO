@@ -137,38 +137,122 @@ button {
   flex-wrap: wrap;
 }
 
-.brand-nav-group {
+/* ==========================================================================
+   TẦNG 1: THANH ĐIỀU HƯỚNG TỔNG (GLOBAL APP BAR ~52px) & QUY TẮC 4 PHÂN KHU
+   ========================================================================== */
+.global-app-bar {
+  flex-shrink: 0;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  background: #14161A;
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  z-index: 40;
+}
+
+.brand-btn {
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.brand-btn:hover {
+  background: var(--bg-module);
+}
+
+.global-nav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 52px;
+}
+
+.global-nav-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 15px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+  white-space: nowrap;
+}
+
+.global-nav-tab:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.global-nav-tab.active {
+  color: #FFFFFF;
+  background: rgba(16, 185, 129, 0.08);
+  border-bottom-color: var(--play-green);
+}
+
+.global-nav-tab[data-section-target="studio"].active {
+  background: rgba(129, 140, 248, 0.1);
+  border-bottom-color: var(--ch-chords);
+  color: #E0E7FF;
+}
+
+.global-nav-tab[data-section-target="vocal"].active {
+  background: rgba(244, 63, 94, 0.1);
+  border-bottom-color: var(--ch-vocal);
+  color: #FFE4E6;
+}
+
+.global-nav-tab[data-section-target="trainer"].active {
+  background: rgba(20, 184, 166, 0.1);
+  border-bottom-color: var(--ch-melody);
+  color: #CCFBF1;
+}
+
+.gnav-label-mobile {
+  display: none;
+}
+
+.global-bar-right {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.section-switcher {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  padding: 2px;
-  flex-shrink: 0;
-}
-
-.section-switcher .seg-btn {
-  height: 24px;
-  padding: 0 10px;
-  font-size: 11.5px;
+.engine-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: 3px;
 }
 
-.section-switcher .seg-btn.active {
-  background: var(--play-green);
-  color: #052E20;
-}
-
-/* Ẩn gọn toàn bộ phần Studio khi chuyển sang phân khu Học nhạc */
-.studio-app[data-section="trainer"] .studio-main,
-.studio-app[data-section="trainer"] .mobile-bottom-nav,
-.studio-app[data-section="trainer"] .studio-only-el {
+/* Quy tắc ẩn/hiện 4 phân khu: Tổng quan (hub) | Sáng tác Beat (studio) | Phòng thu Vocal (vocal) | Học nhạc lý (trainer) */
+.studio-app:not([data-section="studio"]) .studio-main,
+.studio-app:not([data-section="studio"]) .mobile-bottom-nav,
+.studio-app:not([data-section="studio"]) .studio-only-el {
   display: none !important;
+}
+
+.studio-app[data-section="hub"] .hub-workspace {
+  display: flex !important;
+}
+
+.studio-app[data-section="vocal"] .vocal-workspace {
+  display: flex !important;
 }
 
 .studio-app[data-section="trainer"] .trainer-workspace {
@@ -1087,7 +1171,7 @@ button {
 
 .mixer-channels {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   background: var(--bg-panel);
 }
@@ -2091,11 +2175,11 @@ button {
     gap: 8px;
   }
 
-  /* 3. Bottom Navigation Bar (4 Tabs: Hợp âm | Giai điệu | Thu âm | Mixer) */
+  /* 3. Bottom Navigation Bar (3 Tabs chỉ hiện khi ở mục Sáng tác Beat) */
   .mobile-bottom-nav {
     flex-shrink: 0;
     display: grid !important;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     background: var(--bg-panel);
     border-top: 1px solid var(--border);
     padding: 3px 4px calc(5px + env(safe-area-inset-bottom, 0px));
@@ -3113,54 +3197,418 @@ button {
 }
 
 /* ==========================================================================
-   PHÒNG THU VOCAL CHUYÊN SÂU (SUB-TABS, MIC PREAMP, 2 TRACK, AUTO-TUNE, KỆ FX)
+   PHÂN KHU 0: TỔNG QUAN (STUDIO HUB) & PHÂN KHU 2: PHÒNG THU VOCAL ĐỘC LẬP
    ========================================================================== */
-.workspace-subtabs {
-  flex-shrink: 0;
+.hub-workspace {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hub-shell {
+  width: 100%;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 24px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hub-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+}
+
+.hub-kicker {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--play-green-bright);
+}
+
+.hub-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #F9FAFB;
+}
+
+.hub-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.hub-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.hub-card {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 18px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+  overflow: hidden;
+}
+
+.hub-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.hub-card-studio::before  { background: var(--ch-chords); }
+.hub-card-vocal::before   { background: var(--ch-vocal); }
+.hub-card-trainer::before { background: var(--ch-melody); }
+
+.hub-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.hub-card-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hub-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.icon-indigo  { color: #A5B4FC; border-color: rgba(129, 140, 248, 0.35); }
+.icon-rose    { color: #FDA4AF; border-color: rgba(244, 63, 94, 0.35); }
+.icon-emerald { color: #5EEAD4; border-color: rgba(20, 184, 166, 0.35); }
+
+.hub-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
-  padding: 5px 10px 0;
-  background: #15171B;
-  border-bottom: 1px solid var(--border);
 }
 
-.workspace-tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 3px 3px 0 0;
-  border: 1px solid transparent;
-  border-bottom: none;
-  font-size: 11.5px;
+.hub-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   font-weight: 700;
-  color: var(--text-3);
-  background: transparent;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
 }
 
-.workspace-tab-btn:hover {
+.tag-indigo  { color: #C7D2FE; border-color: rgba(129, 140, 248, 0.4); background: #1D2030; }
+.tag-rose    { color: #FECDD3; border-color: rgba(244, 63, 94, 0.4); background: #2B1920; }
+.tag-emerald { color: #99F6E4; border-color: rgba(20, 184, 166, 0.4); background: #142825; }
+
+.hub-card-title {
+  margin: 2px 0 0;
+  font-size: 16.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+}
+
+.hub-card-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  flex: 1;
+}
+
+.hub-card-desc code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #E5E7EB;
+  background: var(--bg-input);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.hub-card-btn {
+  width: 100%;
+  height: 36px;
+  justify-content: space-between;
+  padding: 0 13px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.btn-rose-solid {
+  background: #E11D48;
+  border-color: #F43F5E;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.btn-rose-solid:hover:not(:disabled) {
+  background: #F43F5E;
+  border-color: #FDA4AF;
+}
+
+.hub-coming-soon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(26, 28, 32, 0.65);
+  border: 1px dashed var(--border-strong);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.coming-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  color: #FCD34D;
+}
+
+.coming-title {
+  font-weight: 700;
   color: var(--text-1);
 }
 
-.workspace-tab-btn.active {
+.coming-desc {
+  color: var(--text-3);
+}
+
+/* Không gian Phòng thu Vocal độc lập */
+.vocal-workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-deep);
+}
+
+/* Thanh Transport riêng của Phòng thu Vocal */
+.vs-transport-bar {
   background: var(--bg-panel);
-  border-color: var(--border);
-  color: #F3F4F6;
-  margin-bottom: -1px;
-  padding-bottom: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.workspace-tab-btn[data-workspace-tab="melody"].active {
-  color: #5EEAD4;
-  border-top: 2px solid var(--ch-melody);
+.vs-tp-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 380px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.workspace-tab-btn[data-workspace-tab="vocal"].active {
-  color: #FDA4AF;
-  border-top: 2px solid var(--ch-vocal);
+.vs-tp-btns {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.vs-tp-rewind {
+  width: 32px;
+  padding: 0;
+}
+
+.vs-scrubber-box {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 9px;
+}
+
+.vs-clock-readout {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--play-green-bright);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vs-clock-sep {
+  color: var(--text-3);
+  margin: 0 2px;
+}
+
+#vs-clock-total {
+  color: var(--text-2);
+}
+
+.vs-timeline-scrubber {
+  flex: 1;
+  min-width: 70px;
+}
+
+.vs-tp-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vs-metro-cluster,
+.vs-key-cluster,
+.vs-export-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.vs-bpm-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  height: 26px;
+}
+
+.vs-bpm-input {
+  width: 46px;
+  height: 20px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #93C5FD;
+  box-shadow: none;
+}
+
+.vs-export-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* Track 0 — Nguồn Beat Nền */
+.vs-beat-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.vs-beat-card.drag-over {
+  border-color: #38BDF8;
+  background: #18222D;
+}
+
+.vs-beat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vs-beat-title-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.vs-led-beat {
+  background: #38BDF8;
+}
+
+.vs-beat-source-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vs-beat-wave-wrap {
+  height: 56px;
+  cursor: pointer;
+}
+
+.vs-beat-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vs-beat-vol-slider {
+  flex: 1;
+  min-width: 180px;
+  max-width: 340px;
 }
 
 .vocal-presence-dot {
@@ -3862,6 +4310,7 @@ button {
 }
 
 @media (max-width: 960px) {
+  .hub-cards-grid,
   .vs-tracks-grid,
   .vs-rack-grid {
     grid-template-columns: 1fr;
@@ -3869,21 +4318,119 @@ button {
 }
 
 @media (max-width: 767px) {
-  .studio-app[data-active-tab="melody"] #melody-workspace-view {
-    display: flex !important;
+  .global-app-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px 8px 0;
+    gap: 5px;
+    min-height: 0;
   }
-  .studio-app[data-active-tab="melody"] #vocal-studio-view {
-    display: none !important;
+
+  .brand-btn {
+    align-self: flex-start;
+    padding: 2px 4px;
   }
-  .studio-app[data-active-tab="vocal"] #melody-workspace-view {
-    display: none !important;
+
+  .global-nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    height: auto;
+    gap: 3px;
   }
-  .studio-app[data-active-tab="vocal"] #vocal-studio-view {
-    display: flex !important;
+
+  .global-nav-tab {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    min-height: 46px;
+    padding: 5px 3px 6px;
+    font-size: 10.5px;
+    border-radius: 3px 3px 0 0;
+  }
+
+  .gnav-label-desktop {
+    display: none;
+  }
+
+  .gnav-label-mobile {
+    display: inline;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  .hub-shell {
+    padding: 12px 10px 24px;
+    gap: 12px;
+  }
+
+  .hub-header {
+    padding: 12px 13px;
+  }
+
+  .hub-title {
+    font-size: 17px;
+  }
+
+  .hub-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .hub-card {
+    padding: 14px 13px;
+  }
+
+  .hub-card-btn {
+    min-height: 42px;
   }
 
   .vocal-studio-panel {
-    padding: 8px 8px 14px;
+    padding: 8px 8px 16px;
+  }
+
+  .vs-transport-bar {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .vs-tp-main {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .vs-scrubber-box {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .vs-tp-options {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vs-export-btns {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .vs-export-btn {
+    min-height: 38px;
+    justify-content: center;
+  }
+
+  .vs-beat-source-btns {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .vs-beat-source-btns .btn {
+    width: 100%;
+    min-height: 38px;
+    justify-content: center;
   }
 
   .vs-tracks-grid,

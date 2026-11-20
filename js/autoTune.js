@@ -3,13 +3,13 @@
 // Phiên bản TD-PSOLA cửa sổ Hann: giữ nguyên âm sắc formant & các phụ âm gió (s, t, ch, kh)
 // ============================================================================
 
-import { freqToMidi, snapMidiToScale } from './theory.js?v=8';
+import { freqToMidi, snapMidiToScale } from './theory.js?v=9';
 import {
   bandpassVocalPcm,
   detectPitchYIN,
   downsampleBuffer,
   encodePcmToWavBlob,
-} from './pitchToMidi.js?v=8';
+} from './pitchToMidi.js?v=9';
 
 const yieldUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
