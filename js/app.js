@@ -12,25 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=13';
+} from './theory.js?v=14';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=13';
+} from './audioEngine.js?v=14';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=13';
-import { PianoRoll } from './pianoRoll.js?v=13';
-import { downloadMidiFile } from './midiExport.js?v=13';
-import { MusicTrainer } from './musicTrainer.js?v=13';
-import { VocalStudio } from './vocalStudio.js?v=13';
-import { createAmbientScene } from './ambientScene.js?v=13';
+} from './pitchToMidi.js?v=14';
+import { PianoRoll } from './pianoRoll.js?v=14';
+import { downloadMidiFile } from './midiExport.js?v=14';
+import { MusicTrainer } from './musicTrainer.js?v=14';
+import { VocalStudio } from './vocalStudio.js?v=14';
+import { ArrangementStudio } from './arrangementStudio.js?v=14';
+import { createAmbientScene } from './ambientScene.js?v=14';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -90,6 +91,7 @@ const vocalCapture = new VocalCapture();
 let pianoRoll = null;
 let musicTrainer = null;
 let vocalStudio = null;
+let arrangementStudio = null;
 let ambientScene = null;
 let recStopTimer = null;
 let uiRafId = null;
@@ -113,6 +115,8 @@ const el = {
   sectionSwitcher: $('#section-switcher'),
   hubRoot: $('#hub-root'),
   vocalRoot: $('#vocal-root'),
+  arrangementRoot: $('#arrangement-root'),
+  arrangementPresenceDot: $('#arrangement-presence-dot'),
   trainerRoot: $('#trainer-root'),
   btnPlay: $('#btn-play'),
   btnPlayLabel: $('#btn-play-label'),
@@ -951,6 +955,56 @@ async function handleExportAudio() {
   }
 }
 
+async function handleSendBeatToArrangement() {
+  if (!arrangementStudio) return;
+  const btns = $$('[data-action="send-beat-arrangement"]');
+  const labels = $$('.send-arr-label');
+  btns.forEach((b) => (b.disabled = true));
+  labels.forEach((l) => (l.textContent = 'Đang kết xuất...'));
+
+  try {
+    const audioBuffer = await audioEngine.renderBeatOffline({
+      bpm: state.bpm,
+      totalBars: state.totalBars,
+      humanize: state.humanize,
+      chordStyle: state.chordStyle,
+      chordTimbre: state.chordTimbre,
+      drumPattern: state.drumPattern,
+      melodyTimbre: state.melodyTimbre,
+      voicedChords: state.voicedChords,
+      melodyNotes: state.melodyNotes,
+      mixer: state.mixer,
+    });
+    if (!audioBuffer) {
+      showToast('Không có dữ liệu beat để kết xuất.', true);
+      return;
+    }
+
+    const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+    const keyName = pcToNoteName(state.keyPc, preferFlats);
+    const scaleLbl = state.scaleType === 'minor' ? 'Thứ' : 'Trưởng';
+    const clipName = `Beat ${keyName} ${scaleLbl} · ${state.bpm} BPM (${state.totalBars} ô)`;
+
+    arrangementStudio.importClip({
+      name: clipName,
+      sourceType: 'studio',
+      audioBuffer,
+      bpm: state.bpm,
+      color: '#8B5CF6',
+      suggestedTrackIndex: 0,
+      autoPlace: false,
+    });
+    showToast(`Đã gửi "${clipName}" vào Kho Clip của Dựng bài & Master!`);
+  } catch (err) {
+    console.error('[HEVOS Send Beat Arrangement]', err);
+    showToast(err.message || 'Lỗi khi kết xuất Beat sang Dựng bài.', true);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+    labels.forEach((l) => (l.textContent = 'Gửi Beat sang Dựng bài →'));
+    updatePlayButtonUI();
+  }
+}
+
 // ============================================================================
 // Lưu & Mở nhiều dự án nháp qua LocalStorage
 // ============================================================================
@@ -1105,10 +1159,10 @@ function deleteProjectById(id) {
 }
 
 // ============================================================================
-// Điều hướng 4 Phân khu (Tổng quan | Sáng tác Beat | Phòng thu Vocal | Học nhạc lý)
+// Điều hướng 5 Phân khu (Tổng quan | Sáng tác Beat | Phòng thu Vocal | Dựng bài & Master | Học nhạc lý)
 // ============================================================================
 function setAppSection(section) {
-  const valid = ['hub', 'studio', 'vocal', 'trainer'];
+  const valid = ['hub', 'studio', 'vocal', 'arrangement', 'trainer'];
   const target = valid.includes(section) ? section : 'hub';
   if (state.activeSection === target) return;
 
@@ -1120,6 +1174,9 @@ function setAppSection(section) {
   updatePlayButtonUI();
   if (vocalStudio) {
     vocalStudio.stopAll();
+  }
+  if (arrangementStudio) {
+    arrangementStudio.stopAll();
   }
   if (musicTrainer) {
     musicTrainer.stopActiveSession();
@@ -1135,6 +1192,7 @@ function setAppSection(section) {
       hub: 'Tổng quan',
       studio: 'Sáng tác Beat',
       vocal: 'Phòng thu Vocal',
+      arrangement: 'Dựng bài & Master',
       trainer: 'Học nhạc lý',
     };
     el.mobileSectionBadge.textContent = sectionNames[target] || 'Tổng quan';
@@ -1154,6 +1212,9 @@ function setAppSection(section) {
   if (el.vocalRoot) {
     el.vocalRoot.classList.toggle('hidden', target !== 'vocal');
   }
+  if (el.arrangementRoot) {
+    el.arrangementRoot.classList.toggle('hidden', target !== 'arrangement');
+  }
   if (el.trainerRoot) {
     el.trainerRoot.classList.toggle('hidden', target !== 'trainer');
   }
@@ -1162,6 +1223,9 @@ function setAppSection(section) {
   }
   if (vocalStudio) {
     vocalStudio.setSectionActive(target === 'vocal');
+  }
+  if (arrangementStudio) {
+    arrangementStudio.setSectionActive(target === 'arrangement');
   }
   if (musicTrainer) {
     musicTrainer.setSectionActive(target === 'trainer');
@@ -1533,6 +1597,9 @@ function bindEvents() {
   $$('[data-action="export-audio"]').forEach((btn) =>
     btn.addEventListener('click', handleExportAudio)
   );
+  $$('[data-action="send-beat-arrangement"]').forEach((btn) =>
+    btn.addEventListener('click', handleSendBeatToArrangement)
+  );
 
   // Lưu & Mở bản nháp (Desktop Modal + Mobile Tab 3)
   el.btnOpenProjects.addEventListener('click', () => {
@@ -1583,16 +1650,24 @@ function bindEvents() {
   window.addEventListener('resize', () => {
     if (state.activeSection === 'vocal' && vocalStudio) {
       vocalStudio.resizeAndRedraw();
+    } else if (state.activeSection === 'arrangement' && arrangementStudio) {
+      arrangementStudio.resizeAndRedraw();
     } else if (state.activeSection === 'studio' && pianoRoll) {
       pianoRoll.resize();
     }
   });
 
-  // Phím tắt Desktop (chỉ áp dụng khi đang ở phân khu Sáng tác Beat)
+  // Phím tắt Desktop (Sáng tác Beat & Dựng bài & Master)
   window.addEventListener('keydown', (e) => {
-    if (state.activeSection !== 'studio') return;
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    if (state.activeSection === 'arrangement' && arrangementStudio) {
+      arrangementStudio.handleKeyDown(e);
+      return;
+    }
+
+    if (state.activeSection !== 'studio') return;
 
     if (e.key === 'Escape') {
       closeChordPicker();
@@ -1696,7 +1771,10 @@ function init() {
     });
     ambientScene.setSection(state.activeSection);
     ambientScene.setExternalEnergyProvider(() =>
-      vocalStudio ? vocalStudio.getAudioLevel() : 0
+      Math.max(
+        vocalStudio ? vocalStudio.getAudioLevel() : 0,
+        arrangementStudio ? arrangementStudio.getAudioLevel() : 0
+      )
     );
   }
   setupHubScrollReveal();
@@ -1723,6 +1801,24 @@ function init() {
   if (el.trainerRoot) {
     musicTrainer = new MusicTrainer(el.trainerRoot, {
       audioEngine,
+      showToast,
+    });
+  }
+
+  // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist & Mastering)
+  if (el.arrangementRoot) {
+    arrangementStudio = new ArrangementStudio(el.arrangementRoot, {
+      getStudioBpm: () => state.bpm,
+      onPlaybackStateChange: (playing) => {
+        if (playing && ambientScene) {
+          ambientScene.wake();
+        }
+      },
+      onClipsChanged: (count) => {
+        if (el.arrangementPresenceDot) {
+          el.arrangementPresenceDot.classList.toggle('hidden', count === 0);
+        }
+      },
       showToast,
     });
   }
@@ -1760,6 +1856,13 @@ function init() {
           ambientScene.wake(8000);
         }
       },
+      onSendToArrangement: (clipPayload) => {
+        if (!arrangementStudio) return;
+        const clip = arrangementStudio.importClip(clipPayload);
+        if (clip) {
+          showToast(`Đã gửi "${clip.name}" sang Kho Clip Dựng bài & Master!`);
+        }
+      },
       showToast,
     });
   }
@@ -1771,6 +1874,7 @@ function init() {
 
   if (pianoRoll) pianoRoll.setActive(state.activeSection === 'studio');
   if (vocalStudio) vocalStudio.setSectionActive(state.activeSection === 'vocal');
+  if (arrangementStudio) arrangementStudio.setSectionActive(state.activeSection === 'arrangement');
   if (musicTrainer) musicTrainer.setSectionActive(state.activeSection === 'trainer');
 
   syncGlobalControlsUI();

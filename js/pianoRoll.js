@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=13';
+} from './theory.js?v=14';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6

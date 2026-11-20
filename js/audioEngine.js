@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=13';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=14';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -1596,6 +1596,318 @@ class AudioEngine {
         this.trainerPiano.releaseAll();
       } catch (_) {}
     }
+  }
+
+  /**
+   * Kết xuất siêu tốc 1 vòng lặp Beat (Hợp âm + Giai điệu MIDI + Trống + Mixer + Timbre)
+   * sang AudioBuffer Stereo 44.1kHz bằng OfflineAudioContext (hoạt động ngay cả trước khi bấm Phát)
+   */
+  async renderBeatOffline(overrideConfig = null) {
+    const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AC) {
+      throw new Error('Trình duyệt không hỗ trợ OfflineAudioContext để kết xuất Beat.');
+    }
+
+    const cfg = {
+      ...this.state,
+      ...(overrideConfig || {}),
+    };
+    const bpm = Math.max(40, Math.min(240, Number(cfg.bpm) || 84));
+    const totalBars = cfg.totalBars === 8 ? 8 : 4;
+    const beatSec = 60 / bpm;
+    const loopDurationSec = totalBars * 4 * beatSec;
+    const sr = 44100;
+    const totalFrames = Math.max(1, Math.ceil(loopDurationSec * sr));
+
+    const { allEvents: accEvents } = generateAccompanimentEvents({
+      voicedChords: cfg.voicedChords || [],
+      totalBars,
+      bpm,
+      chordStyle: cfg.chordStyle || 'rnb',
+      drumPattern: cfg.drumPattern || 'lofi',
+      humanize: cfg.humanize ?? 55,
+    });
+
+    const melEvents = generateMelodyEvents({
+      melodyNotes: cfg.melodyNotes || [],
+      totalBars,
+      bpm,
+      humanize: cfg.humanize ?? 55,
+    });
+
+    const drumEvents =
+      cfg.drumPattern && cfg.drumPattern !== 'off'
+        ? generateDrumEvents({
+            totalBars,
+            bpm,
+            drumPattern: cfg.drumPattern,
+            chordStyle: cfg.chordStyle || 'rnb',
+            humanize: cfg.humanize ?? 55,
+          })
+        : [];
+
+    const mixer = cfg.mixer || this.state.mixer;
+    const offline = new AC(2, totalFrames, sr);
+
+    const limiter = offline.createDynamicsCompressor();
+    limiter.threshold.value = -1.5;
+    limiter.knee.value = 3;
+    limiter.ratio.value = 16;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.08;
+    limiter.connect(offline.destination);
+
+    const masterBus = offline.createGain();
+    masterBus.gain.value = 0.92;
+    masterBus.connect(limiter);
+
+    const getMixGain = (key) => {
+      const ch = mixer[key] || { volume: 80, muted: false, solo: false };
+      if (!isMixerChannelAudible(mixer, key)) return 0;
+      const norm = Math.max(0, Math.min(100, ch.volume)) / 100;
+      return Math.pow(norm, 1.55) * 1.15;
+    };
+
+    const chChords = offline.createGain();
+    chChords.gain.value = getMixGain('chords');
+    chChords.connect(masterBus);
+
+    const chMelody = offline.createGain();
+    chMelody.gain.value = getMixGain('melody');
+    chMelody.connect(masterBus);
+
+    const chDrums = offline.createGain();
+    chDrums.gain.value = getMixGain('drums');
+    chDrums.connect(masterBus);
+
+    // PeriodicWave custom cho Piano & Guitar & Rhodes ấm sạch
+    const makeWave = (partials) => {
+      const real = new Float32Array(partials.length + 1);
+      const imag = new Float32Array(partials.length + 1);
+      partials.forEach((amp, i) => {
+        imag[i + 1] = amp;
+      });
+      return offline.createPeriodicWave(real, imag);
+    };
+    const pianoWave = makeWave([1, 0.45, 0.22, 0.1, 0.045, 0.018]);
+    const guitarWave = makeWave([1, 0.68, 0.44, 0.28, 0.16, 0.08, 0.035]);
+    const fluteWave = makeWave([1, 0.26, 0.09, 0.03]);
+
+    const midiToHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    const cTimbre = cfg.chordTimbre || 'rhodes';
+    const mTimbre = cfg.melodyTimbre || 'bell';
+
+    // 1. Hợp âm & Bass
+    if (chChords.gain.value > 0.001) {
+      accEvents.forEach((ev) => {
+        const start = Math.max(0, ev.startBeat * beatSec);
+        if (start >= loopDurationSec - 0.01) return;
+        const dur = Math.max(0.06, Math.min(ev.durationBeat * beatSec, loopDurationSec - start));
+        const end = Math.min(loopDurationSec, start + dur + (cTimbre === 'pad' ? 0.35 : 0.18));
+        const freq = midiToHz(ev.midi);
+        const isBass = ev.role === 'bass';
+
+        const osc = offline.createOscillator();
+        const sub = offline.createOscillator();
+        const filter = offline.createBiquadFilter();
+        const env = offline.createGain();
+        const pan = offline.createStereoPanner();
+
+        osc.frequency.setValueAtTime(freq, start);
+        if (isBass) {
+          osc.type = 'triangle';
+          sub.type = 'sine';
+          sub.frequency.setValueAtTime(freq * 0.5, start);
+          filter.frequency.setValueAtTime(520, start);
+          pan.pan.value = 0;
+        } else if (cTimbre === 'piano') {
+          osc.setPeriodicWave(pianoWave);
+          sub.type = 'sine';
+          sub.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(2600, start);
+          pan.pan.value = ((ev.midi % 12) - 5.5) * 0.03;
+        } else if (cTimbre === 'pad') {
+          osc.type = 'sawtooth';
+          osc.detune.setValueAtTime(-9, start);
+          sub.type = 'sawtooth';
+          sub.detune.setValueAtTime(9, start);
+          sub.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(1400, start);
+          pan.pan.value = ((ev.midi % 7) - 3) * 0.05;
+        } else if (cTimbre === 'guitar') {
+          osc.setPeriodicWave(guitarWave);
+          sub.type = 'triangle';
+          sub.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(3200, start);
+          pan.pan.value = ((ev.midi % 9) - 4) * 0.035;
+        } else {
+          // Warm Rhodes / EP
+          osc.type = 'sine';
+          sub.type = 'triangle';
+          sub.frequency.setValueAtTime(freq * 2, start);
+          filter.frequency.setValueAtTime(2500, start);
+          pan.pan.value = ((ev.midi % 12) - 5.5) * 0.025;
+        }
+
+        filter.type = 'lowpass';
+        const peak = Math.max(0.02, ev.velocity * (isBass ? 0.24 : 0.14));
+        const atk = !isBass && cTimbre === 'pad' ? 0.18 : 0.009;
+        env.gain.setValueAtTime(0.0001, start);
+        env.gain.linearRampToValueAtTime(peak, Math.min(end - 0.02, start + atk));
+        env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peak * 0.36), Math.min(end, start + dur));
+        env.gain.linearRampToValueAtTime(0.0001, end);
+
+        const subG = offline.createGain();
+        subG.gain.value = isBass ? 0.35 : cTimbre === 'pad' ? 0.5 : 0.14;
+
+        osc.connect(filter);
+        sub.connect(subG);
+        subG.connect(filter);
+        filter.connect(env);
+        env.connect(pan);
+        pan.connect(chChords);
+
+        osc.start(start);
+        sub.start(start);
+        osc.stop(end + 0.01);
+        sub.stop(end + 0.01);
+      });
+    }
+
+    // 2. Giai điệu MIDI (Piano Roll)
+    if (chMelody.gain.value > 0.001) {
+      melEvents.forEach((ev) => {
+        const start = Math.max(0, ev.startBeat * beatSec);
+        if (start >= loopDurationSec - 0.01) return;
+        const dur = Math.max(0.06, Math.min(ev.durationBeat * beatSec, loopDurationSec - start));
+        const end = Math.min(loopDurationSec, start + dur + 0.16);
+        const freq = midiToHz(ev.midi);
+
+        const osc = offline.createOscillator();
+        const over = offline.createOscillator();
+        const filter = offline.createBiquadFilter();
+        const env = offline.createGain();
+
+        osc.frequency.setValueAtTime(freq, start);
+        if (mTimbre === 'lead') {
+          osc.type = 'sawtooth';
+          osc.detune.setValueAtTime(-6, start);
+          over.type = 'sawtooth';
+          over.detune.setValueAtTime(6, start);
+          over.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(2350, start);
+        } else if (mTimbre === 'flute') {
+          osc.setPeriodicWave(fluteWave);
+          over.type = 'sine';
+          over.frequency.setValueAtTime(freq * 2, start);
+          filter.frequency.setValueAtTime(2800, start);
+        } else {
+          // bell / ep
+          osc.type = 'sine';
+          over.type = 'triangle';
+          over.frequency.setValueAtTime(mTimbre === 'bell' ? freq * 3 : freq * 2, start);
+          filter.frequency.setValueAtTime(3600, start);
+        }
+
+        filter.type = 'lowpass';
+        const peak = Math.max(0.02, ev.velocity * 0.22);
+        const atk = mTimbre === 'flute' ? 0.045 : 0.007;
+        env.gain.setValueAtTime(0.0001, start);
+        env.gain.linearRampToValueAtTime(peak, Math.min(end - 0.015, start + atk));
+        env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peak * 0.3), Math.min(end, start + dur));
+        env.gain.linearRampToValueAtTime(0.0001, end);
+
+        const overG = offline.createGain();
+        overG.gain.value = mTimbre === 'lead' ? 0.45 : 0.15;
+
+        osc.connect(filter);
+        over.connect(overG);
+        overG.connect(filter);
+        filter.connect(env);
+        env.connect(chMelody);
+
+        osc.start(start);
+        over.start(start);
+        osc.stop(end + 0.01);
+        over.stop(end + 0.01);
+      });
+    }
+
+    // 3. Bộ trống (Kick, Snare Noise, Rimshot, Hi-Hat, Metronome)
+    if (drumEvents.length > 0 && chDrums.gain.value > 0.001) {
+      const noiseBuf = offline.createBuffer(1, Math.floor(sr * 0.24), sr);
+      const nData = noiseBuf.getChannelData(0);
+      let seed = 918273;
+      for (let i = 0; i < nData.length; i++) {
+        seed = (seed * 16807) % 2147483647;
+        nData[i] = (seed / 2147483647) * 2 - 1;
+      }
+
+      drumEvents.forEach((ev) => {
+        const start = Math.max(0, ev.startBeat * beatSec);
+        if (start >= loopDurationSec - 0.01) return;
+        const vel = ev.velocity || 0.7;
+
+        if (ev.drumType === 'kick') {
+          const osc = offline.createOscillator();
+          const env = offline.createGain();
+          const stopAt = Math.min(loopDurationSec, start + 0.24);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(140, start);
+          osc.frequency.exponentialRampToValueAtTime(42, Math.min(stopAt, start + 0.085));
+          env.gain.setValueAtTime(vel * 0.52, start);
+          env.gain.exponentialRampToValueAtTime(0.001, stopAt);
+          osc.connect(env);
+          env.connect(chDrums);
+          osc.start(start);
+          osc.stop(stopAt + 0.005);
+        } else if (ev.drumType === 'snare' || ev.drumType === 'hat') {
+          const src = offline.createBufferSource();
+          src.buffer = noiseBuf;
+          const filter = offline.createBiquadFilter();
+          filter.type = ev.drumType === 'hat' ? 'highpass' : 'bandpass';
+          filter.frequency.setValueAtTime(ev.drumType === 'hat' ? 7200 : 1900, start);
+          const env = offline.createGain();
+          const dec = ev.drumType === 'hat' ? (ev.openHat ? 0.16 : 0.042) : 0.14;
+          const stopAt = Math.min(loopDurationSec, start + dec);
+          env.gain.setValueAtTime(vel * (ev.drumType === 'hat' ? 0.16 : 0.28), start);
+          env.gain.exponentialRampToValueAtTime(0.001, stopAt);
+          src.connect(filter);
+          filter.connect(env);
+          env.connect(chDrums);
+          src.start(start);
+          src.stop(stopAt + 0.005);
+        } else {
+          const osc = offline.createOscillator();
+          const env = offline.createGain();
+          const stopAt = Math.min(loopDurationSec, start + 0.055);
+          osc.type = ev.drumType === 'rim' ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(
+            ev.drumType === 'clickAccent' ? 1150 : ev.drumType === 'click' ? 780 : 390,
+            start
+          );
+          env.gain.setValueAtTime(vel * 0.24, start);
+          env.gain.exponentialRampToValueAtTime(0.001, stopAt);
+          osc.connect(env);
+          env.connect(chDrums);
+          osc.start(start);
+          osc.stop(stopAt + 0.005);
+        }
+      });
+    }
+
+    const rendered = await offline.startRendering();
+    if (rendered && rendered.length > 512) {
+      const fadeSamples = Math.min(264, Math.floor(rendered.length * 0.05));
+      for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+        const data = rendered.getChannelData(ch);
+        for (let i = 0; i < fadeSamples; i++) {
+          const idx = rendered.length - 1 - i;
+          data[idx] *= i / fadeSamples;
+        }
+      }
+    }
+    return rendered;
   }
 
   getMasterOutputNode() {

@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=13';
+} from './theory.js?v=14';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=13';
-import { applyAutoTunePcm } from './autoTune.js?v=13';
+} from './pitchToMidi.js?v=14';
+import { applyAutoTunePcm } from './autoTune.js?v=14';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=13';
+} from './audioEngine.js?v=14';
 
 export const VOCAL_PRESETS = [
   {
@@ -676,6 +676,9 @@ export class VocalStudio {
                 <span class="rec-dot" aria-hidden="true"></span>
                 <span class="vs-rec-label" id="vs-rec-label-${tid}">Thu giọng</span>
               </button>
+              <button type="button" class="btn btn-amber-outline btn-xs vs-send-arr-btn" id="vs-send-arr-${tid}" data-vs-send-arr="${tid}" disabled title="Kết xuất giọng hát đã qua Auto-Tune & FX gửi sang Kho Clip Dựng bài & Master">
+                <span>→ Dựng bài</span>
+              </button>
               <button type="button" class="icon-btn vs-sm-btn" id="vs-dl-${tid}" data-vs-download="${tid}" disabled title="Tải riêng file WAV của track này (đã kèm Auto-Tune & FX)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -888,6 +891,9 @@ export class VocalStudio {
             <button type="button" class="ms-btn" data-vs-mute="beat" title="Tắt tiếng Beat nền">M</button>
             <button type="button" class="ms-btn" data-vs-solo="beat" title="Nghe riêng Beat nền">S</button>
           </div>
+          <button type="button" class="btn btn-amber-outline btn-xs" id="vs-btn-send-beat-arr" disabled title="Gửi Beat nền Track 0 sang Kho Clip Dựng bài & Master">
+            <span>Gửi Beat sang Dựng bài →</span>
+          </button>
           <button type="button" class="btn btn-rose-outline btn-xs" id="vs-btn-clear-beat" disabled title="Xóa Beat nền hiện tại để đổi bài khác hoặc về chế độ Thu mộc">
             <span>Xóa / Đổi Beat</span>
           </button>
@@ -1215,6 +1221,13 @@ export class VocalStudio {
       });
     }
 
+    const btnSendBeatArr = q('#vs-btn-send-beat-arr');
+    if (btnSendBeatArr) {
+      btnSendBeatArr.addEventListener('click', () => {
+        this._sendBeatToArrangement();
+      });
+    }
+
     const beatVolInp = q('#vs-beat-vol');
     if (beatVolInp) {
       beatVolInp.addEventListener('input', (e) => {
@@ -1282,6 +1295,13 @@ export class VocalStudio {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this._downloadSingleTrackWav(btn.dataset.vsDownload);
+      });
+    });
+
+    qq('[data-vs-send-arr]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._sendVocalTrackToArrangement(btn.dataset.vsSendArr);
       });
     });
 
@@ -2754,6 +2774,61 @@ export class VocalStudio {
     }
   }
 
+  _sendBeatToArrangement() {
+    if (!this.beatTrack.audioBuffer) {
+      this._toast('Track 0 chưa có Beat để gửi sang Dựng bài & Master.', true);
+      return;
+    }
+    if (!this.cb.onSendToArrangement) return;
+    this.cb.onSendToArrangement({
+      name: this.beatTrack.name || 'Beat Phòng thu Track 0',
+      sourceType: 'vocal-beat',
+      audioBuffer: this.beatTrack.audioBuffer,
+      bpm: this.vocalBpm,
+      color: '#6366F1',
+      suggestedTrackIndex: 0,
+      suggestedStartSec: 0,
+    });
+  }
+
+  async _sendVocalTrackToArrangement(trackId) {
+    const tr = this.tracks[trackId];
+    if (!tr || !tr.rawPcm) {
+      this._toast('Track giọng này chưa có bản thu.', true);
+      return;
+    }
+    if (!this.cb.onSendToArrangement) return;
+
+    const btn = this.root ? this.root.querySelector(`#vs-send-arr-${trackId}`) : null;
+    if (btn) btn.disabled = true;
+    try {
+      const rendered = await this._renderOfflineMixBuffer({
+        includeBeat: false,
+        onlyTrackId: trackId,
+      });
+      if (!rendered) {
+        this._toast('Không thể kết xuất kênh giọng hát.', true);
+        return;
+      }
+      const startSec = Math.max(0, (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000);
+      const label = `${tr.shortTitle}${tr.autoTune.enabled ? ' (Auto-Tune · FX)' : ' (FX)'}`;
+      this.cb.onSendToArrangement({
+        name: label,
+        sourceType: 'vocal',
+        audioBuffer: rendered,
+        bpm: this.vocalBpm,
+        color: trackId === 'lead' ? '#EC4899' : '#F472B6',
+        suggestedTrackIndex: trackId === 'lead' ? 2 : 3,
+        suggestedStartSec: startSec,
+      });
+    } catch (err) {
+      console.error('[HEVOS Vocal Send Arrangement]', err);
+      this._toast('Lỗi khi gửi Vocal sang Dựng bài & Master.', true);
+    } finally {
+      if (btn) btn.disabled = !Boolean(tr.rawPcm);
+    }
+  }
+
   _applyPresetToActiveTrack(presetId) {
     const preset = VOCAL_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
@@ -2903,6 +2978,8 @@ export class VocalStudio {
     }
     if (emptyEl) emptyEl.classList.toggle('hidden', hasBeat);
     if (clearBtn) clearBtn.disabled = !hasBeat;
+    const sendBeatArrBtn = this.root.querySelector('#vs-btn-send-beat-arr');
+    if (sendBeatArrBtn) sendBeatArrBtn.disabled = !hasBeat;
   }
 
   _syncMuteSoloButtons() {
@@ -2922,6 +2999,7 @@ export class VocalStudio {
     const has = Boolean(tr.rawPcm);
     const badge = this.root.querySelector(`#vs-badge-${trackId}`);
     const dlBtn = this.root.querySelector(`#vs-dl-${trackId}`);
+    const sendArrBtn = this.root.querySelector(`#vs-send-arr-${trackId}`);
     const delBtn = this.root.querySelector(`#vs-del-${trackId}`);
     const emptyEl = this.root.querySelector(`#vs-wave-empty-${trackId}`);
     if (badge) {
@@ -2935,6 +3013,7 @@ export class VocalStudio {
       badge.classList.toggle('has-at', has && tr.autoTune.enabled);
     }
     if (dlBtn) dlBtn.disabled = !has;
+    if (sendArrBtn) sendArrBtn.disabled = !has;
     if (delBtn) delBtn.disabled = !has;
     if (emptyEl) {
       emptyEl.classList.toggle(

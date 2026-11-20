@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=13" />
+  <link rel="stylesheet" href="./style.css?v=14" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh) & Three.js (Không gian 3D trong ambientScene.js) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
@@ -18,7 +18,7 @@
   <div id="app" class="studio-app" data-section="hub" data-active-tab="chords">
     <!-- ====================================================================
          TẦNG 1: THANH ĐIỀU HƯỚNG TỔNG (FLOATING NAVBAR DESKTOP / HEADER 46px + FIXED BOTTOM BAR MOBILE)
-         4 Phân khu: Tổng quan | Sáng tác Beat | Phòng thu Vocal | Học nhạc lý
+         5 Phân khu: Tổng quan | Sáng tác Beat | Phòng thu Vocal | Dựng bài & Master | Học nhạc lý
          ==================================================================== -->
     <header class="global-app-bar" aria-label="Điều hướng tổng HEVOS STUDIO">
       <button type="button" id="btn-logo-home" class="brand brand-btn" title="Về màn hình Tổng quan">
@@ -74,6 +74,17 @@
           <span id="vocal-presence-dot" class="vocal-presence-dot hidden" title="Đang có bản thu giọng"></span>
         </button>
 
+        <button type="button" class="global-nav-tab" data-section-target="arrangement" role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="10" height="4" rx="1" />
+            <rect x="9" y="10" width="12" height="4" rx="1" />
+            <rect x="5" y="16" width="11" height="4" rx="1" />
+          </svg>
+          <span class="gnav-label-desktop">Dựng bài &amp; Master</span>
+          <span class="gnav-label-mobile">Dựng bài</span>
+          <span id="arrangement-presence-dot" class="vocal-presence-dot hidden" title="Kho Clip Dựng bài đang có dữ liệu"></span>
+        </button>
+
         <button type="button" class="global-nav-tab" data-section-target="trainer" role="tab" aria-selected="false">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 18V5l12-2v13" />
@@ -107,7 +118,7 @@
               <span class="cta-arrow" aria-hidden="true">→</span>
             </button>
             <button type="button" class="hero-scroll-btn" data-scroll-to="#chapter-studio">
-              <span>Khám phá 3 không gian</span>
+              <span>Khám phá 4 không gian</span>
               <span aria-hidden="true">↓</span>
             </button>
           </div>
@@ -153,9 +164,28 @@
             </button>
           </article>
 
-          <!-- Chương 03: Học nhạc lý & Phản xạ -->
-          <article id="chapter-trainer" class="hub-chapter chapter-left chapter-amber reveal-item">
-            <span class="chapter-index">03 · HỌC NHẠC LÝ &amp; PHẢN XẠ</span>
+          <!-- Chương 03: Dựng bài Đa Kênh & Mastering -->
+          <article id="chapter-arrangement" class="hub-chapter chapter-left chapter-cyan reveal-item">
+            <span class="chapter-index">03 · DỰNG BÀI &amp; MASTER</span>
+            <h2 class="chapter-title">Dựng bài Đa Kênh &amp; Master</h2>
+            <p class="chapter-desc">
+              Ghép nối beat từ Sáng tác, các lớp vocal phòng thu và file âm thanh ngoài trên lưới Playlist đa kênh, cắt ghép Fade-In/Out, xử lý Master EQ · Stereo Width · Glue Compressor · Limiter -0.3 dBFS và xuất file <code>.wav</code> hoàn chỉnh.
+            </p>
+            <div class="chapter-pills" aria-label="Tính năng nổi bật Dựng bài và Master">
+              <span class="chapter-pill">Playlist Đa Kênh</span>
+              <span class="chapter-pill">Dao cắt &amp; Fade</span>
+              <span class="chapter-pill">Stereo Width · Glue Comp</span>
+              <span class="chapter-pill">Master Limiter .WAV</span>
+            </div>
+            <button type="button" class="chapter-cta-btn" data-goto-section="arrangement">
+              <span>Mở Dựng bài &amp; Master</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </article>
+
+          <!-- Chương 04: Học nhạc lý & Phản xạ -->
+          <article id="chapter-trainer" class="hub-chapter chapter-right chapter-amber reveal-item">
+            <span class="chapter-index">04 · HỌC NHẠC LÝ &amp; PHẢN XẠ</span>
             <h2 class="chapter-title">Học nhạc lý &amp; Phản xạ</h2>
             <p class="chapter-desc">
               Rèn luyện đọc khuông nhạc trên cả Khóa Sol, Khóa Fa và Khóa Đô, tập phản xạ nốt chạy theo BPM, tự động gom các nốt hay sai để ôn lại và tra cứu nốt tương tác cùng bàn phím Piano.
@@ -331,6 +361,10 @@
             <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
           </svg>
           <span class="export-audio-label">Xuất Audio</span>
+        </button>
+
+        <button class="btn btn-amber-outline" type="button" data-action="send-beat-arrangement" title="Kết xuất nhanh vòng beat gửi sang Kho Clip Dựng bài & Master">
+          <span class="send-arr-label">Gửi Beat sang Dựng bài →</span>
         </button>
       </div>
     </header>
@@ -718,6 +752,9 @@
               <button class="btn btn-cyan-solid btn-lg" type="button" data-action="export-audio">
                 <span class="export-audio-label">Xuất nhạc nháp (Audio)</span>
               </button>
+              <button class="btn btn-amber-solid btn-lg" type="button" data-action="send-beat-arrangement">
+                <span class="send-arr-label">Gửi Beat sang Dựng bài →</span>
+              </button>
             </div>
           </div>
 
@@ -745,7 +782,12 @@
     </section>
 
     <!-- ====================================================================
-         PHÂN KHU 3: HỌC NHẠC LÝ (LUYỆN ĐỌC NỐT & PHẢN XẠ NHẠC LÝ)
+         PHÂN KHU 4: DỰNG BÀI ĐA KÊNH & MASTERING STUDIO
+         ==================================================================== -->
+    <section id="arrangement-root" class="arrangement-workspace hidden" aria-label="Dựng bài đa kênh và Mastering"></section>
+
+    <!-- ====================================================================
+         PHÂN KHU 5: HỌC NHẠC LÝ (LUYỆN ĐỌC NỐT & PHẢN XẠ NHẠC LÝ)
          ==================================================================== -->
     <section id="trainer-root" class="trainer-workspace hidden" aria-label="Học nhạc — Luyện đọc nốt và phản xạ nhạc lý"></section>
   </div>
@@ -809,6 +851,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=13"></script>
+  <script type="module" src="./js/app.js?v=14"></script>
 </body>
 </html>
