@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=10';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=11';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -1596,6 +1596,10 @@ class AudioEngine {
         this.trainerPiano.releaseAll();
       } catch (_) {}
     }
+  }
+
+  getMasterOutputNode() {
+    return this.initialized ? this.masterLimiter : null;
   }
 }
 

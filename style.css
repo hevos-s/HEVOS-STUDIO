@@ -1,28 +1,31 @@
 /* ==========================================================================
-   HEVOS STUDIO — Monochrome 2-Tone Glass Studio UI/UX (Teenage Engineering / Logic Pro / Linear)
-   Responsive 100% cho Desktop (>= 768px) & Mobile (< 768px)
+   HEVOS STUDIO — 3D Spatial Audio & Dark Frosted Glass Studio UI
+   Responsive 100% cho Desktop (>= 769px) & Mobile (<= 768px)
    ========================================================================== */
 
 :root {
-  /* 2-Tone Monochrome Glass Palette (Obsidian Graphite & Silver White) */
-  --bg-deep: #09090B;
-  --bg-panel: rgba(22, 22, 26, 0.78);
-  --bg-module: rgba(31, 31, 36, 0.85);
-  --bg-card: rgba(26, 26, 31, 0.78);
-  --bg-card-hover: rgba(38, 38, 45, 0.9);
-  --bg-input: #111114;
-  --bg-lcd: #0B0B0E;
+  /* Deep Studio Analog Night & Frosted Dark Glass Palette */
+  --bg-deep: #08090F;
+  --bg-panel: rgba(10, 11, 18, 0.78);
+  --bg-module: rgba(16, 18, 28, 0.80);
+  --bg-card: rgba(14, 16, 26, 0.76);
+  --bg-card-hover: rgba(24, 26, 40, 0.88);
+  --bg-input: rgba(8, 9, 15, 0.88);
+  --bg-lcd: rgba(7, 8, 13, 0.92);
 
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --glass-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%), rgba(22, 22, 26, 0.78);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --glass-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.01) 100%), rgba(10, 11, 18, 0.78);
 
-  --text-1: #FAFAFA;
-  --text-2: #A1A1AA;
-  --text-3: #52525B;
+  --text-1: #FAFAFC;
+  --text-2: #B0B4C8;
+  --text-3: #646982;
 
-  /* Monochrome Functional Accents */
+  /* Studio Analog & Functional Accents */
+  --accent-indigo: #6D28D9;
+  --accent-magenta: #BE185D;
+  --accent-amber: #F97316;
   --play-green: #F4F4F5;
   --play-green-bright: #FFFFFF;
   --rec-red: #EF4444;
@@ -38,11 +41,11 @@
   /* Soft Modern Corner Radii & Smooth Motion */
   --radius-sm: 10px;
   --radius-md: 14px;
-  --radius-lg: 20px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-sans: "Be Vietnam Pro", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
 }
 
@@ -58,13 +61,26 @@ html, body {
   max-width: 100vw;
   height: 100%;
   background-color: var(--bg-deep);
-  background-image: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 65%);
+  background-image:
+    radial-gradient(circle at 22% 24%, rgba(49, 16, 104, 0.34), transparent 52%),
+    radial-gradient(circle at 78% 36%, rgba(190, 24, 93, 0.20), transparent 48%),
+    radial-gradient(circle at 52% 82%, rgba(249, 115, 22, 0.14), transparent 48%);
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 13px;
-  line-height: 1.42;
+  line-height: 1.44;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+#bg-3d-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  display: block;
 }
 
 button, select, input {
@@ -93,17 +109,18 @@ button {
 .accent-rose { color: #FAFAFA !important; }
 
 /* ==========================================================================
-   APP SHELL (Monochrome Glass Panels & Spotlight Backdrop)
+   APP SHELL (Transparent Layer Above Fixed 3D WebGL Canvas)
    ========================================================================== */
 .studio-app {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   height: 100dvh;
   width: 100%;
   max-width: 100vw;
   overflow: hidden;
-  background-color: var(--bg-deep);
-  background-image: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 65%);
+  background: transparent;
 }
 
 @keyframes fadeSlideIn {
@@ -157,10 +174,10 @@ button {
   justify-content: space-between;
   gap: 10px;
   padding: 6px 12px;
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border-bottom: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: var(--panel-highlight);
   z-index: 30;
 }
@@ -180,25 +197,65 @@ button {
 }
 
 /* ==========================================================================
-   TẦNG 1: THANH ĐIỀU HƯỚNG TỔNG (GLOBAL APP BAR ~52px) & QUY TẮC 4 PHÂN KHU
+   TẦNG 1: FLOATING NAVBAR SIÊU THOÁNG (DESKTOP) & HEADER 46px (MOBILE)
+   Lưu ý: đặt backdrop-filter lên ::before để không tạo containing block giữ
+   thanh điều hướng cố định dưới đáy của Mobile.
    ========================================================================== */
 .global-app-bar {
+  position: relative;
   flex-shrink: 0;
-  min-height: 52px;
-  display: flex;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 0 16px;
-  background: rgba(12, 12, 15, 0.84);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  padding: 0 22px;
   z-index: 40;
+  transition: min-height 0.25s var(--ease-out), padding 0.25s var(--ease-out);
+}
+
+.global-app-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: background 0.32s var(--ease-out), border-color 0.32s var(--ease-out), backdrop-filter 0.32s var(--ease-out), box-shadow 0.32s var(--ease-out);
+}
+
+@media (min-width: 769px) {
+  .studio-app[data-section="hub"] .global-app-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    min-height: 68px;
+    padding: 0 34px;
+  }
+
+  .studio-app[data-section="hub"] .global-app-bar::before {
+    background: linear-gradient(180deg, rgba(8, 9, 15, 0.56) 0%, rgba(8, 9, 15, 0) 100%);
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+    border-bottom-color: transparent;
+    box-shadow: none;
+  }
+
+  .studio-app[data-section="hub"] .global-app-bar.is-scrolled::before {
+    background: rgba(8, 9, 15, 0.76);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
 }
 
 .brand-btn {
+  justify-self: start;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
   text-align: left;
@@ -206,13 +263,14 @@ button {
 }
 
 .brand-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .global-nav {
+  justify-self: center;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   height: 52px;
 }
 
@@ -223,19 +281,33 @@ button {
   justify-content: center;
   gap: 7px;
   height: 36px;
-  padding: 0 15px;
+  padding: 0 14px;
   border-radius: var(--radius-pill);
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(226, 228, 240, 0.68);
   background: transparent;
   border: 1px solid transparent;
-  transition: color 0.2s var(--ease-out), background 0.2s var(--ease-out), border-color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  transition: color 0.22s var(--ease-out), background 0.22s var(--ease-out), transform 0.22s var(--ease-out);
   white-space: nowrap;
 }
 
+.global-nav-tab::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8B5CF6 0%, #EC4899 55%, #F97316 100%);
+  transform: scaleX(0);
+  opacity: 0;
+  transition: transform 0.26s var(--ease-out), opacity 0.22s var(--ease-out);
+}
+
 .global-nav-tab:hover {
-  color: #FAFAFA;
+  color: #FFFFFF;
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -243,10 +315,18 @@ button {
 .global-nav-tab[data-section-target="studio"].active,
 .global-nav-tab[data-section-target="vocal"].active,
 .global-nav-tab[data-section-target="trainer"].active {
-  color: #09090B;
-  background: #F4F4F5;
-  border-color: #FFFFFF;
-  box-shadow: 0 2px 12px rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.global-nav-tab.active::after,
+.global-nav-tab[data-section-target="studio"].active::after,
+.global-nav-tab[data-section-target="vocal"].active::after,
+.global-nav-tab[data-section-target="trainer"].active::after {
+  transform: scaleX(1);
+  opacity: 1;
 }
 
 .gnav-label-mobile {
@@ -254,6 +334,7 @@ button {
 }
 
 .global-bar-right {
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -264,12 +345,13 @@ button {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--text-2);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  padding: 4px 10px;
+  letter-spacing: 0.09em;
+  color: rgba(226, 228, 240, 0.72);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 5px 11px;
   border-radius: var(--radius-pill);
+  backdrop-filter: blur(12px);
 }
 
 .mobile-section-badge {
@@ -727,12 +809,12 @@ button {
 }
 
 .panel {
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--panel-highlight), 0 10px 28px rgba(0, 0, 0, 0.36);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: var(--panel-highlight), 0 12px 32px rgba(4, 5, 10, 0.48);
   display: flex;
   flex-direction: column;
 }
@@ -1165,7 +1247,7 @@ button {
   position: relative;
   width: 100%;
   overflow: hidden;
-  background: #0D0D10;
+  background: rgba(8, 9, 15, 0.90);
 }
 
 #piano-roll-canvas {
@@ -1740,9 +1822,9 @@ button {
 }
 
 /* ==========================================================================
-   TABLET MEDIUM BREAKPOINT (768px .. 1200px)
+   TABLET MEDIUM BREAKPOINT (769px .. 1200px)
    ========================================================================== */
-@media (min-width: 768px) and (max-width: 1200px) {
+@media (min-width: 769px) and (max-width: 1200px) {
   .top-transport {
     flex-wrap: wrap;
     padding: 6px 8px;
@@ -1758,547 +1840,6 @@ button {
   .mixer-strip {
     padding: 6px 7px;
   }
-}
-
-/* ==========================================================================
-   MOBILE LAYOUT (< 768px) — NATIVE APP MINIMALIST & FIXED BOTTOM GLASS NAV
-   ========================================================================== */
-@media (max-width: 767px) {
-  .desktop-only {
-    display: none !important;
-  }
-
-  .mobile-only {
-    display: flex !important;
-  }
-
-  .mobile-mixer-extras.mobile-only {
-    display: flex !important;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .mobile-card-row.mobile-only {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .vibe-chips.mobile-only {
-    display: flex !important;
-    gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-  .vibe-chips::-webkit-scrollbar { display: none; }
-
-  .vibe-chip {
-    flex-shrink: 0;
-    min-height: 36px;
-    padding: 0 12px;
-    border-radius: var(--radius-pill);
-    font-size: 11.5px;
-    font-weight: 700;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    color: var(--text-2);
-  }
-  .vibe-chip.active {
-    background: #F4F4F5;
-    border-color: #FFFFFF;
-    color: #09090B;
-  }
-
-  /* 1. Sticky Mini Transport in Sáng tác Beat */
-  .top-transport {
-    position: sticky;
-    top: 0;
-    padding: 6px 10px;
-    gap: 6px;
-  }
-
-  .transport-left {
-    width: 100%;
-    flex-wrap: nowrap;
-    justify-content: space-between;
-    gap: 6px;
-  }
-
-  .brand {
-    margin-right: 0;
-    gap: 7px;
-    flex-shrink: 0;
-  }
-
-  .brand-text {
-    display: flex;
-  }
-
-  .brand-title {
-    font-size: 11.5px;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-  }
-
-  .brand-sub {
-    display: none;
-  }
-
-  .brand-logo {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    flex-shrink: 0;
-  }
-
-  .brand-logo svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .transport-actions {
-    gap: 6px;
-    flex: 1;
-    justify-content: flex-start;
-  }
-
-  .btn-play,
-  .btn-record {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 0 12px;
-    gap: 5px;
-    font-size: 12px;
-    border-radius: 10px;
-  }
-
-  .mobile-status-pill {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1px;
-    min-height: 44px;
-    padding: 3px 10px;
-    border-radius: 10px;
-    background: var(--bg-lcd);
-    border: 1px solid var(--border);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.2;
-    color: #FAFAFA;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .mobile-status-pill .dot-sep {
-    display: none;
-  }
-
-  /* 2. Khu vực 3 Sub-mode của Sáng tác Beat */
-  .studio-main {
-    flex: 1;
-    min-height: 0;
-    padding: 4px 6px calc(68px + env(safe-area-inset-bottom, 0px));
-    gap: 0;
-    overflow: hidden;
-  }
-
-  .panel {
-    display: none;
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .studio-app[data-active-tab="chords"] .panel[data-panel="chords"],
-  .studio-app[data-active-tab="mixer"] .panel[data-panel="mixer"] {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .studio-app[data-active-tab="melody"] .panel[data-panel="melody"],
-  .studio-app[data-active-tab="vocal"] .panel[data-panel="melody"] {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  /* Touch Target >= 44px */
-  .studio-select,
-  .studio-select.compact,
-  .studio-input {
-    min-height: 44px;
-    font-size: 13.5px;
-    padding: 0 28px 0 11px;
-    border-radius: 10px;
-  }
-
-  .field-box {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field-label {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: var(--text-2);
-    text-transform: uppercase;
-  }
-
-  /* Tab Hợp âm Mobile */
-  .chords-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .chords-toolbar .toolbar-cluster {
-    width: 100%;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .chords-toolbar .section-dot,
-  .chords-toolbar .section-title {
-    display: none;
-  }
-
-  .chord-sound-controls {
-    grid-template-columns: 1fr 1fr !important;
-  }
-
-  .chord-sound-controls .drum-field {
-    grid-column: 1 / -1;
-  }
-
-  .inline-field {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
-
-  .chord-strip.bars-4,
-  .chord-strip.bars-8 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .chord-card {
-    min-height: 76px;
-    padding: 11px 12px 9px;
-  }
-
-  .chord-symbol,
-  .chord-strip.bars-8 .chord-symbol {
-    font-size: 18px;
-  }
-
-  /* Tab Giai điệu Mobile */
-  .melody-toolbar {
-    padding: 7px 9px;
-    gap: 6px;
-  }
-
-  .melody-toolbar .toolbar-cluster {
-    width: 100%;
-    justify-content: space-between;
-    gap: 6px;
-  }
-
-  .mode-group {
-    flex: 1;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .mode-group .seg-btn {
-    min-height: 44px;
-    font-size: 12px;
-    padding: 0 4px;
-  }
-
-  .toggle-pill {
-    min-height: 44px;
-    padding: 0 12px;
-    font-size: 12px;
-  }
-
-  .melody-toolbar .inline-field {
-    flex-direction: row;
-    align-items: center;
-  }
-
-  .melody-toolbar .inline-label {
-    display: none;
-  }
-
-  .melody-toolbar .studio-select.compact {
-    min-height: 40px;
-    font-size: 12.5px;
-  }
-
-  .icon-btn {
-    width: 40px;
-    height: 40px;
-  }
-
-  .btn-clear-midi {
-    min-height: 40px;
-    padding: 0 11px;
-    font-size: 12px;
-  }
-
-  .headphone-banner {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 6px 9px;
-  }
-
-  .headphone-actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .vocal-strip {
-    padding: 6px 8px;
-    gap: 6px;
-  }
-
-  .vocal-live-box {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .vocal-waveform {
-    max-width: none;
-  }
-
-  .vocal-post-controls {
-    width: 100%;
-    justify-content: space-between;
-    gap: 6px;
-  }
-
-  .vocal-post-controls .studio-select.compact {
-    min-height: 38px;
-    font-size: 12px;
-  }
-
-  .vocal-post-controls .btn-xs {
-    min-height: 38px;
-    padding: 0 11px;
-  }
-
-  /* Tab Mixer & Xuất Mobile */
-  .mixer-channels {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    background: transparent;
-  }
-
-  .mixer-strip {
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 11px 12px 9px;
-    gap: 9px;
-    background: var(--bg-card);
-  }
-
-  .mixer-strip:last-child {
-    border-right: 1px solid var(--border);
-  }
-
-  .daw-fader {
-    height: 8px;
-  }
-
-  .daw-fader::-webkit-slider-thumb {
-    width: 24px;
-    height: 20px;
-  }
-
-  .studio-range {
-    height: 8px;
-  }
-
-  .studio-range::-webkit-slider-thumb {
-    width: 20px;
-    height: 20px;
-  }
-
-  .ms-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 13px;
-    border-radius: 10px;
-  }
-
-  .mobile-section-card {
-    background: var(--bg-module);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 11px;
-  }
-
-  .mobile-card-title {
-    margin: 0;
-    font-size: 12px;
-    font-weight: 800;
-    color: var(--text-1);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .mobile-slider-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .mobile-slider-row .row-top {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12.5px;
-    color: var(--text-2);
-  }
-
-  .mobile-inline-setting {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 12.5px;
-    color: var(--text-2);
-  }
-
-  .mobile-inline-setting .seg-btn {
-    min-height: 40px;
-    padding: 0 11px;
-    font-size: 12px;
-  }
-
-  .mobile-export-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  /* 3. Thanh Pill Sub-mode (Hợp âm | Giai điệu | Mixer) nằm ngay trên vùng làm việc Sáng tác Beat */
-  .mobile-bottom-nav {
-    flex-shrink: 0;
-    display: grid !important;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-    margin: 6px 8px 2px;
-    padding: 3px;
-    border-radius: var(--radius-pill);
-    background: rgba(20, 20, 25, 0.9);
-    border: 1px solid var(--border);
-    z-index: 25;
-  }
-
-  .nav-tab {
-    position: relative;
-    min-height: 38px;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    border-radius: var(--radius-pill);
-    color: var(--text-2);
-    font-size: 11.5px;
-    font-weight: 700;
-    transition: color 0.16s var(--ease-out), background 0.16s var(--ease-out);
-  }
-
-  .nav-tab svg {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-
-  .nav-dot {
-    position: absolute;
-    top: 6px;
-    right: 10px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #FFFFFF;
-  }
-
-  .nav-tab.active,
-  .nav-tab[data-tab-target="chords"].active,
-  .nav-tab[data-tab-target="vocal"].active,
-  .nav-tab[data-tab-target="mixer"].active {
-    color: #09090B;
-    background: #F4F4F5;
-  }
-
-  /* Bottom Sheet cho Chord Picker trên Mobile */
-  .modal-backdrop {
-    align-items: flex-end;
-    padding: 0;
-  }
-
-  .modal-sheet {
-    max-width: 100%;
-    border-radius: 20px 20px 0 0;
-    border-bottom: none;
-    padding-bottom: calc(env(safe-area-inset-bottom, 8px) + 64px);
-    animation: sheetUp 0.2s var(--ease-out);
-  }
-
-  @keyframes sheetUp {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
-  }
-
-  .sheet-handle {
-    display: block !important;
-    width: 40px;
-    height: 4px;
-    border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.22);
-    margin: 10px auto 0;
-  }
-
-  .diatonic-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .ext-pill {
-    min-height: 42px;
-  }
-
-  .toast-container {
-    right: 12px;
-    left: 12px;
-    bottom: calc(74px + env(safe-area-inset-bottom, 0px));
-    max-width: none;
-  }
-}
-
-/* Chống tràn trên màn hình siêu nhỏ 360px */
-@media (max-width: 374px) {
-  .btn-play .btn-label { display: none; }
-  .mobile-status-pill { font-size: 9.5px; padding: 3px 6px; }
-  .nav-tab { font-size: 11px; gap: 4px; }
 }
 
 /* ==========================================================================
@@ -2779,7 +2320,7 @@ button {
   align-items: center;
   justify-content: center;
   padding: 4px 10px;
-  background: #0D0D10;
+  background: rgba(8, 9, 15, 0.90);
 }
 
 .staff-svg {
@@ -3136,77 +2677,27 @@ button {
   flex-wrap: wrap;
 }
 
-/* Responsive Trainer trên Mobile (< 768px) */
-@media (max-width: 767px) {
-  .trainer-shell {
-    padding: 6px 8px calc(76px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .trainer-stats-bar,
-  .report-metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .t-stat-cell {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .trainer-modes-grid,
-  .lesson-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .setup-start-btn {
-    width: 100%;
-    min-height: 44px;
-  }
-
-  .drill-hud {
-    padding: 6px 8px;
-    gap: 6px;
-  }
-
-  .hud-metrics {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .lcd-cell-sm {
-    min-width: 0;
-    padding: 3px 4px;
-    text-align: center;
-  }
-
-  .lcd-cell-sm .lcd-label {
-    font-size: 7.5px;
-  }
-
-  .lcd-cell-sm .lcd-val {
-    font-size: 11px;
-  }
-
-  .piano-keyboard {
-    height: clamp(160px, 28dvh, 225px);
-  }
-
-  .piano-key.black-key {
-    width: 11.4%;
-    height: 58%;
-  }
-
-  .black-key .pk-name {
-    font-size: 8px;
-  }
-
-  .report-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
+.trainer-hero,
+.mode-card,
+.setup-topbar,
+.lesson-group,
+.drill-hud,
+.staff-stage,
+.trainer-piano-dock,
+.report-panel,
+.vs-transport-bar,
+.vs-beat-card,
+.vs-input-strip,
+.vs-track-card,
+.vs-fx-shell {
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ==========================================================================
-   PHÂN KHU 0: TỔNG QUAN (STUDIO HUB), CREATOR CARD & PHÂN KHU 2: PHÒNG THU VOCAL
+   PHÂN KHU 0: TỔNG QUAN (EDITORIAL SHOWCASE TRONG KHÔNG GIAN 3D) & CREATOR SPOTLIGHT
    ========================================================================== */
 .hub-workspace {
   flex: 1;
@@ -3216,186 +2707,304 @@ button {
   flex-direction: column;
   background: transparent;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
-.hub-shell {
+.hub-editorial {
   width: 100%;
-  max-width: 1160px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 28px 18px 36px;
+  padding: 0 32px 92px;
   display: flex;
   flex-direction: column;
+}
+
+/* 1. Hero Section nổi trực tiếp trước khối cầu sóng âm 3D */
+.hub-hero {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 96px 12px 52px;
   gap: 18px;
 }
 
-.hub-header {
+.hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(244, 244, 252, 0.82);
+  padding: 6px 15px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.hero-display-title {
+  margin: 4px 0 0;
+  font-size: clamp(2.6rem, 6vw, 5.4rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: #FFFFFF;
+  text-shadow:
+    0 12px 42px rgba(8, 9, 15, 0.86),
+    0 0 64px rgba(190, 24, 93, 0.28),
+    0 0 110px rgba(49, 16, 104, 0.48);
+}
+
+.hero-subtitle {
+  margin: 0;
+  max-width: 640px;
+  font-size: clamp(1rem, 1.55vw, 1.24rem);
+  font-weight: 400;
+  line-height: 1.62;
+  color: rgba(235, 237, 248, 0.84);
+  text-shadow: 0 4px 24px rgba(8, 9, 15, 0.94);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.hero-cta-pill {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 28px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, #FFFFFF 0%, #F5E8FF 100%);
+  color: #08090F;
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 12px 34px rgba(190, 24, 93, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.55);
+  transition: transform 0.28s var(--ease-out), box-shadow 0.28s var(--ease-out);
+}
+
+.hero-cta-pill::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -120%;
+  width: 65%;
+  height: 160%;
+  background: linear-gradient(110deg, transparent 10%, rgba(255, 255, 255, 0.92) 50%, transparent 90%);
+  transform: skewX(-20deg);
+  transition: left 0.65s var(--ease-out);
+  pointer-events: none;
+}
+
+.hero-cta-pill:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 18px 44px rgba(236, 72, 153, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.hero-cta-pill:hover::after {
+  left: 150%;
+}
+
+.hero-cta-pill .cta-arrow {
+  transition: transform 0.24s var(--ease-out);
+}
+
+.hero-cta-pill:hover .cta-arrow {
+  transform: translateX(3px);
+}
+
+.hero-scroll-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 50px;
+  padding: 0 22px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(250, 250, 255, 0.9);
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: background 0.22s var(--ease-out), border-color 0.22s var(--ease-out), transform 0.22s var(--ease-out);
+}
+
+.hero-scroll-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.34);
+  transform: translateY(-2px);
+}
+
+/* 2. Các Chương Tính Năng Trải Dài Theo Cuộn Trang (Xen kẽ Trái - Phải) */
+.hub-chapters {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 20px 24px;
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--panel-highlight), 0 14px 36px rgba(0, 0, 0, 0.42);
+  gap: 112px;
+  padding: 40px 0 112px;
 }
 
-.hub-kicker {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--text-2);
-}
-
-.hub-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: #FAFAFA;
-}
-
-.hub-subtitle {
-  margin: 0;
-  font-size: 13.5px;
-  color: var(--text-2);
-}
-
-.hub-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.hub-chapter {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 16px;
 }
 
-.hub-card {
-  position: relative;
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--panel-highlight), 0 12px 32px rgba(0, 0, 0, 0.42);
-  padding: 22px 20px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  cursor: pointer;
-  transition: border-color 0.26s var(--ease-out), background 0.26s var(--ease-out), transform 0.26s var(--ease-out), box-shadow 0.26s var(--ease-out);
-  overflow: hidden;
+.chapter-left {
+  margin-right: auto;
 }
 
-.hub-card:hover {
-  background: var(--bg-card-hover);
-  border-color: rgba(255, 255, 255, 0.28);
-  transform: translateY(-4px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 20px 44px rgba(0, 0, 0, 0.55);
+.chapter-right {
+  margin-left: auto;
 }
 
-.hub-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.hub-card-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(145deg, #222227 0%, #111114 100%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #FAFAFA;
-  flex-shrink: 0;
-}
-
-.icon-indigo,
-.icon-rose,
-.icon-emerald {
-  color: #FAFAFA;
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.hub-card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-}
-
-.hub-tag,
-.tag-indigo,
-.tag-rose,
-.tag-emerald {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  color: #E4E4E7;
-  white-space: nowrap;
-}
-
-.hub-card-title {
-  margin: 2px 0 0;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: #FAFAFA;
-}
-
-.hub-card-desc {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.54;
-  color: var(--text-2);
-  flex: 1;
-}
-
-.hub-card-desc code {
+.chapter-index {
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: #FAFAFA;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 1px 6px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.chapter-indigo .chapter-index { color: #A78BFA; }
+.chapter-magenta .chapter-index { color: #F472B6; }
+.chapter-amber .chapter-index { color: #FB923C; }
+
+.chapter-title {
+  margin: 0;
+  font-size: clamp(1.85rem, 3.3vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  color: #FFFFFF;
+  text-shadow: 0 8px 30px rgba(8, 9, 15, 0.92);
+}
+
+.chapter-desc {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.72;
+  color: rgba(228, 230, 244, 0.86);
+  text-shadow: 0 3px 18px rgba(8, 9, 15, 0.96);
+}
+
+.chapter-desc code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 2px 7px;
   border-radius: 6px;
 }
 
-.hub-card-btn {
-  width: 100%;
-  height: 40px;
-  border-radius: 12px;
-  justify-content: space-between;
-  padding: 0 15px;
-  font-weight: 700;
-  margin-top: 6px;
+.chapter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
 }
 
-/* Thẻ Giới Thiệu Nhà Phát Triển & Sáng Lập — Lê Trọng Hiếu (HEVOS) */
-.creator-card {
+.chapter-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(244, 244, 252, 0.92);
+  white-space: nowrap;
+}
+
+.chapter-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 22px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #FFFFFF;
+  font-size: 13.5px;
+  font-weight: 700;
+  transition: background 0.22s var(--ease-out), border-color 0.22s var(--ease-out), transform 0.22s var(--ease-out), box-shadow 0.22s var(--ease-out);
+}
+
+.chapter-cta-btn:hover {
+  background: #FFFFFF;
+  border-color: #FFFFFF;
+  color: #08090F;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(255, 255, 255, 0.18);
+}
+
+/* Hiệu ứng hiện mượt khi cuộn trang */
+.hub-workspace.has-reveal .reveal-item {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.72s var(--ease-out), transform 0.72s var(--ease-out);
+}
+
+.hub-workspace.has-reveal .reveal-item.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 3. Góc Giới Thiệu Nhà Sáng Lập & Nghệ Sĩ — Lê Trọng Hiếu (HEVOS) */
+.creator-spotlight {
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 20px;
-  padding: 22px 24px;
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--panel-highlight), 0 14px 36px rgba(0, 0, 0, 0.42);
-  transition: border-color 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+  gap: 24px;
+  padding: 28px 30px;
+  background: rgba(12, 13, 22, 0.54);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 24px 56px rgba(4, 5, 10, 0.55);
+  transition: border-color 0.28s var(--ease-out), background 0.28s var(--ease-out);
 }
 
-.creator-card:hover {
-  border-color: rgba(255, 255, 255, 0.22);
+.creator-spotlight:hover {
+  border-color: rgba(236, 72, 153, 0.36);
+  background: rgba(14, 15, 26, 0.64);
 }
 
 .creator-avatar-col {
@@ -3405,35 +3014,35 @@ button {
 }
 
 .creator-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: linear-gradient(145deg, #27272A 0%, #09090B 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 20px rgba(0, 0, 0, 0.5);
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(49, 16, 104, 0.9) 0%, rgba(18, 15, 34, 0.96) 55%, rgba(190, 24, 93, 0.52) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 26px rgba(49, 16, 104, 0.45);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
 .creator-monogram {
   font-family: var(--font-sans);
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: -0.02em;
-  color: #FAFAFA;
+  color: #FFFFFF;
 }
 
 .creator-submark {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 8.5px;
   font-weight: 800;
   letter-spacing: 0.16em;
-  color: var(--text-2);
+  color: rgba(244, 244, 255, 0.8);
 }
 
 .creator-info-col {
@@ -3447,8 +3056,8 @@ button {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--text-2);
+  letter-spacing: 0.15em;
+  color: #F472B6;
   text-transform: uppercase;
 }
 
@@ -3461,10 +3070,10 @@ button {
 
 .creator-name {
   margin: 0;
-  font-size: 18.5px;
+  font-size: 21px;
   font-weight: 800;
-  letter-spacing: -0.01em;
-  color: #FAFAFA;
+  letter-spacing: -0.015em;
+  color: #FFFFFF;
 }
 
 .creator-pill-badge {
@@ -3472,45 +3081,46 @@ button {
   font-size: 10.5px;
   font-weight: 800;
   letter-spacing: 0.1em;
-  padding: 2px 10px;
+  padding: 3px 11px;
   border-radius: var(--radius-pill);
-  background: #F4F4F5;
-  color: #09090B;
+  background: linear-gradient(135deg, #FFFFFF 0%, #F3E8FF 100%);
+  color: #08090F;
 }
 
 .creator-role {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   font-style: italic;
-  color: var(--text-2);
+  color: rgba(212, 214, 232, 0.82);
 }
 
 .creator-bio {
-  margin: 2px 0 4px;
-  font-size: 12.5px;
-  line-height: 1.56;
-  color: #D4D4D8;
+  margin: 4px 0 6px;
+  font-size: 13.5px;
+  line-height: 1.64;
+  color: rgba(228, 230, 244, 0.86);
 }
 
 .creator-bio strong {
-  color: #FAFAFA;
+  color: #FFFFFF;
 }
 
 .creator-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
 }
 
 .creator-tag {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 4px 11px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  color: #E4E4E7;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  color: rgba(244, 244, 252, 0.9);
   white-space: nowrap;
 }
 
@@ -3524,37 +3134,41 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 16px;
+  gap: 9px;
+  height: 44px;
+  padding: 0 20px;
   border-radius: var(--radius-pill);
-  background: #1F1F24;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #FAFAFA;
-  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+  font-size: 13px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
-  box-shadow: var(--panel-highlight);
-  transition: background 0.2s var(--ease-out), border-color 0.2s var(--ease-out), color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transition: background 0.22s var(--ease-out), border-color 0.22s var(--ease-out), color 0.22s var(--ease-out), transform 0.22s var(--ease-out);
 }
 
 .creator-github-btn:hover {
-  background: #F4F4F5;
+  background: #FFFFFF;
   border-color: #FFFFFF;
-  color: #09090B;
-  transform: translateY(-1px);
+  color: #08090F;
+  transform: translateY(-2px);
 }
 
-.hub-coming-soon {
+.hub-footer-roadmap {
+  margin-top: 28px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 16px;
-  border-radius: var(--radius-md);
-  background: rgba(22, 22, 26, 0.55);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  text-align: center;
+  padding: 14px 18px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   color: var(--text-2);
   font-size: 12px;
 }
@@ -3563,21 +3177,16 @@ button {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 3px 9px;
+  letter-spacing: 0.09em;
+  padding: 3px 10px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #FAFAFA;
 }
 
-.coming-title {
-  font-weight: 700;
-  color: var(--text-1);
-}
-
 .coming-desc {
-  color: var(--text-2);
+  color: rgba(212, 214, 232, 0.78);
 }
 
 /* Không gian Phòng thu Vocal độc lập */
@@ -3589,16 +3198,17 @@ button {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   background: transparent;
 }
 
 /* Thanh Transport riêng của Phòng thu Vocal */
 .vs-transport-bar {
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--panel-highlight);
   padding: 10px 12px;
@@ -3715,10 +3325,10 @@ button {
 
 /* Track 0 — Nguồn Beat Nền */
 .vs-beat-card {
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--panel-highlight);
   padding: 10px 12px;
@@ -3841,10 +3451,10 @@ button {
 
 /* 1. Mic Preamp & Input Strip */
 .vs-input-strip {
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--panel-highlight);
   padding: 10px 12px;
@@ -3963,10 +3573,10 @@ button {
 
 .vs-track-card {
   position: relative;
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--panel-highlight);
   padding: 10px 12px;
@@ -4168,10 +3778,10 @@ button {
 
 /* 3. FX Shell (Editing Banner + Auto-Tune + 6 Presets + Kệ FX) */
 .vs-fx-shell {
-  background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border);
+  background: rgba(10, 11, 18, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   box-shadow: var(--panel-highlight);
   padding: 10px 12px;
@@ -4486,13 +4096,12 @@ button {
 }
 
 @media (max-width: 960px) {
-  .hub-cards-grid,
   .vs-tracks-grid,
   .vs-rack-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .creator-card {
+  .creator-spotlight {
     grid-template-columns: auto 1fr;
   }
 
@@ -4503,38 +4112,91 @@ button {
 }
 
 /* ==========================================================================
-   ĐẠI PHẪU GIAO DIỆN MOBILE (< 768px) — HEADER 48px + THANH ĐÁY CỐ ĐỊNH KÍNH MỜ
+   ĐẠI PHẪU GIAO DIỆN MOBILE (<= 768px) — CHUẨN APP NATIVE MƯỢT MÀ
+   - Thanh Header 46px tối giản + Thanh điều hướng đáy cố định kính mờ (env safe-area)
+   - Chống tràn ngang 100% (overflow-x: hidden; max-width: 100vw)
+   - Vùng chạm tối thiểu 44px · Dải cuộn ngang mượt · Xếp dọc 2 kênh Vocal
    ========================================================================== */
-@media (max-width: 767px) {
-  /* 1. Thanh Header trên cùng gọn 48px (Chỉ giữ Logo + Nhãn phân khu hiện tại) */
+@media (max-width: 768px) {
+  html,
+  body,
+  .studio-app,
+  .hub-workspace,
+  .vocal-workspace,
+  .trainer-workspace {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  /* 1. Thanh Header trên cùng gọn 46px (chỉ giữ Logo + Nhãn phân khu) */
   .global-app-bar {
+    display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    height: 48px;
-    min-height: 48px;
+    height: 46px;
+    min-height: 46px;
     padding: 0 12px;
     gap: 8px;
   }
 
-  .brand-btn {
-    align-self: center;
-    padding: 3px 4px;
+  .global-app-bar::before {
+    background: rgba(10, 11, 18, 0.84);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  /* 2. Đưa 4 phân khu chính xuống Thanh Điều Hướng Đáy Cố Định (Fixed Bottom Glass Bar) */
+  .brand-btn {
+    padding: 2px 4px;
+    margin-right: 0;
+    gap: 7px;
+  }
+
+  .brand-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+
+  .brand-logo svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .brand-title {
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  /* 2. Thanh điều hướng kính mờ cố định dưới đáy màn hình (4 mục chính) */
   .global-nav {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    height: calc(60px + env(safe-area-inset-bottom, 0px));
-    padding: 5px 8px calc(5px + env(safe-area-inset-bottom, 0px));
-    background: rgba(12, 12, 15, 0.88);
+    width: 100%;
+    max-width: 100vw;
+    justify-self: stretch;
+    height: calc(62px + env(safe-area-inset-bottom, 0px));
+    padding: 5px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: rgba(10, 11, 18, 0.86);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.65);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.65);
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
@@ -4555,14 +4217,18 @@ button {
     border: 1px solid transparent;
   }
 
+  .global-nav-tab::after {
+    display: none;
+  }
+
   .global-nav-tab.active,
   .global-nav-tab[data-section-target="studio"].active,
   .global-nav-tab[data-section-target="vocal"].active,
   .global-nav-tab[data-section-target="trainer"].active {
-    color: #FAFAFA;
-    background: rgba(255, 255, 255, 0.11);
-    border-color: rgba(255, 255, 255, 0.22);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   .gnav-label-desktop {
@@ -4575,50 +4241,119 @@ button {
     letter-spacing: 0.01em;
   }
 
-  /* 3. Bố cục Tổng quan & Creator Card trên Mobile */
-  .hub-shell {
-    padding: 12px 12px calc(80px + env(safe-area-inset-bottom, 0px));
+  /* 3. Sảnh Tổng quan (Editorial Showcase & Creator Spotlight) trên Mobile */
+  .hub-editorial {
+    padding: 0 16px calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .hub-hero {
+    min-height: calc(100dvh - 110px);
+    padding: 28px 4px 36px;
+    gap: 14px;
+  }
+
+  .hero-kicker {
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    padding: 5px 12px;
+  }
+
+  .hero-display-title {
+    font-size: clamp(2.35rem, 11vw, 3.2rem);
+  }
+
+  .hero-subtitle {
+    font-size: 14.5px;
+    line-height: 1.56;
+  }
+
+  .hero-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .hero-cta-pill,
+  .hero-scroll-btn {
+    width: 100%;
+    min-height: 48px;
+    height: 48px;
+  }
+
+  .hub-chapters {
+    gap: 54px;
+    padding: 12px 0 56px;
+  }
+
+  .hub-chapter,
+  .chapter-left,
+  .chapter-right {
+    margin: 0;
+    max-width: 100%;
     gap: 12px;
   }
 
-  .hub-header {
-    padding: 14px 16px;
+  .chapter-title {
+    font-size: 1.65rem;
   }
 
-  .hub-title {
-    font-size: 17.5px;
+  .chapter-desc {
+    font-size: 14px;
+    line-height: 1.64;
   }
 
-  .hub-cards-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
+  .chapter-pills {
+    flex-wrap: nowrap;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chapter-pills::-webkit-scrollbar { display: none; }
+
+  .chapter-pill {
+    flex-shrink: 0;
   }
 
-  .hub-card {
-    padding: 16px 15px;
-  }
-
-  .hub-card-btn {
+  .chapter-cta-btn {
+    width: 100%;
+    justify-content: space-between;
     min-height: 46px;
     height: 46px;
   }
 
-  .creator-card {
+  .creator-spotlight {
     grid-template-columns: 1fr;
     align-items: flex-start;
-    padding: 16px 15px;
-    gap: 12px;
-  }
-
-  .creator-avatar-col {
-    justify-content: flex-start;
+    padding: 20px 18px;
+    gap: 14px;
+    border-radius: 16px;
   }
 
   .creator-avatar {
-    width: 56px;
-    height: 56px;
+    width: 58px;
+    height: 58px;
     border-radius: 14px;
   }
+
+  .creator-name {
+    font-size: 18.5px;
+  }
+
+  .creator-bio {
+    font-size: 13px;
+  }
+
+  .creator-tags {
+    flex-wrap: nowrap;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .creator-tags::-webkit-scrollbar { display: none; }
 
   .creator-action-col {
     width: 100%;
@@ -4626,13 +4361,508 @@ button {
 
   .creator-github-btn {
     width: 100%;
+    min-height: 46px;
     height: 46px;
-    border-radius: 12px;
   }
 
-  /* 4. Phòng thu Vocal trên Mobile */
+  .hub-footer-roadmap {
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+
+  /* 4. Sáng tác Beat trên Mobile */
+  .mobile-mixer-extras.mobile-only {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .mobile-card-row.mobile-only {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .vibe-chips.mobile-only {
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .vibe-chips::-webkit-scrollbar { display: none; }
+
+  .vibe-chip {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 700;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .vibe-chip.active {
+    background: #F4F4F5;
+    border-color: #FFFFFF;
+    color: #09090B;
+  }
+
+  .top-transport {
+    position: sticky;
+    top: 0;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .transport-left {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .transport-actions {
+    gap: 6px;
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .btn-play,
+  .btn-record {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 12px;
+    gap: 5px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+
+  .mobile-status-pill {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    min-height: 44px;
+    padding: 3px 10px;
+    border-radius: 10px;
+    background: var(--bg-lcd);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #FAFAFA;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .mobile-status-pill .dot-sep {
+    display: none;
+  }
+
+  .studio-main {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 6px calc(70px + env(safe-area-inset-bottom, 0px));
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .panel {
+    display: none;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .studio-app[data-active-tab="chords"] .panel[data-panel="chords"],
+  .studio-app[data-active-tab="mixer"] .panel[data-panel="mixer"] {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .studio-app[data-active-tab="melody"] .panel[data-panel="melody"],
+  .studio-app[data-active-tab="vocal"] .panel[data-panel="melody"] {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Vùng chạm tối thiểu 44px */
+  .studio-select,
+  .studio-select.compact,
+  .studio-input {
+    min-height: 44px;
+    font-size: 13.5px;
+    padding: 0 28px 0 11px;
+    border-radius: 10px;
+  }
+
+  .field-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .field-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--text-2);
+    text-transform: uppercase;
+  }
+
+  .chords-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .chords-toolbar .toolbar-cluster {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .chords-toolbar .section-dot,
+  .chords-toolbar .section-title {
+    display: none;
+  }
+
+  .chord-sound-controls {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .chord-sound-controls .drum-field {
+    grid-column: 1 / -1;
+  }
+
+  .inline-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .chord-strip.bars-4,
+  .chord-strip.bars-8 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .chord-card {
+    min-height: 76px;
+    padding: 11px 12px 9px;
+  }
+
+  .chord-symbol,
+  .chord-strip.bars-8 .chord-symbol {
+    font-size: 18px;
+  }
+
+  .melody-toolbar {
+    padding: 7px 9px;
+    gap: 6px;
+  }
+
+  .melody-toolbar .toolbar-cluster {
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .mode-group {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .mode-group .seg-btn {
+    min-height: 44px;
+    font-size: 12px;
+    padding: 0 4px;
+  }
+
+  .toggle-pill {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .melody-toolbar .inline-field {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .melody-toolbar .inline-label {
+    display: none;
+  }
+
+  .melody-toolbar .studio-select.compact {
+    min-height: 44px;
+    font-size: 12.5px;
+  }
+
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .btn-clear-midi {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .headphone-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 6px 9px;
+  }
+
+  .headphone-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vocal-strip {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .vocal-live-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .vocal-waveform {
+    max-width: none;
+  }
+
+  .vocal-post-controls {
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .vocal-post-controls .studio-select.compact,
+  .vocal-post-controls .btn-xs {
+    min-height: 44px;
+    font-size: 12px;
+    padding: 0 11px;
+  }
+
+  .mixer-channels {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    background: transparent;
+  }
+
+  .mixer-strip {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 11px 12px 9px;
+    gap: 9px;
+    background: var(--bg-card);
+  }
+
+  .mixer-strip:last-child {
+    border-right: 1px solid var(--border);
+  }
+
+  .daw-fader {
+    height: 8px;
+  }
+
+  .daw-fader::-webkit-slider-thumb {
+    width: 24px;
+    height: 20px;
+  }
+
+  .studio-range {
+    height: 8px;
+  }
+
+  .studio-range::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ms-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 13px;
+    border-radius: 10px;
+  }
+
+  .mobile-section-card {
+    background: var(--bg-module);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .mobile-card-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-1);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .mobile-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mobile-slider-row .row-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+
+  .mobile-inline-setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+
+  .mobile-inline-setting .seg-btn {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .mobile-export-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .mobile-bottom-nav {
+    flex-shrink: 0;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin: 6px 8px 2px;
+    padding: 3px;
+    border-radius: var(--radius-pill);
+    background: rgba(16, 18, 28, 0.9);
+    border: 1px solid var(--border);
+    z-index: 25;
+  }
+
+  .nav-tab {
+    position: relative;
+    min-height: 44px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: var(--radius-pill);
+    color: var(--text-2);
+    font-size: 11.5px;
+    font-weight: 700;
+    transition: color 0.16s var(--ease-out), background 0.16s var(--ease-out);
+  }
+
+  .nav-tab svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+
+  .nav-dot {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #FFFFFF;
+  }
+
+  .nav-tab.active,
+  .nav-tab[data-tab-target="chords"].active,
+  .nav-tab[data-tab-target="vocal"].active,
+  .nav-tab[data-tab-target="mixer"].active {
+    color: #09090B;
+    background: #F4F4F5;
+  }
+
+  /* Bottom Sheet cho Modal trên Mobile */
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-sheet {
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    padding-bottom: calc(env(safe-area-inset-bottom, 8px) + 68px);
+    animation: sheetUp 0.2s var(--ease-out);
+  }
+
+  @keyframes sheetUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .sheet-handle {
+    display: block !important;
+    width: 40px;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.22);
+    margin: 10px auto 0;
+  }
+
+  .diatonic-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ext-pill {
+    min-height: 44px;
+  }
+
+  /* 5. Phòng thu Vocal trên Mobile */
   .vocal-studio-panel {
-    padding: 8px 10px calc(82px + env(safe-area-inset-bottom, 0px));
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 8px 10px calc(86px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .vs-transport-bar,
+  .vs-input-strip,
+  .vs-beat-card,
+  .vs-track-card,
+  .vs-fx-shell,
+  .vs-presets-section {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .vs-transport-bar {
@@ -4643,11 +4873,31 @@ button {
   .vs-tp-main {
     width: 100%;
     flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .vs-tp-btns .btn,
+  .vs-tp-rewind {
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .vs-scrubber-box {
     width: 100%;
     flex-basis: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .vs-gain-ctrl {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .vs-beat-vol-slider {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .vs-tp-options {
@@ -4658,7 +4908,7 @@ button {
   .vs-export-btns {
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 6px;
   }
 
@@ -4670,7 +4920,7 @@ button {
   .vs-beat-source-btns {
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
   }
 
@@ -4682,44 +4932,101 @@ button {
 
   .vs-tracks-grid,
   .vs-rack-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vs-track-top {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .vs-track-select {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    padding: 2px 0;
+  }
+
+  .vs-track-name {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .vs-track-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .vs-track-actions .vs-rec-btn {
+    flex: 1;
+    min-width: 108px;
+    justify-content: center;
+  }
+
+  .vs-fx-row {
+    grid-template-columns: minmax(88px, 1fr) minmax(60px, 1.25fr) 48px;
+    gap: 6px;
   }
 
   .vs-track-sliders {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
   }
 
   .vs-mini-slider {
-    padding: 6px 9px;
-    min-height: 40px;
+    padding: 6px 10px;
+    min-height: 44px;
   }
 
   .vs-presets-grid {
     display: flex;
+    width: 100%;
+    max-width: 100%;
     overflow-x: auto;
     gap: 8px;
     padding-bottom: 4px;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
   }
   .vs-presets-grid::-webkit-scrollbar {
     display: none;
   }
 
   .vs-preset-btn {
-    flex: 0 0 138px;
-    min-height: 48px;
+    flex: 0 0 144px;
+    scroll-snap-align: start;
+    min-height: 50px;
+  }
+
+  .vs-pitch-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .vs-pitch-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vs-chip {
+    flex-shrink: 0;
   }
 
   .vs-rec-btn,
   .vs-rack-toggle,
-  .vs-chip {
+  .vs-chip,
+  .vs-monitor-btn {
     min-height: 44px;
   }
 
   .vs-sm-btn {
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
   }
 
   .vs-at-right {
@@ -4735,6 +5042,93 @@ button {
     flex: 1;
     width: auto;
   }
+
+  .vs-track-pills .seg-btn {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  /* 6. Học nhạc lý trên Mobile */
+  .trainer-shell {
+    padding: 6px 8px calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .trainer-stats-bar,
+  .report-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .t-stat-cell {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .trainer-modes-grid,
+  .lesson-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-start-btn {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .drill-hud {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .hud-metrics {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .lcd-cell-sm {
+    min-width: 0;
+    padding: 3px 4px;
+    text-align: center;
+  }
+
+  .lcd-cell-sm .lcd-label {
+    font-size: 7.5px;
+  }
+
+  .lcd-cell-sm .lcd-val {
+    font-size: 11px;
+  }
+
+  .piano-keyboard {
+    height: clamp(160px, 28dvh, 225px);
+  }
+
+  .piano-key.black-key {
+    width: 11.4%;
+    height: 58%;
+  }
+
+  .black-key .pk-name {
+    font-size: 8px;
+  }
+
+  .report-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toast-container {
+    right: 12px;
+    left: 12px;
+    bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+  }
+}
+
+/* Chống tràn trên màn hình siêu nhỏ 360px */
+@media (max-width: 374px) {
+  .btn-play .btn-label { display: none; }
+  .mobile-status-pill { font-size: 9.5px; padding: 3px 6px; }
+  .nav-tab { font-size: 11px; gap: 4px; }
+  .hero-display-title { font-size: 2.2rem; }
 }
 
 

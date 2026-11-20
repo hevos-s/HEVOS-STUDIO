@@ -12,24 +12,25 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=10';
+} from './theory.js?v=11';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=10';
+} from './audioEngine.js?v=11';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=10';
-import { PianoRoll } from './pianoRoll.js?v=10';
-import { downloadMidiFile } from './midiExport.js?v=10';
-import { MusicTrainer } from './musicTrainer.js?v=10';
-import { VocalStudio } from './vocalStudio.js?v=10';
+} from './pitchToMidi.js?v=11';
+import { PianoRoll } from './pianoRoll.js?v=11';
+import { downloadMidiFile } from './midiExport.js?v=11';
+import { MusicTrainer } from './musicTrainer.js?v=11';
+import { VocalStudio } from './vocalStudio.js?v=11';
+import { createAmbientScene } from './ambientScene.js?v=11';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -89,6 +90,7 @@ const vocalCapture = new VocalCapture();
 let pianoRoll = null;
 let musicTrainer = null;
 let vocalStudio = null;
+let ambientScene = null;
 let recStopTimer = null;
 let uiRafId = null;
 let lastHighlightedBar = -1;
@@ -101,6 +103,8 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const el = {
   app: $('#app'),
+  bg3dCanvas: $('#bg-3d-canvas'),
+  globalBar: $('.global-app-bar'),
   btnLogoHome: $('#btn-logo-home'),
   mobileSectionBadge: $('#mobile-section-badge'),
   sectionSwitcher: $('#section-switcher'),
@@ -1133,6 +1137,14 @@ function setAppSection(section) {
   } else if (target === 'vocal' && vocalStudio) {
     vocalStudio.resizeAndRedraw();
   }
+
+  if (ambientScene) {
+    ambientScene.setSection(target);
+  }
+  if (el.globalBar) {
+    const isHubScrolled = target === 'hub' && el.hubRoot && el.hubRoot.scrollTop > 24;
+    el.globalBar.classList.toggle('is-scrolled', Boolean(isHubScrolled));
+  }
 }
 
 function setMobileTab(tabName) {
@@ -1160,7 +1172,13 @@ function setMobileTab(tabName) {
 function bindEvents() {
   // Mở khóa âm thanh sớm ngay lần chạm đầu tiên (đảm bảo iOS Safari không bị câm)
   const unlockOnce = () => {
-    audioEngine.ensureReady().catch(() => {});
+    audioEngine.ensureReady()
+      .then(() => {
+        if (ambientScene) {
+          ambientScene.connectTone(audioEngine.getMasterOutputNode());
+        }
+      })
+      .catch(() => {});
     window.removeEventListener('pointerdown', unlockOnce);
   };
   window.addEventListener('pointerdown', unlockOnce, { passive: true });
@@ -1172,13 +1190,27 @@ function bindEvents() {
     });
   }
 
-  // Bấm vào các thẻ công cụ trong màn hình Tổng quan
+  // Bấm vào các nút trong màn hình Tổng quan (chuyển phân khu hoặc cuộn tới chương)
   if (el.hubRoot) {
     el.hubRoot.addEventListener('click', (e) => {
+      const scrollBtn = e.target.closest('[data-scroll-to]');
+      if (scrollBtn) {
+        const sel = scrollBtn.dataset.scrollTo;
+        const anchor = sel ? $(sel, el.hubRoot) : null;
+        if (anchor) {
+          anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
       const targetEl = e.target.closest('[data-goto-section]');
       if (!targetEl) return;
       setAppSection(targetEl.dataset.gotoSection);
     });
+
+    el.hubRoot.addEventListener('scroll', () => {
+      if (!el.globalBar) return;
+      el.globalBar.classList.toggle('is-scrolled', el.hubRoot.scrollTop > 24);
+    }, { passive: true });
   }
 
   // Phát / Dừng bên Sáng tác Beat
@@ -1193,6 +1225,9 @@ function bindEvents() {
         updatePlayButtonUI();
       } else {
         await audioEngine.play(false);
+        if (ambientScene) {
+          ambientScene.connectTone(audioEngine.getMasterOutputNode());
+        }
         updatePlayButtonUI();
         pianoRoll.startAnimationLoop();
         startPlayheadWatch();
@@ -1554,12 +1589,53 @@ function bindEvents() {
   });
 }
 
+function setupHubScrollReveal() {
+  if (!el.hubRoot) return;
+  const items = $$('.reveal-item', el.hubRoot);
+  if (!items.length) return;
+
+  if (typeof IntersectionObserver !== 'function') {
+    items.forEach((item) => item.classList.add('is-visible'));
+    return;
+  }
+
+  el.hubRoot.classList.add('has-reveal');
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    {
+      root: el.hubRoot,
+      threshold: 0.14,
+      rootMargin: '0px 0px -6% 0px',
+    }
+  );
+
+  items.forEach((item) => observer.observe(item));
+}
+
 // ============================================================================
 // Khởi chạy ứng dụng
 // ============================================================================
 function init() {
   populateSelects();
   recomputeVoicings();
+
+  if (el.bg3dCanvas) {
+    ambientScene = createAmbientScene(el.bg3dCanvas, {
+      hubScrollEl: el.hubRoot,
+    });
+    ambientScene.setSection(state.activeSection);
+    ambientScene.setExternalEnergyProvider(() =>
+      vocalStudio ? vocalStudio.getAudioLevel() : 0
+    );
+  }
+  setupHubScrollReveal();
 
   pianoRoll = new PianoRoll(el.prCanvas, {
     getPlayheadBeat: () => audioEngine.getCurrentBeat(),

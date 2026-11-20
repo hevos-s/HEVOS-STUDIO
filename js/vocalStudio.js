@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=10';
+} from './theory.js?v=11';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=10';
-import { applyAutoTunePcm } from './autoTune.js?v=10';
+} from './pitchToMidi.js?v=11';
+import { applyAutoTunePcm } from './autoTune.js?v=11';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=10';
+} from './audioEngine.js?v=11';
 
 export const VOCAL_PRESETS = [
   {
@@ -475,11 +475,31 @@ export class VocalStudio {
     }
     if (!this.playCtx || this.playCtx.state === 'closed') {
       this.playCtx = new NativeCtx();
+      this._visualBus = this.playCtx.createGain();
+      this._visualAnalyser = this.playCtx.createAnalyser();
+      this._visualAnalyser.fftSize = 128;
+      this._visualAnalyser.smoothingTimeConstant = 0.72;
+      this._visualData = new Uint8Array(this._visualAnalyser.frequencyBinCount);
+      this._visualBus.connect(this._visualAnalyser);
+      this._visualBus.connect(this.playCtx.destination);
     }
     if (this.playCtx.state === 'suspended') {
       this.playCtx.resume().catch(() => {});
     }
     return this.playCtx;
+  }
+
+  getAudioLevel() {
+    if (!this.isPlaying || !this._visualAnalyser || !this._visualData) return 0;
+    try {
+      this._visualAnalyser.getByteFrequencyData(this._visualData);
+      let sum = 0;
+      const n = this._visualData.length;
+      for (let i = 0; i < n; i++) sum += this._visualData[i];
+      return Math.min(1, (sum / (n * 255)) * 2.2);
+    } catch (_) {
+      return 0;
+    }
   }
 
   _getKeyScaleText() {
@@ -1934,6 +1954,7 @@ export class VocalStudio {
     this._playTargetDurSec = totalDur > 0 ? totalDur : 600;
 
     // 1. Lập lịch Track 0 (Beat nền)
+    const masterOut = this._visualBus || ctx.destination;
     if (this.beatTrack.audioBuffer && startOffset < this.beatTrack.durationSec) {
       const src = ctx.createBufferSource();
       src.buffer = this.beatTrack.audioBuffer;
@@ -1942,7 +1963,7 @@ export class VocalStudio {
       const bNorm = Math.max(0, Math.min(100, this.beatTrack.volume)) / 100;
       bGain.gain.value = beatAudible ? Math.pow(bNorm, 1.5) * 1.05 : 0;
       src.connect(bGain);
-      bGain.connect(ctx.destination);
+      bGain.connect(masterOut);
       src.start(now, startOffset);
       this._activeSources.push(src);
       this._liveBeatGain = bGain;
@@ -1959,7 +1980,7 @@ export class VocalStudio {
       const buf = ctx.createBuffer(1, tr.playablePcm.length, sr);
       buf.getChannelData(0).set(tr.playablePcm);
 
-      const graph = this._buildTrackFxGraph(ctx, tid, ctx.destination);
+      const graph = this._buildTrackFxGraph(ctx, tid, masterOut);
       this._liveTrackGraphs[tid] = graph;
 
       const clipStartSec = (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000;
