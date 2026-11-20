@@ -1,0 +1,1371 @@
+// ============================================================================
+// app.js — Điều phối trung tâm HEVOS STUDIO
+// Quản lý trạng thái, đồng bộ Desktop & Mobile, Thu Mic -> MIDI, Lưu & Xuất
+// ============================================================================
+
+import {
+  CHORD_EXTENSIONS,
+  KEY_OPTIONS,
+  PROGRESSION_PRESETS,
+  SCALES,
+  generateVoicedProgression,
+  getDiatonicChords,
+  pcToNoteName,
+  shouldPreferFlats,
+} from './theory.js';
+import {
+  CHORD_STYLES,
+  CHORD_TIMBRES,
+  DRUM_PATTERNS,
+  MELODY_TIMBRES,
+  audioEngine,
+} from './audioEngine.js';
+import {
+  VocalCapture,
+  drawVocalWaveform,
+  transcribeAudioBufferToMidi,
+} from './pitchToMidi.js';
+import { PianoRoll } from './pianoRoll.js';
+import { downloadMidiFile } from './midiExport.js';
+
+const STORAGE_KEY = 'melosketch_projects_v1';
+
+// ============================================================================
+// Trạng thái ứng dụng trung tâm
+// ============================================================================
+const defaultPreset = PROGRESSION_PRESETS[0];
+
+const state = {
+  activePresetId: defaultPreset.id,
+  keyPc: defaultPreset.keyPc,
+  scaleType: defaultPreset.scaleType,
+  bpm: defaultPreset.bpm,
+  totalBars: defaultPreset.bars,
+  humanize: defaultPreset.humanize,
+  chordStyle: defaultPreset.style,
+  chordTimbre: defaultPreset.timbre,
+  drumPattern: defaultPreset.drums,
+  melodyTimbre: 'bell',
+
+  chords: defaultPreset.chords.map((c) => ({ ...c })),
+  voicedChords: [],
+  melodyNotes: [],
+  selectedNoteId: null,
+
+  // Piano Roll & Thu âm
+  prMode: 'edit',
+  scaleLock: true,
+  prGridStep: 0.25,
+  scaleSnap: true,
+  vocalQuantize: '1/16',
+  overdubVocal: false,
+  echoCancellation: false,
+
+  // Mixer 4 kênh
+  mixer: {
+    chords: { volume: 78, muted: false, solo: false },
+    melody: { volume: 82, muted: false, solo: false },
+    drums:  { volume: 68, muted: false, solo: false },
+    vocal:  { volume: 75, muted: false, solo: false },
+  },
+
+  // Lịch sử hoàn tác giai điệu
+  undoStack: [],
+  redoStack: [],
+
+  // Trạng thái thu âm & modal
+  recordPhase: 'idle', // 'idle' | 'countin' | 'recording'
+  rawVocalBuffer: null,
+  editingBarIndex: null,
+  activeMobileTab: 'chords',
+};
+
+const vocalCapture = new VocalCapture();
+let pianoRoll = null;
+let recStopTimer = null;
+let uiRafId = null;
+let lastHighlightedBar = -1;
+
+// ============================================================================
+// DOM References
+// ============================================================================
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+const el = {
+  app: $('#app'),
+  btnPlay: $('#btn-play'),
+  btnPlayLabel: $('#btn-play-label'),
+  btnRecord: $('#btn-record'),
+  btnRecordLabel: $('#btn-record-label'),
+  mobileQuickStatus: $('#mobile-quick-status'),
+  mobileKeyBadge: $('#mobile-key-badge'),
+  mobileBpmBadge: $('#mobile-bpm-badge'),
+
+  presetSelect: $('#preset-select'),
+  vibeChips: $('#vibe-chips'),
+  chordStyleSelect: $('#chord-style-select'),
+  chordTimbreSelect: $('#chord-timbre-select'),
+  drumPatternSelect: $('#drum-pattern-select'),
+  melodyTimbreSelect: $('#melody-timbre-select'),
+  chordStrip: $('#chord-strip'),
+
+  prCanvas: $('#piano-roll-canvas'),
+  prModeGroup: $('#pr-mode-group'),
+  btnScaleLock: $('#btn-scale-lock'),
+  prGridSelect: $('#pr-grid-select'),
+  btnUndo: $('#btn-undo'),
+  btnRedo: $('#btn-redo'),
+  btnZoomOut: $('#btn-zoom-out'),
+  btnZoomIn: $('#btn-zoom-in'),
+  btnClearMelody: $('#btn-clear-melody'),
+
+  headphoneBanner: $('#headphone-banner'),
+  btnDismissHeadphone: $('#btn-dismiss-headphone'),
+  vocalStatusBadge: $('#vocal-status-badge'),
+  micMeterFill: $('#mic-meter-fill'),
+  livePitchReadout: $('#live-pitch-readout'),
+  vocalWaveform: $('#vocal-waveform'),
+  chkScaleSnap: $('#chk-scale-snap'),
+  vocalQuantizeSelect: $('#vocal-quantize-select'),
+  chkOverdub: $('#chk-overdub'),
+  btnRequantize: $('#btn-requantize'),
+  vocalTakeTag: $('#vocal-take-tag'),
+
+  countinOverlay: $('#countin-overlay'),
+  countinCaption: $('#countin-caption'),
+  countinNumber: $('#countin-number'),
+
+  chordModal: $('#chord-modal'),
+  chordModalTitle: $('#chord-modal-title'),
+  chordModalPreview: $('#chord-modal-preview'),
+  diatonicGrid: $('#diatonic-grid'),
+  extensionPills: $('#extension-pills'),
+  btnAuditionModalChord: $('#btn-audition-modal-chord'),
+  btnCloseChordModal: $('#btn-close-chord-modal'),
+
+  btnOpenProjects: $('#btn-open-projects'),
+  projectsModal: $('#projects-modal'),
+  btnCloseProjectsModal: $('#btn-close-projects-modal'),
+
+  toastContainer: $('#toast-container'),
+};
+
+// ============================================================================
+// Tiện ích UI (Toast, Sync Audio, Voicings)
+// ============================================================================
+function showToast(message, isError = false) {
+  const div = document.createElement('div');
+  div.className = `toast${isError ? ' toast-error' : ''}`;
+  div.textContent = message;
+  el.toastContainer.appendChild(div);
+  setTimeout(() => {
+    div.style.opacity = '0';
+    div.style.transition = 'opacity 0.25s ease';
+    setTimeout(() => div.remove(), 260);
+  }, 3000);
+}
+
+function recomputeVoicings() {
+  state.voicedChords = generateVoicedProgression(
+    state.chords.slice(0, state.totalBars),
+    state.keyPc,
+    state.scaleType
+  );
+}
+
+function syncAudioEngine() {
+  audioEngine.updateConfig({
+    bpm: state.bpm,
+    totalBars: state.totalBars,
+    humanize: state.humanize,
+    chordStyle: state.chordStyle,
+    chordTimbre: state.chordTimbre,
+    drumPattern: state.drumPattern,
+    melodyTimbre: state.melodyTimbre,
+    voicedChords: state.voicedChords,
+    melodyNotes: state.melodyNotes,
+    mixer: state.mixer,
+  });
+}
+
+function syncPianoRoll() {
+  if (!pianoRoll) return;
+  pianoRoll.setData({
+    notes: state.melodyNotes,
+    totalBars: state.totalBars,
+    keyPc: state.keyPc,
+    scaleType: state.scaleType,
+    voicedChords: state.voicedChords,
+    selectedNoteId: state.selectedNoteId,
+  });
+}
+
+function pushUndoSnapshot() {
+  const copy = state.melodyNotes.map((n) => ({ ...n }));
+  state.undoStack.push(copy);
+  if (state.undoStack.length > 40) state.undoStack.shift();
+  state.redoStack = [];
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  el.btnUndo.disabled = state.undoStack.length === 0;
+  el.btnRedo.disabled = state.redoStack.length === 0;
+}
+
+function performUndo() {
+  if (state.undoStack.length === 0) return;
+  state.redoStack.push(state.melodyNotes.map((n) => ({ ...n })));
+  state.melodyNotes = state.undoStack.pop();
+  state.selectedNoteId = null;
+  updateUndoButtons();
+  syncPianoRoll();
+  syncAudioEngine();
+}
+
+function performRedo() {
+  if (state.redoStack.length === 0) return;
+  state.undoStack.push(state.melodyNotes.map((n) => ({ ...n })));
+  state.melodyNotes = state.redoStack.pop();
+  state.selectedNoteId = null;
+  updateUndoButtons();
+  syncPianoRoll();
+  syncAudioEngine();
+}
+
+// ============================================================================
+// Khởi tạo danh sách chọn (Dropdowns & Mobile Vibe Chips)
+// ============================================================================
+function populateSelects() {
+  // 1. Key selector (Desktop & Mobile)
+  $$('[data-bind="keyPc"]').forEach((sel) => {
+    sel.innerHTML = KEY_OPTIONS.map(
+      (k) => `<option value="${k.pc}">${k.label}</option>`
+    ).join('');
+  });
+
+  // 2. Preset selector theo nhóm màu nhạc (optgroup)
+  const vibes = [...new Set(PROGRESSION_PRESETS.map((p) => p.vibe))];
+  el.presetSelect.innerHTML = vibes
+    .map((vibe) => {
+      const items = PROGRESSION_PRESETS.filter((p) => p.vibe === vibe)
+        .map((p) => `<option value="${p.id}">${p.name} (${p.desc})</option>`)
+        .join('');
+      return `<optgroup label="${vibe}">${items}</optgroup>`;
+    })
+    .join('');
+
+  // 3. Mobile quick Vibe chips
+  el.vibeChips.innerHTML = vibes
+    .map((vibe) => {
+      const firstPreset = PROGRESSION_PRESETS.find((p) => p.vibe === vibe);
+      return `<button type="button" class="vibe-chip" data-vibe="${vibe}" data-preset-id="${firstPreset.id}">${vibe}</button>`;
+    })
+    .join('');
+
+  // 4. Kiểu đệm, Chất tiếng đàn, Trống, Tiếng giai điệu
+  el.chordStyleSelect.innerHTML = CHORD_STYLES.map(
+    (s) => `<option value="${s.id}">${s.label}</option>`
+  ).join('');
+
+  el.chordTimbreSelect.innerHTML = CHORD_TIMBRES.map(
+    (t) => `<option value="${t.id}">${t.label}</option>`
+  ).join('');
+
+  el.drumPatternSelect.innerHTML = DRUM_PATTERNS.map(
+    (d) => `<option value="${d.id}">${d.label}</option>`
+  ).join('');
+
+  el.melodyTimbreSelect.innerHTML = MELODY_TIMBRES.map(
+    (m) => `<option value="${m.id}">${m.label}</option>`
+  ).join('');
+}
+
+// ============================================================================
+// Render UI đồng bộ Desktop & Mobile
+// ============================================================================
+function syncGlobalControlsUI() {
+  $$('[data-bind="keyPc"]').forEach((s) => (s.value = String(state.keyPc)));
+  $$('[data-bind="scaleType"]').forEach((s) => (s.value = state.scaleType));
+  $$('[data-bind="bpm"]').forEach((i) => (i.value = String(state.bpm)));
+  $$('[data-bind="humanize"]').forEach((i) => (i.value = String(state.humanize)));
+  $$('[data-bind="echoCancellation"]').forEach(
+    (chk) => (chk.checked = state.echoCancellation)
+  );
+
+  $$('[data-display="bpm"]').forEach((d) => (d.textContent = String(state.bpm)));
+  $$('[data-display="humanize"]').forEach((d) => (d.textContent = `${state.humanize}%`));
+
+  $$('[data-seg="totalBars"] .seg-btn').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.value) === state.totalBars);
+  });
+
+  el.chordStyleSelect.value = state.chordStyle;
+  el.chordTimbreSelect.value = state.chordTimbre;
+  el.drumPatternSelect.value = state.drumPattern;
+  el.melodyTimbreSelect.value = state.melodyTimbre;
+  if (state.activePresetId) {
+    el.presetSelect.value = state.activePresetId;
+  }
+
+  // Mobile quick status pill
+  const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+  const keyName = pcToNoteName(state.keyPc, preferFlats);
+  const scaleShort = SCALES[state.scaleType]?.shortLabel || 'Trưởng';
+  el.mobileKeyBadge.textContent = `${keyName} ${scaleShort}`;
+  el.mobileBpmBadge.textContent = `${state.bpm} BPM`;
+
+  // Highlight vibe chip đang khớp
+  const activePreset = PROGRESSION_PRESETS.find((p) => p.id === state.activePresetId);
+  $$('.vibe-chip', el.vibeChips).forEach((chip) => {
+    chip.classList.toggle('active', Boolean(activePreset && chip.dataset.vibe === activePreset.vibe));
+  });
+}
+
+function renderChordStrip() {
+  el.chordStrip.className = `chord-strip bars-${state.totalBars}`;
+  el.chordStrip.innerHTML = state.voicedChords
+    .map(
+      (vc, idx) => `
+      <button type="button" class="chord-card" data-bar-index="${idx}" role="listitem" title="Bấm để đổi hợp âm ô nhịp ${idx + 1}">
+        <div class="chord-card-top">
+          <span class="chord-bar-num">Ô ${idx + 1}</span>
+          <span class="chord-roman">${vc.roman}</span>
+        </div>
+        <div class="chord-symbol">${vc.symbol}</div>
+        <div class="chord-voicing">${vc.voicingLabels.join(' · ')}</div>
+      </button>
+    `
+    )
+    .join('');
+
+  lastHighlightedBar = -1;
+}
+
+function syncMixerUI() {
+  for (const [ch, data] of Object.entries(state.mixer)) {
+    const slider = $(`[data-vol="${ch}"]`);
+    const label = $(`[data-vol-label="${ch}"]`);
+    const muteBtn = $(`[data-mute="${ch}"]`);
+    const soloBtn = $(`[data-solo="${ch}"]`);
+    if (slider) slider.value = String(data.volume);
+    if (label) label.textContent = `${data.volume}%`;
+    if (muteBtn) muteBtn.classList.toggle('active-mute', data.muted);
+    if (soloBtn) soloBtn.classList.toggle('active-solo', data.solo);
+  }
+
+  el.vocalTakeTag.textContent = state.rawVocalBuffer ? 'Đã thu' : 'Trống';
+  el.vocalTakeTag.classList.toggle('has-take', Boolean(state.rawVocalBuffer));
+  el.btnRequantize.disabled = !state.rawVocalBuffer;
+}
+
+function updatePlayButtonUI() {
+  const playing = audioEngine.isPlaying;
+  el.btnPlay.classList.toggle('playing', playing);
+  el.btnPlayLabel.textContent = playing ? 'Dừng' : 'Phát';
+}
+
+function updateRecordButtonUI() {
+  const isRec = state.recordPhase !== 'idle';
+  el.btnRecord.classList.toggle('recording', isRec);
+  if (state.recordPhase === 'countin') {
+    el.btnRecordLabel.textContent = 'Đếm vào...';
+  } else if (state.recordPhase === 'recording') {
+    el.btnRecordLabel.textContent = 'Dừng thu';
+  } else {
+    el.btnRecordLabel.textContent = 'Thu Mic';
+  }
+}
+
+// ============================================================================
+// Vòng lặp đồng bộ thanh chạy & tô sáng ô nhịp hợp âm đang phát (60fps)
+// ============================================================================
+function startPlayheadWatch() {
+  if (uiRafId !== null) return;
+  const step = () => {
+    if (!audioEngine.isPlaying) {
+      uiRafId = null;
+      if (lastHighlightedBar !== -1) {
+        $$('.chord-card.active-bar', el.chordStrip).forEach((c) =>
+          c.classList.remove('active-bar')
+        );
+        lastHighlightedBar = -1;
+      }
+      return;
+    }
+
+    const beat = audioEngine.getCurrentBeat();
+    const curBar = Math.floor(beat / 4) % state.totalBars;
+    if (curBar !== lastHighlightedBar) {
+      lastHighlightedBar = curBar;
+      $$('.chord-card', el.chordStrip).forEach((card, idx) => {
+        card.classList.toggle('active-bar', idx === curBar);
+      });
+    }
+
+    if (state.recordPhase === 'recording') {
+      el.vocalStatusBadge.textContent = `Đang thu · Ô ${curBar + 1}/${state.totalBars}`;
+    }
+
+    uiRafId = requestAnimationFrame(step);
+  };
+  uiRafId = requestAnimationFrame(step);
+}
+
+// ============================================================================
+// Áp dụng Preset & Chỉnh Hợp âm từng ô nhịp
+// ============================================================================
+function applyPreset(presetId, notify = false) {
+  const preset = PROGRESSION_PRESETS.find((p) => p.id === presetId);
+  if (!preset) return;
+
+  state.activePresetId = preset.id;
+  state.keyPc = preset.keyPc;
+  state.scaleType = preset.scaleType;
+  state.bpm = preset.bpm;
+  state.totalBars = preset.bars;
+  state.humanize = preset.humanize;
+  state.chordStyle = preset.style;
+  state.chordTimbre = preset.timbre;
+  state.drumPattern = preset.drums;
+  state.chords = preset.chords.map((c) => ({ ...c }));
+
+  recomputeVoicings();
+  syncGlobalControlsUI();
+  renderChordStrip();
+  syncPianoRoll();
+  syncAudioEngine();
+
+  if (notify) {
+    showToast(`Đã nạp vòng mẫu: ${preset.name}`);
+  }
+}
+
+function setTotalBars(bars) {
+  const target = bars === 8 ? 8 : 4;
+  if (target === state.totalBars) return;
+
+  if (target === 8 && state.chords.length < 8) {
+    // Nhân đôi vòng 4 ô lên 8 ô mượt mà để người dùng sửa thêm biến tấu
+    const base = state.chords.slice(0, 4);
+    state.chords = [...base.map((c) => ({ ...c })), ...base.map((c) => ({ ...c }))];
+  } else if (target === 4) {
+    state.chords = state.chords.slice(0, 4);
+  }
+
+  state.totalBars = target;
+  recomputeVoicings();
+  syncGlobalControlsUI();
+  renderChordStrip();
+  syncPianoRoll();
+  syncAudioEngine();
+}
+
+function setKeyPc(newPc) {
+  const prevPc = state.keyPc;
+  if (newPc === prevPc) return;
+
+  // Dịch giọng giai điệu hiện có theo khoảng ngắn nhất (-6..+5) để khớp tông mới
+  let delta = ((newPc - prevPc) + 12) % 12;
+  if (delta > 6) delta -= 12;
+
+  if (state.melodyNotes.length > 0 && delta !== 0) {
+    pushUndoSnapshot();
+    state.melodyNotes = state.melodyNotes.map((n) => {
+      let m = n.midi + delta;
+      while (m < 48) m += 12;
+      while (m > 84) m -= 12;
+      return { ...n, midi: m };
+    });
+  }
+
+  state.keyPc = newPc;
+  recomputeVoicings();
+  syncGlobalControlsUI();
+  renderChordStrip();
+  syncPianoRoll();
+  syncAudioEngine();
+}
+
+// ============================================================================
+// Bảng Chọn Hợp Âm (Modal Desktop / Bottom Sheet Mobile)
+// ============================================================================
+function openChordPicker(barIndex) {
+  state.editingBarIndex = barIndex;
+  renderChordPickerContent();
+  el.chordModal.classList.remove('hidden');
+}
+
+function closeChordPicker() {
+  el.chordModal.classList.add('hidden');
+  state.editingBarIndex = null;
+}
+
+function renderChordPickerContent() {
+  const idx = state.editingBarIndex;
+  if (idx === null || !state.chords[idx]) return;
+
+  const currentSpec = state.chords[idx];
+  const currentVoiced = state.voicedChords[idx];
+  const diatonics = getDiatonicChords(state.keyPc, state.scaleType);
+
+  el.chordModalTitle.textContent = `Chọn hợp âm · Ô nhịp ${idx + 1}`;
+  el.chordModalPreview.innerHTML = `Đang chọn: <strong>${currentVoiced.symbol}</strong> (${currentVoiced.roman})`;
+
+  el.diatonicGrid.innerHTML = diatonics
+    .map(
+      (d) => `
+      <button type="button" class="diatonic-btn${d.degree === currentSpec.degree ? ' selected' : ''}" data-pick-degree="${d.degree}">
+        <span class="dia-roman">${d.roman}</span>
+        <span class="dia-name">${d.symbol}</span>
+      </button>
+    `
+    )
+    .join('');
+
+  el.extensionPills.innerHTML = CHORD_EXTENSIONS.map(
+    (ext) => `
+      <button type="button" class="ext-pill${ext.id === currentSpec.extension ? ' selected' : ''}" data-pick-ext="${ext.id}">
+        ${ext.label}
+      </button>
+    `
+  ).join('');
+}
+
+async function updateEditingBarChord(partial) {
+  const idx = state.editingBarIndex;
+  if (idx === null || !state.chords[idx]) return;
+
+  state.chords[idx] = { ...state.chords[idx], ...partial };
+  recomputeVoicings();
+  renderChordStrip();
+  renderChordPickerContent();
+  syncPianoRoll();
+  syncAudioEngine();
+
+  // Nghe thử hợp âm vừa chọn ngay lập tức
+  if (state.voicedChords[idx]) {
+    try {
+      await audioEngine.auditionChord(state.voicedChords[idx]);
+    } catch (_) {}
+  }
+}
+
+// ============================================================================
+// Luồng Thu Micro Ngân Nga -> Tự động trích xuất MIDI
+// ============================================================================
+async function toggleVocalRecording() {
+  if (state.recordPhase === 'countin') {
+    cancelRecordingCleanly();
+    showToast('Đã hủy đếm vào thu âm.');
+    return;
+  }
+  if (state.recordPhase === 'recording') {
+    await finishVocalRecording();
+    return;
+  }
+
+  // Bắt đầu phiên thu mới
+  try {
+    await audioEngine.ensureReady();
+  } catch (err) {
+    showToast(err.message || 'Không thể khởi động bộ máy âm thanh.', true);
+    return;
+  }
+
+  // Trên mobile tự chuyển sang Tab Giai điệu để thấy đếm vào, sóng âm và nốt MIDI
+  if (window.innerWidth < 768) {
+    setMobileTab('melody');
+  }
+
+  audioEngine.stop();
+  updatePlayButtonUI();
+
+  // Mở micro trước khi đếm vào để không bị trễ do hộp thoại xin quyền
+  try {
+    await vocalCapture.openMic({
+      echoCancellation: state.echoCancellation,
+      onLiveStats: ({ level, noteName }) => {
+        el.micMeterFill.style.width = `${Math.round(level * 100)}%`;
+        if (noteName !== undefined) {
+          el.livePitchReadout.innerHTML = `Nốt: <strong>${noteName || '—'}</strong>`;
+        }
+      },
+    });
+  } catch (err) {
+    showToast(
+      'Không mở được Micro. Vui lòng cấp quyền Micro trên trình duyệt và thử lại.',
+      true
+    );
+    return;
+  }
+
+  // 1. Giai đoạn Đếm vào 1 ô nhịp (Count-in)
+  state.recordPhase = 'countin';
+  updateRecordButtonUI();
+  el.vocalStatusBadge.textContent = 'Đếm vào 1 ô nhịp...';
+  el.vocalStatusBadge.classList.add('active');
+  el.countinOverlay.classList.remove('hidden');
+  el.countinCaption.textContent = 'CHUẨN BỊ NGÂN NGA';
+  el.countinNumber.textContent = '1';
+
+  const completedCountIn = await audioEngine.runCountIn((beatNum) => {
+    el.countinNumber.textContent = String(beatNum);
+    el.vocalStatusBadge.textContent = `Đếm vào: ${beatNum}/4`;
+  });
+
+  el.countinOverlay.classList.add('hidden');
+  if (!completedCountIn || state.recordPhase !== 'countin') {
+    vocalCapture.close();
+    state.recordPhase = 'idle';
+    updateRecordButtonUI();
+    resetLiveMeter();
+    return;
+  }
+
+  // 2. Bắt đầu thu song song với nhạc đệm từ đầu vòng lặp
+  state.recordPhase = 'recording';
+  updateRecordButtonUI();
+  el.vocalStatusBadge.textContent = `Đang thu · Ô 1/${state.totalBars}`;
+
+  vocalCapture.beginCapture();
+  await audioEngine.play(true);
+  updatePlayButtonUI();
+  pianoRoll.startAnimationLoop();
+  startPlayheadWatch();
+
+  // Tự động dừng sạch sẽ khi hoàn tất trọn 1 vòng lặp (4 hoặc 8 ô nhịp)
+  const loopMs = Math.round(state.totalBars * 4 * (60 / state.bpm) * 1000);
+  clearTimeout(recStopTimer);
+  recStopTimer = setTimeout(() => {
+    if (state.recordPhase === 'recording') {
+      finishVocalRecording();
+    }
+  }, loopMs + 60);
+}
+
+function cancelRecordingCleanly() {
+  clearTimeout(recStopTimer);
+  recStopTimer = null;
+  audioEngine.cancelCountIn();
+  audioEngine.stop();
+  vocalCapture.close();
+  state.recordPhase = 'idle';
+  el.countinOverlay.classList.add('hidden');
+  updatePlayButtonUI();
+  updateRecordButtonUI();
+  resetLiveMeter();
+}
+
+async function finishVocalRecording() {
+  clearTimeout(recStopTimer);
+  recStopTimer = null;
+
+  audioEngine.stop();
+  const buffer = vocalCapture.finishCapture();
+  state.recordPhase = 'idle';
+  updatePlayButtonUI();
+  updateRecordButtonUI();
+  resetLiveMeter();
+
+  if (!buffer || buffer.length < 1024) {
+    showToast('Bản thu quá ngắn, chưa nhận được tín hiệu giọng hát.', true);
+    return;
+  }
+
+  state.rawVocalBuffer = buffer;
+  audioEngine.setRawVocalBuffer(buffer);
+  drawVocalWaveform(el.vocalWaveform, buffer);
+  syncMixerUI();
+
+  el.vocalStatusBadge.classList.remove('active');
+  el.vocalStatusBadge.classList.add('ready-take');
+  el.vocalStatusBadge.textContent = `Đã thu ${state.totalBars} ô`;
+
+  runVocalTranscription(false);
+}
+
+function resetLiveMeter() {
+  el.micMeterFill.style.width = '0%';
+  el.livePitchReadout.innerHTML = 'Nốt: <strong>—</strong>';
+  if (!state.rawVocalBuffer) {
+    el.vocalStatusBadge.classList.remove('active', 'ready-take');
+    el.vocalStatusBadge.textContent = 'Ngân nga → MIDI';
+  }
+}
+
+/**
+ * Phân tích AudioBuffer giọng hát thành MIDI (dùng ngay sau thu & khi bấm "Quét lại MIDI")
+ */
+function runVocalTranscription(isManualRescan = false) {
+  if (!state.rawVocalBuffer) return;
+
+  const detected = transcribeAudioBufferToMidi(state.rawVocalBuffer, {
+    bpm: state.bpm,
+    totalBars: state.totalBars,
+    keyPc: state.keyPc,
+    scaleType: state.scaleType,
+    voicedChords: state.voicedChords,
+    scaleSnap: state.scaleSnap,
+    quantizeGrid: state.vocalQuantize,
+  });
+
+  if (detected.length === 0) {
+    showToast(
+      'Chưa bắt được nốt rõ ràng. Hãy thử ngân to và rõ hơn gần micro!',
+      true
+    );
+    return;
+  }
+
+  pushUndoSnapshot();
+  if (state.overdubVocal && !isManualRescan) {
+    state.melodyNotes = [...state.melodyNotes, ...detected];
+  } else {
+    state.melodyNotes = detected;
+  }
+  state.selectedNoteId = null;
+
+  syncPianoRoll();
+  syncAudioEngine();
+
+  const snapLabel = state.scaleSnap ? 'đã ép đúng tông' : 'cao độ mộc';
+  showToast(
+    `${isManualRescan ? 'Đã quét lại' : 'Đã chuyển thành'} ${detected.length} nốt MIDI (${snapLabel})!`
+  );
+}
+
+// ============================================================================
+// Xuất file MIDI (.mid) & Xuất file nhạc nháp (Audio)
+// ============================================================================
+function handleExportMidi() {
+  const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+  const keyName = pcToNoteName(state.keyPc, preferFlats).replace('#', 's').toLowerCase();
+  const scaleTag = state.scaleType === 'minor' ? 'minor' : 'major';
+  const filename = `hevos-studio-${keyName}-${scaleTag}-${state.bpm}bpm.mid`;
+
+  const result = downloadMidiFile(
+    {
+      bpm: state.bpm,
+      totalBars: state.totalBars,
+      humanize: state.humanize,
+      voicedChords: state.voicedChords,
+      chordStyle: state.chordStyle,
+      chordTimbre: state.chordTimbre,
+      drumPattern: state.drumPattern,
+      melodyNotes: state.melodyNotes,
+      melodyTimbre: state.melodyTimbre,
+      mixer: state.mixer,
+    },
+    filename
+  );
+
+  if (!result.ok) {
+    showToast(
+      result.error || 'Vui lòng bật ít nhất 1 kênh nhạc cụ trên Mixer để xuất MIDI.',
+      true
+    );
+    return;
+  }
+
+  const trackSummary = result.tracks.map((t) => t.shortVi).join(', ');
+  showToast(
+    `Đã xuất MIDI ${result.tracks.length} track (${trackSummary}): ${result.filename}`
+  );
+}
+
+async function handleExportAudio() {
+  if (audioEngine.isExporting) return;
+  if (state.recordPhase !== 'idle') {
+    showToast('Vui lòng dừng thu âm trước khi xuất Audio.', true);
+    return;
+  }
+
+  const btns = $$('[data-action="export-audio"]');
+  const labels = $$('.export-audio-label');
+  btns.forEach((b) => (b.disabled = true));
+
+  try {
+    showToast('Đang thu xuất 1 vòng nhạc nháp, vui lòng chờ vài giây...');
+    const result = await audioEngine.exportLoopAudio((pct) => {
+      labels.forEach((l) => (l.textContent = `Đang xuất ${pct}%...`));
+    });
+
+    if (result && result.blob) {
+      const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+      const keyName = pcToNoteName(state.keyPc, preferFlats).replace('#', 's').toLowerCase();
+      const filename = `hevos-studio-demo-${keyName}-${state.bpm}bpm.${result.ext}`;
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      showToast(`Đã xuất file âm thanh: ${filename}`);
+    }
+  } catch (err) {
+    showToast(err.message || 'Không thể xuất file âm thanh trên trình duyệt này.', true);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+    labels.forEach((l) => {
+      l.textContent = l.closest('.mobile-export-grid')
+        ? 'Xuất nhạc nháp (Audio)'
+        : 'Xuất Audio';
+    });
+    updatePlayButtonUI();
+  }
+}
+
+// ============================================================================
+// Lưu & Mở nhiều dự án nháp qua LocalStorage
+// ============================================================================
+function loadSavedProjectsList() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveProjectsList(list) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch (_) {
+    showToast('Bộ nhớ trình duyệt đã đầy, không thể lưu thêm.', true);
+  }
+}
+
+function renderSavedProjectsLists() {
+  const list = loadSavedProjectsList();
+  const html =
+    list.length === 0
+      ? `<div class="empty-saved">Chưa có bản nháp nào. Hãy đặt tên và bấm Lưu để giữ lại ý tưởng của bạn!</div>`
+      : list
+          .map((item) => {
+            const preferFlats = shouldPreferFlats(item.keyPc, item.scaleType);
+            const kName = pcToNoteName(item.keyPc, preferFlats);
+            const sc = item.scaleType === 'minor' ? 'Thứ' : 'Trưởng';
+            const dateStr = new Date(item.savedAt).toLocaleString('vi-VN', {
+              day: '2-digit',
+              month: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            return `
+              <div class="saved-item">
+                <div class="saved-info">
+                  <span class="saved-name">${escapeHtml(item.name)}</span>
+                  <span class="saved-meta">${kName} ${sc} · ${item.bpm} BPM · ${item.totalBars} ô · ${item.melodyNotes?.length || 0} nốt · ${dateStr}</span>
+                </div>
+                <div class="saved-actions">
+                  <button type="button" class="btn btn-cyan-outline btn-xs" data-load-project="${item.id}">Mở</button>
+                  <button type="button" class="btn btn-rose-outline btn-xs" data-delete-project="${item.id}">Xóa</button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+  $$('[data-projects-list]').forEach((container) => {
+    container.innerHTML = html;
+  });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
+}
+
+function saveCurrentProject(customName) {
+  const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+  const autoName = `Ý tưởng ${pcToNoteName(state.keyPc, preferFlats)} ${
+    state.scaleType === 'minor' ? 'Thứ' : 'Trưởng'
+  } (${state.bpm} BPM)`;
+  const name = (customName || '').trim() || autoName;
+
+  const entry = {
+    id: `proj_${Date.now().toString(36)}`,
+    name,
+    savedAt: Date.now(),
+    activePresetId: state.activePresetId,
+    keyPc: state.keyPc,
+    scaleType: state.scaleType,
+    bpm: state.bpm,
+    totalBars: state.totalBars,
+    humanize: state.humanize,
+    chordStyle: state.chordStyle,
+    chordTimbre: state.chordTimbre,
+    drumPattern: state.drumPattern,
+    melodyTimbre: state.melodyTimbre,
+    chords: state.chords.map((c) => ({ ...c })),
+    melodyNotes: state.melodyNotes.map((n) => ({ ...n })),
+    mixer: JSON.parse(JSON.stringify(state.mixer)),
+  };
+
+  const list = loadSavedProjectsList();
+  list.unshift(entry);
+  saveProjectsList(list.slice(0, 25));
+
+  $$('[data-project-name-input]').forEach((inp) => (inp.value = ''));
+  renderSavedProjectsLists();
+  showToast(`Đã lưu bản nháp "${name}"!`);
+}
+
+function loadProjectById(id) {
+  const list = loadSavedProjectsList();
+  const item = list.find((p) => p.id === id);
+  if (!item) return;
+
+  audioEngine.stop();
+  updatePlayButtonUI();
+
+  state.activePresetId = item.activePresetId || defaultPreset.id;
+  state.keyPc = item.keyPc ?? 0;
+  state.scaleType = item.scaleType || 'major';
+  state.bpm = item.bpm || 84;
+  state.totalBars = item.totalBars === 8 ? 8 : 4;
+  state.humanize = item.humanize ?? 50;
+  state.chordStyle = item.chordStyle || 'rnb';
+  state.chordTimbre = item.chordTimbre || 'rhodes';
+  state.drumPattern = item.drumPattern || 'lofi';
+  state.melodyTimbre = item.melodyTimbre || 'bell';
+  state.chords = Array.isArray(item.chords) ? item.chords.map((c) => ({ ...c })) : defaultPreset.chords.map((c) => ({ ...c }));
+  state.melodyNotes = Array.isArray(item.melodyNotes) ? item.melodyNotes.map((n) => ({ ...n })) : [];
+  if (item.mixer) {
+    state.mixer = JSON.parse(JSON.stringify(item.mixer));
+  }
+  state.undoStack = [];
+  state.redoStack = [];
+  state.selectedNoteId = null;
+
+  recomputeVoicings();
+  syncGlobalControlsUI();
+  renderChordStrip();
+  syncMixerUI();
+  updateUndoButtons();
+  syncPianoRoll();
+  syncAudioEngine();
+  audioEngine.applyMixer(state.mixer);
+
+  el.projectsModal.classList.add('hidden');
+  showToast(`Đã mở bản nháp "${item.name}"!`);
+}
+
+function deleteProjectById(id) {
+  const list = loadSavedProjectsList().filter((p) => p.id !== id);
+  saveProjectsList(list);
+  renderSavedProjectsLists();
+  showToast('Đã xóa bản nháp.');
+}
+
+// ============================================================================
+// Điều hướng Tab trên Mobile
+// ============================================================================
+function setMobileTab(tabName) {
+  state.activeMobileTab = tabName;
+  el.app.dataset.activeTab = tabName;
+
+  $$('.nav-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.tabTarget === tabName);
+  });
+
+  // Đảm bảo Canvas Piano Roll & Waveform cập nhật kích thước ngay khi hiện Tab Giai điệu
+  if (tabName === 'melody') {
+    requestAnimationFrame(() => {
+      if (pianoRoll) pianoRoll.resize();
+      if (state.rawVocalBuffer) {
+        drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
+      }
+    });
+  }
+}
+
+// ============================================================================
+// Gắn toàn bộ sự kiện DOM & Phím tắt
+// ============================================================================
+function bindEvents() {
+  // Mở khóa âm thanh sớm ngay lần chạm đầu tiên (đảm bảo iOS Safari không bị câm)
+  const unlockOnce = () => {
+    audioEngine.ensureReady().catch(() => {});
+    window.removeEventListener('pointerdown', unlockOnce);
+  };
+  window.addEventListener('pointerdown', unlockOnce, { passive: true });
+
+  // Phát / Dừng
+  el.btnPlay.addEventListener('click', async () => {
+    if (state.recordPhase !== 'idle') {
+      cancelRecordingCleanly();
+      return;
+    }
+    try {
+      if (audioEngine.isPlaying) {
+        audioEngine.stop();
+        updatePlayButtonUI();
+      } else {
+        await audioEngine.play(false);
+        updatePlayButtonUI();
+        pianoRoll.startAnimationLoop();
+        startPlayheadWatch();
+      }
+    } catch (err) {
+      showToast(err.message || 'Lỗi khi phát âm thanh.', true);
+    }
+  });
+
+  // Thu Micro ngân nga
+  el.btnRecord.addEventListener('click', () => {
+    toggleVocalRecording();
+  });
+
+  // Bấm vào pill Tông/BPM trên Mobile -> nhảy nhanh sang Tab Mixer/Cài đặt
+  el.mobileQuickStatus.addEventListener('click', () => {
+    setMobileTab(state.activeMobileTab === 'mixer' ? 'chords' : 'mixer');
+  });
+
+  // Đồng bộ toàn bộ input data-bind (Desktop + Mobile)
+  $$('[data-bind="keyPc"]').forEach((sel) => {
+    sel.addEventListener('change', (e) => setKeyPc(Number(e.target.value)));
+  });
+
+  $$('[data-bind="scaleType"]').forEach((sel) => {
+    sel.addEventListener('change', (e) => {
+      state.scaleType = e.target.value;
+      recomputeVoicings();
+      syncGlobalControlsUI();
+      renderChordStrip();
+      syncPianoRoll();
+      syncAudioEngine();
+    });
+  });
+
+  $$('[data-bind="bpm"]').forEach((inp) => {
+    inp.addEventListener('input', (e) => {
+      state.bpm = Number(e.target.value);
+      syncGlobalControlsUI();
+      syncAudioEngine();
+    });
+  });
+
+  $$('[data-bind="humanize"]').forEach((inp) => {
+    inp.addEventListener('input', (e) => {
+      state.humanize = Number(e.target.value);
+      syncGlobalControlsUI();
+      syncAudioEngine();
+    });
+  });
+
+  $$('[data-bind="echoCancellation"]').forEach((chk) => {
+    chk.addEventListener('change', (e) => {
+      state.echoCancellation = e.target.checked;
+      syncGlobalControlsUI();
+    });
+  });
+
+  // Loop 4 ô / 8 ô
+  $$('[data-seg="totalBars"]').forEach((group) => {
+    group.addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      setTotalBars(Number(btn.dataset.value));
+    });
+  });
+
+  // Preset & Vibe Chips
+  el.presetSelect.addEventListener('change', (e) => {
+    applyPreset(e.target.value, true);
+  });
+
+  el.vibeChips.addEventListener('click', (e) => {
+    const chip = e.target.closest('.vibe-chip');
+    if (!chip) return;
+    applyPreset(chip.dataset.presetId, true);
+  });
+
+  // Kiểu đệm, Tiếng đàn, Trống, Tiếng Giai điệu
+  el.chordStyleSelect.addEventListener('change', (e) => {
+    state.chordStyle = e.target.value;
+    syncAudioEngine();
+  });
+
+  el.chordTimbreSelect.addEventListener('change', (e) => {
+    state.chordTimbre = e.target.value;
+    syncAudioEngine();
+  });
+
+  el.drumPatternSelect.addEventListener('change', (e) => {
+    state.drumPattern = e.target.value;
+    syncAudioEngine();
+  });
+
+  el.melodyTimbreSelect.addEventListener('change', (e) => {
+    state.melodyTimbre = e.target.value;
+    syncAudioEngine();
+  });
+
+  // Bấm vào ô nhịp hợp âm -> mở Bảng Chọn Hợp Âm
+  el.chordStrip.addEventListener('click', (e) => {
+    const card = e.target.closest('.chord-card');
+    if (!card) return;
+    openChordPicker(Number(card.dataset.barIndex));
+  });
+
+  // Sự kiện bên trong Modal Chọn Hợp Âm
+  el.diatonicGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pick-degree]');
+    if (!btn) return;
+    updateEditingBarChord({ degree: Number(btn.dataset.pickDegree) });
+  });
+
+  el.extensionPills.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pick-ext]');
+    if (!btn) return;
+    updateEditingBarChord({ extension: btn.dataset.pickExt });
+  });
+
+  el.btnAuditionModalChord.addEventListener('click', async () => {
+    const idx = state.editingBarIndex;
+    if (idx !== null && state.voicedChords[idx]) {
+      try {
+        await audioEngine.auditionChord(state.voicedChords[idx]);
+      } catch (_) {}
+    }
+  });
+
+  el.btnCloseChordModal.addEventListener('click', closeChordPicker);
+  el.chordModal.addEventListener('click', (e) => {
+    if (e.target === el.chordModal) closeChordPicker();
+  });
+
+  // Thanh công cụ Piano Roll
+  el.prModeGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    state.prMode = btn.dataset.mode;
+    $$('.seg-btn', el.prModeGroup).forEach((b) =>
+      b.classList.toggle('active', b === btn)
+    );
+    pianoRoll.setMode(state.prMode);
+  });
+
+  el.btnScaleLock.addEventListener('click', () => {
+    state.scaleLock = !state.scaleLock;
+    el.btnScaleLock.classList.toggle('active', state.scaleLock);
+    el.btnScaleLock.setAttribute('aria-pressed', String(state.scaleLock));
+    pianoRoll.setScaleLock(state.scaleLock);
+  });
+
+  el.prGridSelect.addEventListener('change', (e) => {
+    state.prGridStep = Number(e.target.value);
+    pianoRoll.setGridStep(state.prGridStep);
+  });
+
+  el.btnUndo.addEventListener('click', performUndo);
+  el.btnRedo.addEventListener('click', performRedo);
+  el.btnZoomOut.addEventListener('click', () => pianoRoll.setZoom(pianoRoll.zoom - 0.22));
+  el.btnZoomIn.addEventListener('click', () => pianoRoll.setZoom(pianoRoll.zoom + 0.22));
+
+  el.btnClearMelody.addEventListener('click', () => {
+    if (state.melodyNotes.length === 0) return;
+    pushUndoSnapshot();
+    state.melodyNotes = [];
+    state.selectedNoteId = null;
+    syncPianoRoll();
+    syncAudioEngine();
+    showToast('Đã xóa toàn bộ giai điệu (có thể bấm Hoàn tác để khôi phục).');
+  });
+
+  // Vocal HUD controls
+  el.btnDismissHeadphone.addEventListener('click', () => {
+    el.headphoneBanner.classList.add('hidden');
+    if (pianoRoll) requestAnimationFrame(() => pianoRoll.resize());
+  });
+
+  el.chkScaleSnap.addEventListener('change', (e) => {
+    state.scaleSnap = e.target.checked;
+  });
+
+  el.vocalQuantizeSelect.addEventListener('change', (e) => {
+    state.vocalQuantize = e.target.value;
+  });
+
+  el.chkOverdub.addEventListener('change', (e) => {
+    state.overdubVocal = e.target.checked;
+  });
+
+  el.btnRequantize.addEventListener('click', () => {
+    runVocalTranscription(true);
+  });
+
+  // Mixer 4 kênh (Volume, Mute, Solo)
+  $('#mixer-channels').addEventListener('input', (e) => {
+    const volCh = e.target.dataset.vol;
+    if (!volCh || !state.mixer[volCh]) return;
+    state.mixer[volCh].volume = Number(e.target.value);
+    const lbl = $(`[data-vol-label="${volCh}"]`);
+    if (lbl) lbl.textContent = `${state.mixer[volCh].volume}%`;
+    audioEngine.applyMixer(state.mixer);
+  });
+
+  $('#mixer-channels').addEventListener('click', (e) => {
+    const muteBtn = e.target.closest('[data-mute]');
+    if (muteBtn) {
+      const ch = muteBtn.dataset.mute;
+      state.mixer[ch].muted = !state.mixer[ch].muted;
+      syncMixerUI();
+      audioEngine.applyMixer(state.mixer);
+      return;
+    }
+    const soloBtn = e.target.closest('[data-solo]');
+    if (soloBtn) {
+      const ch = soloBtn.dataset.solo;
+      state.mixer[ch].solo = !state.mixer[ch].solo;
+      syncMixerUI();
+      audioEngine.applyMixer(state.mixer);
+    }
+  });
+
+  // Xuất MIDI & Xuất Audio (cả nút Desktop và Mobile)
+  $$('[data-action="export-midi"]').forEach((btn) =>
+    btn.addEventListener('click', handleExportMidi)
+  );
+  $$('[data-action="export-audio"]').forEach((btn) =>
+    btn.addEventListener('click', handleExportAudio)
+  );
+
+  // Lưu & Mở bản nháp (Desktop Modal + Mobile Tab 3)
+  el.btnOpenProjects.addEventListener('click', () => {
+    renderSavedProjectsLists();
+    el.projectsModal.classList.remove('hidden');
+  });
+  el.btnCloseProjectsModal.addEventListener('click', () =>
+    el.projectsModal.classList.add('hidden')
+  );
+  el.projectsModal.addEventListener('click', (e) => {
+    if (e.target === el.projectsModal) el.projectsModal.classList.add('hidden');
+  });
+
+  $$('[data-action="save-project"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.save-form-row');
+      const inp = row ? $('[data-project-name-input]', row) : null;
+      saveCurrentProject(inp ? inp.value : '');
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    const loadBtn = e.target.closest('[data-load-project]');
+    if (loadBtn) {
+      loadProjectById(loadBtn.dataset.loadProject);
+      return;
+    }
+    const delBtn = e.target.closest('[data-delete-project]');
+    if (delBtn) {
+      deleteProjectById(delBtn.dataset.deleteProject);
+    }
+  });
+
+  // Thanh Tab dưới đáy trên Mobile
+  $$('.nav-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setMobileTab(tab.dataset.tabTarget));
+  });
+
+  // Phím tắt Desktop: Space, R, Delete/Backspace, Ctrl/Cmd+Z, Ctrl+Y, Esc
+  window.addEventListener('keydown', (e) => {
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    if (e.key === 'Escape') {
+      closeChordPicker();
+      el.projectsModal.classList.add('hidden');
+      return;
+    }
+
+    if (e.code === 'Space') {
+      e.preventDefault();
+      el.btnPlay.click();
+      return;
+    }
+
+    if (e.key === 'r' || e.key === 'R') {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleVocalRecording();
+      }
+      return;
+    }
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.selectedNoteId) {
+        e.preventDefault();
+        pushUndoSnapshot();
+        state.melodyNotes = state.melodyNotes.filter(
+          (n) => n.id !== state.selectedNoteId
+        );
+        state.selectedNoteId = null;
+        syncPianoRoll();
+        syncAudioEngine();
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) performRedo();
+      else performUndo();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      performRedo();
+    }
+  });
+}
+
+// ============================================================================
+// Khởi chạy ứng dụng
+// ============================================================================
+function init() {
+  populateSelects();
+  recomputeVoicings();
+
+  pianoRoll = new PianoRoll(el.prCanvas, {
+    getPlayheadBeat: () => audioEngine.getCurrentBeat(),
+    getIsPlaying: () => audioEngine.isPlaying,
+    onHistoryPush: () => pushUndoSnapshot(),
+    onChange: (nextNotes) => {
+      state.melodyNotes = nextNotes;
+      syncAudioEngine();
+    },
+    onSelect: (noteId) => {
+      state.selectedNoteId = noteId;
+    },
+    onAudition: (midi) => {
+      audioEngine.auditionMelodyNote(midi).catch(() => {});
+    },
+  });
+
+  syncGlobalControlsUI();
+  renderChordStrip();
+  syncMixerUI();
+  updateUndoButtons();
+  renderSavedProjectsLists();
+  syncPianoRoll();
+  syncAudioEngine();
+  bindEvents();
+
+  // Vẽ đường giữa ban đầu cho waveform trống
+  drawVocalWaveform(el.vocalWaveform, null);
+}
+
+init();

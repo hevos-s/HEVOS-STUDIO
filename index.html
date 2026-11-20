@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B0E14" />
+  <title>HEVOS STUDIO — Phòng thu Phác thảo</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131822'/%3E%3Cpath d='M6 19v-6m5 10V9m5 14V7m5 12v-8m5 6v-4' stroke='%232DD4BF' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./style.css" />
+  <!-- Thư viện ngoài duy nhất: Tone.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
+</head>
+<body>
+  <div id="app" class="studio-app" data-active-tab="chords">
+    <!-- ====================================================================
+         1. THANH ĐIỀU KHIỂN TRÊN CÙNG (Desktop Transport + Mobile Sticky Mini)
+         ==================================================================== -->
+    <header class="top-transport">
+      <div class="transport-left">
+        <div class="brand">
+          <span class="brand-logo" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
+              <path d="M3 14v-4" />
+              <path d="M7.5 18V6" />
+              <path d="M12 21V3" />
+              <path d="M16.5 16V8" />
+              <path d="M21 13v-2" />
+            </svg>
+          </span>
+          <div class="brand-text">
+            <span class="brand-title">HEVOS STUDIO</span>
+            <span class="brand-sub">Phòng thu Phác thảo</span>
+          </div>
+        </div>
+
+        <div class="transport-actions">
+          <button id="btn-play" class="btn btn-play" type="button" title="Phát / Dừng (Space)">
+            <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="6,4 20,12 6,20" />
+            </svg>
+            <svg class="icon-stop" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="5" y="5" width="14" height="14" rx="2" />
+            </svg>
+            <span class="btn-label" id="btn-play-label">Phát</span>
+          </button>
+
+          <button id="btn-record" class="btn btn-record" type="button" title="Thu Micro ngân nga (R)">
+            <svg class="icon-mic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="17" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
+            </svg>
+            <span class="rec-dot" aria-hidden="true"></span>
+            <span class="btn-label" id="btn-record-label">Thu Mic</span>
+          </button>
+        </div>
+
+        <!-- Tóm tắt Tông & BPM chỉ hiển thị trên Mobile Mini Transport -->
+        <button id="mobile-quick-status" class="mobile-status-pill" type="button" title="Mở cài đặt nhịp & tông">
+          <span id="mobile-key-badge">Eb Trưởng</span>
+          <span class="dot-sep">·</span>
+          <span id="mobile-bpm-badge">84 BPM</span>
+        </button>
+      </div>
+
+      <!-- Cài đặt tổng trên Desktop -->
+      <div class="transport-globals desktop-only">
+        <label class="ctrl-group">
+          <span class="ctrl-label">Tông</span>
+          <select class="studio-select compact" data-bind="keyPc" aria-label="Chọn tông"></select>
+        </label>
+
+        <label class="ctrl-group">
+          <span class="ctrl-label">Âm giai</span>
+          <select class="studio-select compact" data-bind="scaleType" aria-label="Chọn âm giai">
+            <option value="major">Trưởng</option>
+            <option value="minor">Thứ</option>
+          </select>
+        </label>
+
+        <div class="ctrl-group ctrl-slider">
+          <span class="ctrl-label">BPM <strong class="mono-val" data-display="bpm">84</strong></span>
+          <input type="range" class="studio-range" min="60" max="160" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
+        </div>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">Loop</span>
+          <div class="seg-group" data-seg="totalBars">
+            <button type="button" class="seg-btn active" data-value="4">4 ô</button>
+            <button type="button" class="seg-btn" data-value="8">8 ô</button>
+          </div>
+        </div>
+
+        <div class="ctrl-group ctrl-slider">
+          <span class="ctrl-label">Lơi / Swing <strong class="mono-val" data-display="humanize">55%</strong></span>
+          <input type="range" class="studio-range" min="0" max="100" step="1" value="55" data-bind="humanize" aria-label="Độ tự nhiên Swing Humanize" />
+        </div>
+      </div>
+
+      <!-- Lưu & Xuất file trên Desktop -->
+      <div class="transport-right desktop-only">
+        <button id="btn-open-projects" class="btn btn-ghost" type="button" title="Lưu và mở bản phác thảo">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+          <span>Lưu nháp</span>
+        </button>
+
+        <button class="btn btn-indigo-outline" type="button" data-action="export-midi" title="Xuất file MIDI đa track trọn beat (.mid)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>Xuất MIDI</span>
+        </button>
+
+        <button class="btn btn-cyan-outline" type="button" data-action="export-audio" title="Thu xuất 1 vòng nhạc nháp">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
+          </svg>
+          <span class="export-audio-label">Xuất Audio</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ====================================================================
+         2. KHÔNG GIAN LÀM VIỆC CHÍNH (Desktop 3 tầng / Mobile 3 Tab)
+         ==================================================================== -->
+    <main class="studio-main">
+      <!-- ==================== TAB 1: HỢP ÂM & ĐỆM ĐÀN ==================== -->
+      <section class="panel panel-chords" data-panel="chords" aria-label="Vòng hợp âm và đệm đàn">
+        <!-- Cài đặt Tông & Âm giai trên Mobile -->
+        <div class="mobile-only mobile-card-row">
+          <label class="field-box">
+            <span class="field-label">Tông bài hát</span>
+            <select class="studio-select" data-bind="keyPc" aria-label="Tông bài hát"></select>
+          </label>
+          <label class="field-box">
+            <span class="field-label">Âm giai</span>
+            <select class="studio-select" data-bind="scaleType" aria-label="Âm giai">
+              <option value="major">Trưởng (Major)</option>
+              <option value="minor">Thứ tự nhiên (Minor)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="chords-toolbar">
+          <div class="toolbar-cluster">
+            <span class="section-dot dot-indigo"></span>
+            <span class="section-title">Vòng hợp âm</span>
+
+            <label class="inline-field preset-field">
+              <span class="inline-label">Vòng mẫu</span>
+              <select id="preset-select" class="studio-select" aria-label="Chọn vòng hợp âm mẫu"></select>
+            </label>
+          </div>
+
+          <div class="toolbar-cluster chord-sound-controls">
+            <label class="inline-field">
+              <span class="inline-label">Kiểu đệm</span>
+              <select id="chord-style-select" class="studio-select" aria-label="Chọn kiểu đệm"></select>
+            </label>
+
+            <label class="inline-field">
+              <span class="inline-label">Tiếng đàn</span>
+              <select id="chord-timbre-select" class="studio-select" aria-label="Chọn chất tiếng đàn"></select>
+            </label>
+
+            <label class="inline-field drum-field">
+              <span class="inline-label accent-amber">Trống</span>
+              <select id="drum-pattern-select" class="studio-select" aria-label="Chọn nhịp trống"></select>
+            </label>
+          </div>
+        </div>
+
+        <!-- Nút chọn nhanh màu nhạc trên Mobile -->
+        <div id="vibe-chips" class="vibe-chips mobile-only" aria-label="Chọn nhanh màu nhạc"></div>
+
+        <!-- Lưới các ô nhịp Hợp âm (4 hoặc 8 ô) -->
+        <div id="chord-strip" class="chord-strip bars-4" role="list" aria-label="Dải vòng hợp âm theo ô nhịp"></div>
+      </section>
+
+      <!-- ==================== TAB 2: GIAI ĐIỆU & THU MIC ==================== -->
+      <section class="panel panel-melody" data-panel="melody" aria-label="Bảng chấm MIDI và Thu âm ngân nga">
+        <!-- Thanh công cụ Piano Roll -->
+        <div class="melody-toolbar">
+          <div class="toolbar-cluster">
+            <span class="section-dot dot-cyan desktop-only"></span>
+            <div class="seg-group mode-group" id="pr-mode-group" role="group" aria-label="Chế độ tương tác bảng MIDI">
+              <button type="button" class="seg-btn active" data-mode="edit" title="Chấm và kéo sửa nốt">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                <span>Vẽ/Sửa</span>
+              </button>
+              <button type="button" class="seg-btn" data-mode="erase" title="Chạm hoặc quét để xóa nốt">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                  <path d="M22 21H7" />
+                </svg>
+                <span>Xóa</span>
+              </button>
+              <button type="button" class="seg-btn" data-mode="scroll" title="Kéo cuộn khung nhìn không bị chấm nhầm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 9l-3 3 3 3" /><path d="M9 5l3-3 3 3" /><path d="M15 19l-3 3-3-3" /><path d="M19 9l3 3-3 3" />
+                  <line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" />
+                </svg>
+                <span>Cuộn lưới</span>
+              </button>
+            </div>
+
+            <button id="btn-scale-lock" class="toggle-pill active" type="button" aria-pressed="true" title="Tự động khóa nốt vào đúng tông khi chấm/kéo">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              <span>Khóa tông</span>
+            </button>
+
+            <label class="inline-field compact-field">
+              <span class="inline-label">Lưới</span>
+              <select id="pr-grid-select" class="studio-select compact" aria-label="Độ chia lưới nhịp">
+                <option value="0.25" selected>1/16</option>
+                <option value="0.5">1/8</option>
+                <option value="0">Tự do</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="toolbar-cluster">
+            <label class="inline-field">
+              <span class="inline-label accent-cyan">Tiếng MIDI</span>
+              <select id="melody-timbre-select" class="studio-select compact" aria-label="Tiếng nhạc cụ giai điệu"></select>
+            </label>
+
+            <div class="icon-btn-group">
+              <button id="btn-undo" class="icon-btn" type="button" disabled title="Hoàn tác (Ctrl+Z)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+                </svg>
+              </button>
+              <button id="btn-redo" class="icon-btn" type="button" disabled title="Làm lại (Ctrl+Y)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 7v6h-6" /><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+                </svg>
+              </button>
+              <button id="btn-zoom-out" class="icon-btn" type="button" title="Thu nhỏ ngang">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                  <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
+                </svg>
+              </button>
+              <button id="btn-zoom-in" class="icon-btn" type="button" title="Phóng to ngang">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                  <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
+                </svg>
+              </button>
+              <button id="btn-clear-melody" class="icon-btn danger" type="button" title="Xóa toàn bộ giai điệu">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6" /><path d="M14 11v6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Khu vực Thu Mic Ngân Nga (Vocal Capture HUD) -->
+        <div id="vocal-hud" class="vocal-hud">
+          <!-- Nhắc đeo tai nghe gọn gàng, có thể ẩn -->
+          <div id="headphone-banner" class="headphone-banner">
+            <div class="headphone-msg">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z" />
+                <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3Z" />
+              </svg>
+              <span><strong>Mẹo thu sạch:</strong> Nên đeo tai nghe khi thu micro để tiếng đàn đệm không lọt vào giọng.</span>
+            </div>
+            <div class="headphone-actions">
+              <label class="mini-check" title="Bật nếu bạn không đeo tai nghe để giảm tiếng loa lọt vào micro">
+                <input type="checkbox" data-bind="echoCancellation" />
+                <span>Khử vọng loa</span>
+              </label>
+              <button id="btn-dismiss-headphone" class="btn-close-xs" type="button" aria-label="Ẩn nhắc nhở">×</button>
+            </div>
+          </div>
+
+          <div class="vocal-strip">
+            <div class="vocal-live-box">
+              <span id="vocal-status-badge" class="status-badge">Ngân nga → MIDI</span>
+              <div class="mic-meter" title="Mức âm lượng micro">
+                <div id="mic-meter-fill" class="mic-meter-fill"></div>
+              </div>
+              <span class="live-pitch-chip" id="live-pitch-readout">Nốt: <strong>—</strong></span>
+              <canvas id="vocal-waveform" class="vocal-waveform" aria-label="Sóng âm giọng thu nháp"></canvas>
+            </div>
+
+            <div class="vocal-post-controls">
+              <label class="mini-check accent-check" title="Tự động hút giọng hát hơi chênh về đúng tông & hợp âm">
+                <input type="checkbox" id="chk-scale-snap" checked />
+                <span>Ép đúng tông</span>
+              </label>
+
+              <label class="inline-field compact-field">
+                <span class="inline-label">Quantize</span>
+                <select id="vocal-quantize-select" class="studio-select compact" aria-label="Căn nhịp khi quét MIDI">
+                  <option value="1/16" selected>1/16</option>
+                  <option value="1/8">1/8</option>
+                  <option value="off">Tự do</option>
+                </select>
+              </label>
+
+              <label class="mini-check" title="Bật để cộng thêm nốt mới vào giai điệu đang có thay vì ghi đè">
+                <input type="checkbox" id="chk-overdub" />
+                <span>Gộp thêm</span>
+              </label>
+
+              <button id="btn-requantize" class="btn btn-rose-outline btn-xs" type="button" disabled title="Chuyển đổi lại đoạn giọng vừa thu thành MIDI theo cài đặt mới">
+                Quét lại MIDI
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Khung HTML5 Canvas Piano Roll -->
+        <div class="piano-roll-wrap">
+          <canvas id="piano-roll-canvas" aria-label="Bảng chấm giai điệu MIDI Piano Roll"></canvas>
+          <!-- Lớp đếm vào 1 ô nhịp (Count-in) nổi bật gọn giữa màn hình -->
+          <div id="countin-overlay" class="countin-overlay hidden" aria-live="assertive">
+            <span class="countin-caption" id="countin-caption">CHUẨN BỊ NGÂN NGA</span>
+            <span class="countin-number" id="countin-number">4</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== TAB 3: MIXER 4 KÊNH & XUẤT FILE ==================== -->
+      <section class="panel panel-mixer" data-panel="mixer" aria-label="Mixer 4 kênh và Xuất file">
+        <!-- Mixer 4 kênh (Ngang gọn trên Desktop, Dọc rộng trên Mobile) -->
+        <div class="mixer-channels" id="mixer-channels">
+          <!-- Kênh 1: Hợp âm -->
+          <div class="mixer-strip strip-indigo" data-channel="chords">
+            <div class="strip-head">
+              <span class="strip-indicator"></span>
+              <span class="strip-name">Hợp âm</span>
+              <span class="strip-val mono-val" data-vol-label="chords">78%</span>
+            </div>
+            <div class="strip-body">
+              <input type="range" class="studio-range range-indigo" min="0" max="100" value="78" data-vol="chords" aria-label="Âm lượng Hợp âm" />
+              <div class="ms-btns">
+                <button type="button" class="ms-btn" data-mute="chords" title="Tắt tiếng Hợp âm">M</button>
+                <button type="button" class="ms-btn" data-solo="chords" title="Nghe riêng Hợp âm">S</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kênh 2: Giai điệu MIDI -->
+          <div class="mixer-strip strip-cyan" data-channel="melody">
+            <div class="strip-head">
+              <span class="strip-indicator"></span>
+              <span class="strip-name">Giai điệu MIDI</span>
+              <span class="strip-val mono-val" data-vol-label="melody">82%</span>
+            </div>
+            <div class="strip-body">
+              <input type="range" class="studio-range range-cyan" min="0" max="100" value="82" data-vol="melody" aria-label="Âm lượng Giai điệu MIDI" />
+              <div class="ms-btns">
+                <button type="button" class="ms-btn" data-mute="melody" title="Tắt tiếng Giai điệu MIDI">M</button>
+                <button type="button" class="ms-btn" data-solo="melody" title="Nghe riêng Giai điệu MIDI">S</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kênh 3: Trống -->
+          <div class="mixer-strip strip-amber" data-channel="drums">
+            <div class="strip-head">
+              <span class="strip-indicator"></span>
+              <span class="strip-name">Trống</span>
+              <span class="strip-val mono-val" data-vol-label="drums">68%</span>
+            </div>
+            <div class="strip-body">
+              <input type="range" class="studio-range range-amber" min="0" max="100" value="68" data-vol="drums" aria-label="Âm lượng Trống" />
+              <div class="ms-btns">
+                <button type="button" class="ms-btn" data-mute="drums" title="Tắt tiếng Trống">M</button>
+                <button type="button" class="ms-btn" data-solo="drums" title="Nghe riêng Trống">S</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kênh 4: Giọng thu nháp -->
+          <div class="mixer-strip strip-rose" data-channel="vocal">
+            <div class="strip-head">
+              <span class="strip-indicator"></span>
+              <span class="strip-name">Giọng thu nháp</span>
+              <span class="vocal-take-tag" id="vocal-take-tag">Trống</span>
+              <span class="strip-val mono-val" data-vol-label="vocal">75%</span>
+            </div>
+            <div class="strip-body">
+              <input type="range" class="studio-range range-rose" min="0" max="100" value="75" data-vol="vocal" aria-label="Âm lượng Giọng thu nháp" />
+              <div class="ms-btns">
+                <button type="button" class="ms-btn" data-mute="vocal" title="Tắt tiếng Giọng thu nháp">M</button>
+                <button type="button" class="ms-btn" data-solo="vocal" title="Nghe riêng Giọng thu nháp">S</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Các cài đặt nhịp, xuất file & bản lưu cho màn hình Mobile Tab 3 -->
+        <div class="mobile-only mobile-mixer-extras">
+          <div class="mobile-section-card">
+            <h3 class="mobile-card-title">Nhịp độ &amp; Vòng lặp</h3>
+
+            <div class="mobile-slider-row">
+              <div class="row-top">
+                <span>Tốc độ (BPM)</span>
+                <strong class="mono-val" data-display="bpm">84</strong>
+              </div>
+              <input type="range" class="studio-range" min="60" max="160" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
+            </div>
+
+            <div class="mobile-slider-row">
+              <div class="row-top">
+                <span>Độ lơi tự nhiên (Swing / Humanize)</span>
+                <strong class="mono-val" data-display="humanize">55%</strong>
+              </div>
+              <input type="range" class="studio-range" min="0" max="100" step="1" value="55" data-bind="humanize" aria-label="Swing Humanize" />
+            </div>
+
+            <div class="mobile-inline-setting">
+              <span>Độ dài vòng lặp (Loop)</span>
+              <div class="seg-group" data-seg="totalBars">
+                <button type="button" class="seg-btn active" data-value="4">4 ô nhịp</button>
+                <button type="button" class="seg-btn" data-value="8">8 ô nhịp</button>
+              </div>
+            </div>
+
+            <div class="mobile-inline-setting">
+              <span>Khử vọng loa khi thu (Echo Cancel)</span>
+              <label class="switch-toggle">
+                <input type="checkbox" data-bind="echoCancellation" />
+                <span class="switch-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="mobile-section-card">
+            <h3 class="mobile-card-title">Xuất bản phác thảo</h3>
+            <div class="mobile-export-grid">
+              <button class="btn btn-indigo-solid btn-lg" type="button" data-action="export-midi">
+                Xuất file MIDI (.mid)
+              </button>
+              <button class="btn btn-cyan-solid btn-lg" type="button" data-action="export-audio">
+                <span class="export-audio-label">Xuất nhạc nháp (Audio)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="mobile-section-card">
+            <h3 class="mobile-card-title">Bản nháp đã lưu trong máy</h3>
+            <div class="save-form-row">
+              <input type="text" class="studio-input" data-project-name-input placeholder="Tên ý tưởng (vd: Điệp khúc R&B tối nay)..." />
+              <button type="button" class="btn btn-indigo-outline" data-action="save-project">Lưu</button>
+            </div>
+            <div class="saved-projects-list" data-projects-list></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ====================================================================
+         3. THANH CHUYỂN TAB DƯỚI ĐÁY CHO MOBILE (< 768px)
+         ==================================================================== -->
+    <nav class="mobile-bottom-nav mobile-only" aria-label="Điều hướng phòng thu">
+      <button type="button" class="nav-tab active" data-tab-target="chords">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1="9" y1="4" x2="9" y2="20" />
+          <line x1="15" y1="4" x2="15" y2="20" />
+        </svg>
+        <span>Hợp âm</span>
+      </button>
+
+      <button type="button" class="nav-tab" data-tab-target="melody">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+        <span>Giai điệu</span>
+      </button>
+
+      <button type="button" class="nav-tab" data-tab-target="mixer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+          <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+          <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
+        </svg>
+        <span>Mixer &amp; Xuất</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ====================================================================
+       4. BẢNG CHỌN HỢP ÂM (Modal trên Desktop / Bottom Sheet trên Mobile)
+       ==================================================================== -->
+  <div id="chord-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="chord-modal-title">
+    <div class="modal-sheet chord-sheet">
+      <div class="sheet-handle mobile-only"></div>
+      <div class="modal-header">
+        <div>
+          <h2 id="chord-modal-title" class="modal-title">Chọn hợp âm · Ô nhịp 1</h2>
+          <p class="modal-subtitle" id="chord-modal-preview">Đang chọn: <strong>Fm7</strong> (ii7)</p>
+        </div>
+        <div class="modal-header-actions">
+          <button id="btn-audition-modal-chord" type="button" class="btn btn-indigo-outline btn-xs">
+            Nghe thử
+          </button>
+          <button id="btn-close-chord-modal" type="button" class="icon-btn" aria-label="Đóng">×</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div class="picker-section">
+          <span class="picker-label">1. Chọn bậc hợp âm trong tông</span>
+          <div id="diatonic-grid" class="diatonic-grid"></div>
+        </div>
+
+        <div class="picker-section">
+          <span class="picker-label">2. Chọn màu sắc hợp âm (Extension)</span>
+          <div id="extension-pills" class="extension-pills"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       5. MODAL LƯU / MỞ DỰ ÁN NHÁP (Desktop)
+       ==================================================================== -->
+  <div id="projects-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="projects-modal-title">
+    <div class="modal-sheet projects-sheet">
+      <div class="modal-header">
+        <div>
+          <h2 id="projects-modal-title" class="modal-title">Bản phác thảo đã lưu</h2>
+          <p class="modal-subtitle">Lưu cục bộ ngay trên trình duyệt (LocalStorage)</p>
+        </div>
+        <button id="btn-close-projects-modal" type="button" class="icon-btn" aria-label="Đóng">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="save-form-row">
+          <input type="text" class="studio-input" data-project-name-input placeholder="Đặt tên cho ý tưởng hiện tại..." />
+          <button type="button" class="btn btn-indigo-solid" data-action="save-project">Lưu bản nháp</button>
+        </div>
+        <div class="saved-projects-list" data-projects-list></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Thông báo nổi (Toast) -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
