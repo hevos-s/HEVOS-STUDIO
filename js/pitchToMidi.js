@@ -3,7 +3,7 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=9';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=10';
 
 const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
 const MAX_VOCAL_HZ = 1050;  // ~C6
@@ -1044,7 +1044,7 @@ export function drawVocalWaveform(canvas, vocalSource) {
   ctx.clearRect(0, 0, w, h);
 
   // Đường trục giữa
-  ctx.strokeStyle = 'rgba(244, 63, 94, 0.22)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, h / 2);
@@ -1064,9 +1064,9 @@ export function drawVocalWaveform(canvas, vocalSource) {
   }
 
   const grad = ctx.createLinearGradient(0, 0, w, 0);
-  grad.addColorStop(0, '#FB7185');
-  grad.addColorStop(0.5, '#F43F5E');
-  grad.addColorStop(1, '#FDA4AF');
+  grad.addColorStop(0, '#A1A1AA');
+  grad.addColorStop(0.5, '#FAFAFA');
+  grad.addColorStop(1, '#D4D4D8');
   ctx.fillStyle = grad;
 
   for (let x = 0; x < w; x += 2) {

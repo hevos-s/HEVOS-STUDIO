@@ -3,7 +3,7 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { midiToFreq } from './theory.js?v=9';
+import { midiToFreq } from './theory.js?v=10';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -20,12 +20,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=9';
+} from './trainerData.js?v=10';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=9';
+} from './staffRenderer.js?v=10';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({

@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=9';
+} from './theory.js?v=10';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=9';
-import { applyAutoTunePcm } from './autoTune.js?v=9';
+} from './pitchToMidi.js?v=10';
+import { applyAutoTunePcm } from './autoTune.js?v=10';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=9';
+} from './audioEngine.js?v=10';
 
 export const VOCAL_PRESETS = [
   {
@@ -419,7 +419,7 @@ export class VocalStudio {
         title: 'Track 1 · Giọng chính (Lead Vocal)',
         shortTitle: 'Giọng chính',
         accentClass: 'vs-track-lead',
-        waveColor: '#F43F5E',
+        waveColor: '#F4F4F5',
         rawPcm: null,
         tunedPcm: null,
         playablePcm: null,
@@ -441,7 +441,7 @@ export class VocalStudio {
         title: 'Track 2 · Hát bè / Ad-lib',
         shortTitle: 'Hát bè / Ad-lib',
         accentClass: 'vs-track-backing',
-        waveColor: '#A855F7',
+        waveColor: '#A1A1AA',
         rawPcm: null,
         tunedPcm: null,
         playablePcm: null,
@@ -2955,7 +2955,7 @@ export class VocalStudio {
     if (totalTimelineSec <= 0) return;
     const ratio = Math.max(0, Math.min(1, this.currentTimeSec / totalTimelineSec));
     const px = Math.max(0.5, Math.min(w - 0.5, ratio * w));
-    ctx.strokeStyle = '#F97316';
+    ctx.strokeStyle = '#FAFAFA';
     ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(px, 0);
@@ -3006,7 +3006,7 @@ export class VocalStudio {
     const peaks = this.beatTrack.wavePeaks;
     if (peaks && peaks.length > 0 && this.beatTrack.durationSec > 0 && totalTimeline > 0) {
       const beatWidthPx = Math.min(w, (this.beatTrack.durationSec / totalTimeline) * w);
-      ctx.fillStyle = this.beatTrack.muted ? 'rgba(107, 114, 128, 0.45)' : '#38BDF8';
+      ctx.fillStyle = this.beatTrack.muted ? 'rgba(113, 113, 122, 0.35)' : '#D4D4D8';
       for (let x = 0; x < beatWidthPx; x += 2.5) {
         const idx = Math.min(peaks.length - 1, Math.floor((x / beatWidthPx) * peaks.length));
         const barH = Math.max(2, peaks[idx] * (h - 8));
@@ -3093,9 +3093,9 @@ export class VocalStudio {
         }
 
         ctx.fillStyle = tr.muted
-          ? 'rgba(107, 114, 128, 0.45)'
+          ? 'rgba(113, 113, 122, 0.35)'
           : tr.autoTune.enabled && trackId === 'lead'
-            ? '#FB7185'
+            ? '#FFFFFF'
             : tr.waveColor;
 
         for (let dx = 0; dx < clipW; dx += 2.5) {

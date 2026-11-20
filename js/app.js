@@ -12,24 +12,24 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=9';
+} from './theory.js?v=10';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=9';
+} from './audioEngine.js?v=10';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=9';
-import { PianoRoll } from './pianoRoll.js?v=9';
-import { downloadMidiFile } from './midiExport.js?v=9';
-import { MusicTrainer } from './musicTrainer.js?v=9';
-import { VocalStudio } from './vocalStudio.js?v=9';
+} from './pitchToMidi.js?v=10';
+import { PianoRoll } from './pianoRoll.js?v=10';
+import { downloadMidiFile } from './midiExport.js?v=10';
+import { MusicTrainer } from './musicTrainer.js?v=10';
+import { VocalStudio } from './vocalStudio.js?v=10';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -102,6 +102,7 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const el = {
   app: $('#app'),
   btnLogoHome: $('#btn-logo-home'),
+  mobileSectionBadge: $('#mobile-section-badge'),
   sectionSwitcher: $('#section-switcher'),
   hubRoot: $('#hub-root'),
   vocalRoot: $('#vocal-root'),
@@ -1090,6 +1091,16 @@ function setAppSection(section) {
 
   state.activeSection = target;
   el.app.dataset.section = target;
+
+  if (el.mobileSectionBadge) {
+    const sectionNames = {
+      hub: 'Tổng quan',
+      studio: 'Sáng tác Beat',
+      vocal: 'Phòng thu Vocal',
+      trainer: 'Học nhạc lý',
+    };
+    el.mobileSectionBadge.textContent = sectionNames[target] || 'Tổng quan';
+  }
 
   if (el.sectionSwitcher) {
     $$('[data-section-target]', el.sectionSwitcher).forEach((btn) => {
