@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=6';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=7';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -340,6 +340,9 @@ class AudioEngine {
     this.melodySynths = {};
     this.drums = {};
     this.countInSynth = null;
+    this.trainerPiano = null;
+    this.trainerWrongSynth = null;
+    this.trainerClickSynth = null;
 
     this.vocalPlayer = null;
     this.hasRawVocal = false;
@@ -450,9 +453,43 @@ class AudioEngine {
     // Khởi tạo sẵn 2 tiếng mặc định
     this._getChordSynth(this.state.chordTimbre);
     this._getMelodySynth(this.state.melodyTimbre);
+    this._ensureTrainerSynths();
 
     this.applyMixer(this.state.mixer);
     this.initialized = true;
+  }
+
+  _ensureTrainerSynths() {
+    if (this.trainerPiano) return;
+    const Tone = window.Tone;
+    if (!Tone || !this.masterBus) return;
+
+    const filter = new Tone.Filter(2800, 'lowpass');
+    const revSend = new Tone.Gain(0.22).connect(this.reverbSend);
+    this.trainerPiano = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 10,
+      volume: -6,
+      oscillator: {
+        type: 'custom',
+        partials: [1, 0.42, 0.2, 0.09, 0.04],
+      },
+      envelope: { attack: 0.006, decay: 1.4, sustain: 0.14, release: 0.75 },
+    });
+    this.trainerPiano.connect(filter);
+    filter.connect(this.masterBus);
+    filter.connect(revSend);
+
+    this.trainerWrongSynth = new Tone.Synth({
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.004, decay: 0.09, sustain: 0, release: 0.05 },
+      volume: -13,
+    }).connect(this.masterBus);
+
+    this.trainerClickSynth = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
+      volume: -10,
+    }).connect(this.masterBus);
   }
 
   _initDrums() {
@@ -1115,6 +1152,51 @@ class AudioEngine {
       if (wasPlaying) {
         this.rebuildSchedule();
       }
+    }
+  }
+
+  /**
+   * Phát tiếng Piano mẫu & phản hồi riêng cho phân khu Học nhạc (không bị ảnh hưởng bởi Mute Studio)
+   */
+  async playTrainerPiano(midi, duration = 0.65, velocity = 0.82) {
+    await this.ensureReady();
+    this._ensureTrainerSynths();
+    try {
+      this.trainerPiano.triggerAttackRelease(
+        midiToToneNote(midi),
+        duration,
+        window.Tone.now(),
+        velocity
+      );
+    } catch (_) {}
+  }
+
+  async playTrainerWrong() {
+    await this.ensureReady();
+    this._ensureTrainerSynths();
+    try {
+      this.trainerWrongSynth.triggerAttackRelease('F2', 0.09, window.Tone.now(), 0.55);
+    } catch (_) {}
+  }
+
+  async playTrainerClick(accent = false) {
+    await this.ensureReady();
+    this._ensureTrainerSynths();
+    try {
+      this.trainerClickSynth.triggerAttackRelease(
+        accent ? 'C6' : 'G5',
+        '32n',
+        window.Tone.now(),
+        accent ? 0.72 : 0.45
+      );
+    } catch (_) {}
+  }
+
+  stopTrainerAudio() {
+    if (this.trainerPiano) {
+      try {
+        this.trainerPiano.releaseAll();
+      } catch (_) {}
     }
   }
 }

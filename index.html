@@ -6,34 +6,41 @@
   <meta name="theme-color" content="#121316" />
   <title>HEVOS STUDIO — Phòng thu Phác thảo</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231A1C20'/%3E%3Cpath d='M6 19v-6m5 10V9m5 14V7m5 12v-8m5 6v-4' stroke='%2310B981' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./style.css?v=6" />
+  <link rel="stylesheet" href="./style.css?v=7" />
   <!-- Thư viện ngoài duy nhất: Tone.js -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
 <body>
-  <div id="app" class="studio-app" data-active-tab="chords">
+  <div id="app" class="studio-app" data-section="studio" data-active-tab="chords">
     <!-- ====================================================================
-         1. THANH ĐIỀU KHIỂN TRÊN CÙNG (Desktop Transport + Mobile Sticky Mini)
+         1. THANH ĐIỀU KHIỂN TRÊN CÙNG (Header + Chuyển phân khu Studio | Học nhạc)
          ==================================================================== -->
     <header class="top-transport">
       <div class="transport-left">
-        <div class="brand">
-          <span class="brand-logo" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
-              <path d="M3 14v-4" />
-              <path d="M7.5 18V6" />
-              <path d="M12 21V3" />
-              <path d="M16.5 16V8" />
-              <path d="M21 13v-2" />
-            </svg>
-          </span>
-          <div class="brand-text">
-            <span class="brand-title">HEVOS STUDIO</span>
-            <span class="brand-sub">Phòng thu Phác thảo</span>
+        <div class="brand-nav-group">
+          <div class="brand">
+            <span class="brand-logo" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
+                <path d="M3 14v-4" />
+                <path d="M7.5 18V6" />
+                <path d="M12 21V3" />
+                <path d="M16.5 16V8" />
+                <path d="M21 13v-2" />
+              </svg>
+            </span>
+            <div class="brand-text">
+              <span class="brand-title">HEVOS STUDIO</span>
+              <span class="brand-sub">Phòng thu Phác thảo</span>
+            </div>
+          </div>
+
+          <div class="seg-group section-switcher" id="section-switcher" role="tablist" aria-label="Phân khu ứng dụng">
+            <button type="button" class="seg-btn active" data-section-target="studio" role="tab" aria-selected="true">Studio</button>
+            <button type="button" class="seg-btn" data-section-target="trainer" role="tab" aria-selected="false">Học nhạc</button>
           </div>
         </div>
 
-        <div class="transport-actions">
+        <div class="transport-actions studio-only-el">
           <button id="btn-play" class="btn btn-play" type="button" title="Phát / Dừng (Space)">
             <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="6,4 20,12 6,20" />
@@ -57,7 +64,7 @@
         </div>
 
         <!-- Tóm tắt Tông & BPM chỉ hiển thị trên Mobile Mini Transport -->
-        <button id="mobile-quick-status" class="mobile-status-pill" type="button" title="Mở cài đặt nhịp & tông">
+        <button id="mobile-quick-status" class="mobile-status-pill studio-only-el" type="button" title="Mở cài đặt nhịp & tông">
           <span id="mobile-key-badge">Eb Trưởng</span>
           <span class="dot-sep">·</span>
           <span id="mobile-bpm-badge">84 BPM</span>
@@ -65,7 +72,7 @@
       </div>
 
       <!-- Màn hình LCD/OLED chìm hiển thị đồng hồ Transport, BPM & Tông (Desktop) -->
-      <div id="transport-lcd" class="daw-lcd desktop-only" aria-label="Màn hình thông số Transport">
+      <div id="transport-lcd" class="daw-lcd desktop-only studio-only-el" aria-label="Màn hình thông số Transport">
         <div class="lcd-cell">
           <span class="lcd-label">VỊ TRÍ</span>
           <span id="lcd-pos" class="lcd-val lcd-pos">1.1.1</span>
@@ -83,7 +90,7 @@
       </div>
 
       <!-- Cài đặt tổng trên Desktop -->
-      <div class="transport-globals desktop-only">
+      <div class="transport-globals desktop-only studio-only-el">
         <label class="ctrl-group">
           <span class="ctrl-label">Tông</span>
           <select class="studio-select compact" data-bind="keyPc" aria-label="Chọn tông"></select>
@@ -117,7 +124,7 @@
       </div>
 
       <!-- Lưu & Xuất file trên Desktop -->
-      <div class="transport-right desktop-only">
+      <div class="transport-right desktop-only studio-only-el">
         <button id="btn-open-projects" class="btn btn-ghost" type="button" title="Lưu và mở bản phác thảo">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -507,7 +514,12 @@
     </main>
 
     <!-- ====================================================================
-         3. THANH CHUYỂN TAB DƯỚI ĐÁY CHO MOBILE (< 768px)
+         PHÂN KHU 2: HỌC NHẠC (LUYỆN ĐỌC NỐT & PHẢN XẠ NHẠC LÝ)
+         ==================================================================== -->
+    <section id="trainer-root" class="trainer-workspace hidden" aria-label="Học nhạc — Luyện đọc nốt và phản xạ nhạc lý"></section>
+
+    <!-- ====================================================================
+         3. THANH CHUYỂN TAB DƯỚI ĐÁY CHO MOBILE (< 768px) — CHỈ Ở STUDIO
          ==================================================================== -->
     <nav class="mobile-bottom-nav mobile-only" aria-label="Điều hướng phòng thu">
       <button type="button" class="nav-tab active" data-tab-target="chords">
@@ -599,6 +611,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=6"></script>
+  <script type="module" src="./js/app.js?v=7"></script>
 </body>
 </html>

@@ -12,21 +12,22 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=6';
+} from './theory.js?v=7';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=6';
+} from './audioEngine.js?v=7';
 import {
   VocalCapture,
   drawVocalWaveform,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=6';
-import { PianoRoll } from './pianoRoll.js?v=6';
-import { downloadMidiFile } from './midiExport.js?v=6';
+} from './pitchToMidi.js?v=7';
+import { PianoRoll } from './pianoRoll.js?v=7';
+import { downloadMidiFile } from './midiExport.js?v=7';
+import { MusicTrainer } from './musicTrainer.js?v=7';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -78,10 +79,12 @@ const state = {
   rawVocalBuffer: null,
   editingBarIndex: null,
   activeMobileTab: 'chords',
+  activeSection: 'studio', // 'studio' | 'trainer'
 };
 
 const vocalCapture = new VocalCapture();
 let pianoRoll = null;
+let musicTrainer = null;
 let recStopTimer = null;
 let uiRafId = null;
 let lastHighlightedBar = -1;
@@ -94,6 +97,8 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const el = {
   app: $('#app'),
+  sectionSwitcher: $('#section-switcher'),
+  trainerRoot: $('#trainer-root'),
   btnPlay: $('#btn-play'),
   btnPlayLabel: $('#btn-play-label'),
   btnRecord: $('#btn-record'),
@@ -463,6 +468,14 @@ function applyPreset(presetId, notify = false) {
   state.chords = preset.chords.map((c) => ({ ...c }));
 
   recomputeVoicings();
+  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
@@ -487,6 +500,14 @@ function setTotalBars(bars) {
 
   state.totalBars = target;
   recomputeVoicings();
+  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
@@ -513,6 +534,14 @@ function setKeyPc(newPc) {
 
   state.keyPc = newPc;
   recomputeVoicings();
+  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
@@ -1002,6 +1031,14 @@ function loadProjectById(id) {
   state.selectedNoteId = null;
 
   recomputeVoicings();
+  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
   syncGlobalControlsUI();
   renderChordStrip();
   syncMixerUI();
@@ -1022,8 +1059,46 @@ function deleteProjectById(id) {
 }
 
 // ============================================================================
-// Điều hướng Tab trên Mobile
+// Điều hướng Phân khu (Studio | Học nhạc) & Tab Mobile
 // ============================================================================
+function setAppSection(section) {
+  const target = section === 'trainer' ? 'trainer' : 'studio';
+  if (state.activeSection === target) return;
+
+  // Dừng sạch sẽ mọi âm thanh/vòng lặp/ghi âm ở phân khu cũ để không bao giờ bị lẫn tiếng
+  if (state.recordPhase !== 'idle') {
+    cancelRecordingCleanly();
+  }
+  audioEngine.stop();
+  updatePlayButtonUI();
+  if (musicTrainer) {
+    musicTrainer.stopActiveSession();
+  }
+  audioEngine.stopTrainerAudio();
+
+  state.activeSection = target;
+  el.app.dataset.section = target;
+
+  if (el.sectionSwitcher) {
+    $$('[data-section-target]', el.sectionSwitcher).forEach((btn) => {
+      const isAct = btn.dataset.sectionTarget === target;
+      btn.classList.toggle('active', isAct);
+      btn.setAttribute('aria-selected', String(isAct));
+    });
+  }
+
+  if (el.trainerRoot) {
+    el.trainerRoot.classList.toggle('hidden', target !== 'trainer');
+  }
+  if (musicTrainer) {
+    musicTrainer.setSectionActive(target === 'trainer');
+  }
+
+  if (target === 'studio' && pianoRoll) {
+    requestAnimationFrame(() => pianoRoll.resize());
+  }
+}
+
 function setMobileTab(tabName) {
   state.activeMobileTab = tabName;
   el.app.dataset.activeTab = tabName;
@@ -1094,7 +1169,15 @@ function bindEvents() {
     sel.addEventListener('change', (e) => {
       state.scaleType = e.target.value;
       recomputeVoicings();
-      syncGlobalControlsUI();
+      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
+  syncGlobalControlsUI();
       renderChordStrip();
       syncPianoRoll();
       syncAudioEngine();
@@ -1104,7 +1187,15 @@ function bindEvents() {
   $$('[data-bind="bpm"]').forEach((inp) => {
     inp.addEventListener('input', (e) => {
       state.bpm = Number(e.target.value);
-      syncGlobalControlsUI();
+      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
+  syncGlobalControlsUI();
       syncAudioEngine();
     });
   });
@@ -1112,7 +1203,15 @@ function bindEvents() {
   $$('[data-bind="humanize"]').forEach((inp) => {
     inp.addEventListener('input', (e) => {
       state.humanize = Number(e.target.value);
-      syncGlobalControlsUI();
+      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
+  syncGlobalControlsUI();
       syncAudioEngine();
     });
   });
@@ -1120,7 +1219,15 @@ function bindEvents() {
   $$('[data-bind="echoCancellation"]').forEach((chk) => {
     chk.addEventListener('change', (e) => {
       state.echoCancellation = e.target.checked;
-      syncGlobalControlsUI();
+      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
+
+  syncGlobalControlsUI();
     });
   });
 
@@ -1334,13 +1441,23 @@ function bindEvents() {
     }
   });
 
+  // Chuyển phân khu Studio | Học nhạc
+  if (el.sectionSwitcher) {
+    el.sectionSwitcher.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-section-target]');
+      if (!btn) return;
+      setAppSection(btn.dataset.sectionTarget);
+    });
+  }
+
   // Thanh Tab dưới đáy trên Mobile
   $$('.nav-tab').forEach((tab) => {
     tab.addEventListener('click', () => setMobileTab(tab.dataset.tabTarget));
   });
 
-  // Phím tắt Desktop: Space, R, Delete/Backspace, Ctrl/Cmd+Z, Ctrl+Y, Esc
+  // Phím tắt Desktop (chỉ áp dụng khi đang ở phân khu Studio)
   window.addEventListener('keydown', (e) => {
+    if (state.activeSection !== 'studio') return;
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -1415,6 +1532,14 @@ function init() {
       audioEngine.auditionMelodyNote(midi).catch(() => {});
     },
   });
+
+  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  if (el.trainerRoot) {
+    musicTrainer = new MusicTrainer(el.trainerRoot, {
+      audioEngine,
+      showToast,
+    });
+  }
 
   syncGlobalControlsUI();
   renderChordStrip();

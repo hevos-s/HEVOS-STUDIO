@@ -136,11 +136,49 @@ button {
   flex-wrap: wrap;
 }
 
+.brand-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.section-switcher {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.section-switcher .seg-btn {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.section-switcher .seg-btn.active {
+  background: var(--play-green);
+  color: #052E20;
+}
+
+/* Ẩn gọn toàn bộ phần Studio khi chuyển sang phân khu Học nhạc */
+.studio-app[data-section="trainer"] .studio-main,
+.studio-app[data-section="trainer"] .mobile-bottom-nav,
+.studio-app[data-section="trainer"] .studio-only-el {
+  display: none !important;
+}
+
+.studio-app[data-section="trainer"] .trainer-workspace {
+  display: flex !important;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: 4px;
+  margin-right: 2px;
   flex-shrink: 0;
 }
 
@@ -1644,7 +1682,7 @@ button {
     color: #E0E7FF;
   }
 
-  /* 1. Sticky Mini Transport */
+  /* 1. Sticky Mini Transport (Row 1: Brand + Section Switcher; Row 2: Studio Controls) */
   .top-transport {
     position: sticky;
     top: 0;
@@ -1654,8 +1692,21 @@ button {
 
   .transport-left {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 6px;
+  }
+
+  .brand-nav-group {
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .section-switcher .seg-btn {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 11.5px;
   }
 
   .brand {
@@ -2115,4 +2166,919 @@ button {
 @media (max-width: 374px) {
   .btn-play .btn-label { display: none; }
   .mobile-status-pill { font-size: 9.5px; padding: 3px 5px; }
+  .section-switcher .seg-btn { padding: 0 7px; font-size: 11px; }
 }
+
+/* ==========================================================================
+   PHÂN KHU 2: HỌC NHẠC (LUYỆN ĐỌC NỐT & PHẢN XẠ) — PRO DAW GRAPHITE
+   ========================================================================== */
+.trainer-workspace {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+
+.trainer-shell {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.accent-green { color: var(--play-green-bright) !important; }
+.accent-red   { color: #FCA5A5 !important; }
+
+/* 1. Home Dashboard */
+.trainer-home {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 4px;
+}
+
+.trainer-hero {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.trainer-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #F9FAFB;
+}
+
+.trainer-sub {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.trainer-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(84px, 1fr));
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.t-stat-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 11px;
+  border-right: 1px solid #22262E;
+}
+.t-stat-cell:last-child { border-right: none; }
+
+.t-stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.t-stat-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #E5E7EB;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.trainer-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 15px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  overflow: hidden;
+}
+
+.mode-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+.mode-emerald::before { background: var(--play-green); }
+.mode-blue::before    { background: var(--solo-blue); }
+.mode-amber::before   { background: var(--ch-drums); }
+.mode-indigo::before  { background: var(--ch-chords); }
+
+.mode-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.mode-card-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mode-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.mode-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.mode-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #F9FAFB;
+}
+
+.mode-desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.mode-cta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--play-green-bright);
+  margin-top: 2px;
+}
+.mode-blue .mode-cta   { color: #60A5FA; }
+.mode-amber .mode-cta  { color: #FBBF24; }
+.mode-indigo .mode-cta { color: #A5B4FC; }
+
+/* 2. Setup View (Mode 1 & Mode 2 Curriculum) */
+.trainer-setup {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.setup-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.setup-heading {
+  flex: 1;
+  min-width: 200px;
+}
+
+.setup-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #F9FAFB;
+}
+
+.setup-heading span {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.setup-options-panel {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 12px;
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.setup-opt-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bpm-opt-block {
+  min-width: 190px;
+}
+
+.bpm-opt-block .studio-range {
+  width: 120px;
+}
+
+.opt-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.opt-label strong {
+  color: #93C5FD;
+}
+
+.time-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.custom-min-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.custom-min-input {
+  width: 54px;
+  height: 26px !important;
+  padding: 0 6px !important;
+  text-align: center;
+}
+
+.setup-opt-toggles {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.lessons-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.lesson-group {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lesson-group-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #D1D5DB;
+}
+.lesson-group-title.diff-easy   { color: var(--play-green-bright); }
+.lesson-group-title.diff-medium { color: #60A5FA; }
+.lesson-group-title.diff-hard   { color: #FBBF24; }
+
+.lesson-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 6px;
+}
+
+.lesson-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.lesson-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.lesson-card.selected {
+  background: #1B2723;
+  border-color: var(--play-green);
+  box-shadow: inset 0 2px 0 var(--play-green);
+}
+
+.lesson-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.lesson-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #F9FAFB;
+}
+
+.lesson-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.lesson-desc {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* 3. Drill Workspace (HUD + SVG Staff + 12-Key Interactive Piano) */
+.drill-workspace {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drill-hud {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.hud-left,
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drill-lesson-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #F3F4F6;
+}
+
+.sig-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: #93C5FD;
+}
+
+.hud-metrics {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.lcd-cell-sm {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3px 9px;
+  border-right: 1px solid #22262E;
+  min-width: 56px;
+}
+.lcd-cell-sm:last-child { border-right: none; }
+
+.timer-low {
+  color: var(--rec-red) !important;
+}
+
+/* Staff Stage */
+.staff-stage {
+  flex: 1;
+  min-height: 185px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.staff-box {
+  flex: 1;
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  background: #14161A;
+}
+
+.staff-svg {
+  width: 100%;
+  max-width: 780px;
+  height: 100%;
+  max-height: 220px;
+  display: block;
+}
+
+.drill-feedback-bar,
+.ref-info-readout {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-module);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: center;
+  flex-wrap: wrap;
+}
+
+.drill-feedback-bar.fb-correct {
+  background: #13251F;
+  color: #34D399;
+}
+
+.drill-feedback-bar.fb-wrong {
+  background: #281719;
+  color: #FCA5A5;
+}
+
+.ref-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ref-staff-box {
+  overflow-x: auto;
+}
+
+.ref-staff-svg {
+  min-width: 580px;
+}
+
+/* 4. Interactive 12-Key Piano Keyboard (Desktop + Zero-Delay Mobile Touch) */
+.trainer-piano-dock {
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px;
+}
+
+.piano-keyboard {
+  position: relative;
+  width: 100%;
+  height: clamp(142px, 24dvh, 210px);
+  background: #0B0C0E;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.white-keys-layer {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+}
+
+.black-keys-layer {
+  position: absolute;
+  inset: 2px 2px 0 2px;
+  pointer-events: none;
+}
+
+.piano-key {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 9px;
+  gap: 3px;
+  transition: background 0.08s ease, transform 0.06s ease;
+}
+
+.piano-key.white-key {
+  background: linear-gradient(180deg, #E5E7EB 0%, #D4D7DD 82%, #BFC4CE 100%);
+  border: 1px solid #9BA1AD;
+  border-radius: 0 0 3px 3px;
+  color: #181A1F;
+  height: 100%;
+}
+
+.piano-key.white-key:active {
+  background: #C4C9D2;
+  transform: translateY(1px);
+}
+
+.piano-key.black-key {
+  position: absolute;
+  top: 0;
+  width: 10.6%;
+  height: 60%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  z-index: 5;
+  background: linear-gradient(180deg, #272A34 0%, #14161A 88%, #0B0C0E 100%);
+  border: 1px solid #090A0C;
+  border-radius: 0 0 3px 3px;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: #D1D5DB;
+  padding-bottom: 7px;
+}
+
+.piano-key.black-key:active {
+  background: #1F232C;
+}
+
+.pk-name {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.black-key .pk-name {
+  font-size: 9.5px;
+  letter-spacing: -0.03em;
+}
+
+.pk-kbd {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.45;
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+
+/* Phản hồi màu khi bấm phím */
+.piano-key.key-correct {
+  background: var(--play-green) !important;
+  color: #052E20 !important;
+  border-color: #34D399 !important;
+}
+
+.piano-key.key-wrong {
+  background: var(--rec-red) !important;
+  color: #FFFFFF !important;
+  border-color: #FCA5A5 !important;
+}
+
+.piano-key.key-active {
+  background: var(--solo-blue) !important;
+  color: #FFFFFF !important;
+  border-color: #93C5FD !important;
+}
+
+/* 5. End-of-Session Report Screen */
+.report-panel {
+  width: 100%;
+  max-width: 780px;
+  margin: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rank-badge {
+  width: 62px;
+  height: 62px;
+  border-radius: var(--radius-md);
+  background: var(--bg-lcd);
+  border: 2px solid var(--play-green);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.report-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.report-rank-title {
+  margin: 2px 0;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.report-lesson-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.report-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.r-metric {
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.r-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  letter-spacing: 0.05em;
+}
+
+.r-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #F9FAFB;
+}
+
+.r-sub {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.report-weak-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-sec-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+}
+
+.weak-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.weak-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.weak-note-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.weak-note-name strong {
+  color: #F9FAFB;
+  font-size: 13.5px;
+}
+
+.weak-note-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.badge-err {
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: #351E22;
+  border: 1px solid var(--rec-red);
+  color: #FCA5A5;
+}
+
+.badge-time {
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  color: #93C5FD;
+}
+
+.report-empty-weak {
+  font-size: 12.5px;
+  color: var(--play-green-bright);
+  padding: 6px 0;
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Responsive Trainer trên Mobile (< 768px) */
+@media (max-width: 767px) {
+  .trainer-shell {
+    padding: 4px;
+  }
+
+  .trainer-stats-bar,
+  .report-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .t-stat-cell {
+    border-bottom: 1px solid #22262E;
+  }
+
+  .trainer-modes-grid,
+  .lesson-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-start-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .drill-hud {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .hud-metrics {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .lcd-cell-sm {
+    min-width: 0;
+    padding: 3px 4px;
+    text-align: center;
+  }
+
+  .lcd-cell-sm .lcd-label {
+    font-size: 7.5px;
+  }
+
+  .lcd-cell-sm .lcd-val {
+    font-size: 11px;
+  }
+
+  .piano-keyboard {
+    height: clamp(160px, 28dvh, 225px);
+  }
+
+  .piano-key.black-key {
+    width: 11.4%;
+    height: 58%;
+  }
+
+  .black-key .pk-name {
+    font-size: 8px;
+  }
+
+  .report-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
