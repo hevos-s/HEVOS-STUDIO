@@ -4100,6 +4100,19 @@ button {
     max-width: 100vw;
   }
 
+  html,
+  body {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .studio-app[data-section="studio"] {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+    overflow-x: clip;
+  }
+
   .desktop-only {
     display: none !important;
   }
@@ -4440,11 +4453,14 @@ button {
   }
 
   .studio-main {
-    flex: 1;
-    min-height: 0;
-    padding: 4px 6px calc(70px + env(safe-area-inset-bottom, 0px));
+    flex: 1 0 auto;
+    height: auto;
+    min-height: calc(100dvh - 150px);
+    padding: 6px 8px calc(96px + env(safe-area-inset-bottom, 0px));
     gap: 0;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
   }
 
   .panel {
@@ -4456,10 +4472,10 @@ button {
   .studio-app[data-active-tab="chords"] .panel[data-panel="chords"],
   .studio-app[data-active-tab="mixer"] .panel[data-panel="mixer"] {
     display: flex;
-    flex: 1;
+    flex: 0 0 auto;
+    height: auto;
     min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
     padding: 12px;
     gap: 10px;
   }
@@ -4467,9 +4483,19 @@ button {
   .studio-app[data-active-tab="melody"] .panel[data-panel="melody"],
   .studio-app[data-active-tab="vocal"] .panel[data-panel="melody"] {
     display: flex;
-    flex: 1;
+    flex-direction: column;
+    flex: 0 0 auto;
+    height: auto;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
+  }
+
+  .studio-app[data-active-tab="melody"] .workspace-view,
+  .studio-app[data-active-tab="vocal"] .workspace-view {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
 
   /* Vùng chạm tối thiểu 44px */
@@ -4544,37 +4570,54 @@ button {
   }
 
   .melody-toolbar {
-    padding: 7px 9px;
-    gap: 6px;
+    padding: 6px 8px;
+    gap: 5px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .melody-toolbar .toolbar-cluster {
     width: 100%;
-    justify-content: space-between;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    align-items: center;
     gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 1px;
   }
+  .melody-toolbar .toolbar-cluster::-webkit-scrollbar { display: none; }
 
   .mode-group {
-    flex: 1;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: auto;
   }
 
   .mode-group .seg-btn {
-    min-height: 44px;
-    font-size: 12px;
-    padding: 0 4px;
+    min-height: 36px;
+    height: 36px;
+    font-size: 11.5px;
+    padding: 0 9px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .toggle-pill {
-    min-height: 44px;
-    padding: 0 12px;
-    font-size: 12px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 11px;
+    font-size: 11.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .melody-toolbar .inline-field {
     flex-direction: row;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .melody-toolbar .inline-label {
@@ -4582,57 +4625,122 @@ button {
   }
 
   .melody-toolbar .studio-select.compact {
-    min-height: 44px;
-    font-size: 12.5px;
+    min-height: 36px;
+    height: 36px;
+    font-size: 12px;
+    flex-shrink: 0;
   }
 
-  .icon-btn {
-    width: 44px;
-    height: 44px;
+  .melody-toolbar .icon-btn-group {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  .melody-toolbar .icon-btn {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
   }
 
   .btn-clear-midi {
-    min-height: 44px;
-    padding: 0 12px;
-    font-size: 12px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 11.5px;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .headphone-banner {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 6px 9px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  .headphone-msg {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .headphone-msg span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10.5px;
   }
 
   .headphone-actions {
-    width: 100%;
-    justify-content: space-between;
+    width: auto;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .vocal-strip {
-    padding: 6px 8px;
-    gap: 6px;
+    padding: 5px 8px;
+    gap: 5px;
   }
 
   .vocal-live-box {
     width: 100%;
     min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
   }
+  .vocal-live-box::-webkit-scrollbar { display: none; }
 
   .vocal-waveform {
-    max-width: none;
+    flex: 0 0 72px;
+    width: 72px;
+    min-width: 72px;
+    max-width: 72px;
+    height: 22px;
   }
 
   .vocal-post-controls {
     width: 100%;
-    justify-content: space-between;
-    gap: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
   }
+  .vocal-post-controls::-webkit-scrollbar { display: none; }
 
   .vocal-post-controls .studio-select.compact,
   .vocal-post-controls .btn-xs {
-    min-height: 44px;
-    font-size: 12px;
-    padding: 0 11px;
+    min-height: 32px;
+    height: 32px;
+    font-size: 11.5px;
+    padding: 0 10px;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .piano-roll-wrap {
+    display: block;
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 320px;
+    height: 48vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #piano-roll-canvas {
+    display: block;
+    width: 100%;
+    min-height: 320px;
+    height: 48vh;
   }
 
   .mixer-channels {

@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=12';
+} from './theory.js?v=13';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6
@@ -38,7 +38,7 @@ export class PianoRoll {
     // Trạng thái hiển thị & cuộn
     this.width = 600;
     this.height = 340;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.scrollX = 0;
     this.scrollY = 0;
     this._initializedScroll = false;
@@ -251,7 +251,7 @@ export class PianoRoll {
       if (rect.width < 10 || rect.height < 10) return;
       this.width = Math.floor(rect.width);
       this.height = Math.floor(rect.height);
-      this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      this.dpr = Math.min(window.devicePixelRatio || 1, 2);
 
       this.canvas.width = Math.floor(this.width * this.dpr);
       this.canvas.height = Math.floor(this.height * this.dpr);
@@ -268,6 +268,9 @@ export class PianoRoll {
     if (typeof ResizeObserver !== 'undefined') {
       this._ro = new ResizeObserver(this._updateSize);
       this._ro.observe(this.canvas);
+      if (this.canvas.parentElement) {
+        this._ro.observe(this.canvas.parentElement);
+      }
     }
     window.addEventListener('resize', this._updateSize);
     requestAnimationFrame(this._updateSize);
@@ -275,6 +278,15 @@ export class PianoRoll {
 
   resize() {
     if (this._updateSize) this._updateSize();
+    if (this.isActive && !document.hidden && this.width >= 10 && this.height >= 10) {
+      this.draw();
+    }
+  }
+
+  render() {
+    if (this.width >= 10 && this.height >= 10) {
+      this.draw();
+    }
   }
 
   // --- Xử lý sự kiện chuột & cảm ứng (Pointer Events) ---

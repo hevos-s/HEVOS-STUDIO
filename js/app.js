@@ -12,25 +12,25 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=12';
+} from './theory.js?v=13';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=12';
+} from './audioEngine.js?v=13';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=12';
-import { PianoRoll } from './pianoRoll.js?v=12';
-import { downloadMidiFile } from './midiExport.js?v=12';
-import { MusicTrainer } from './musicTrainer.js?v=12';
-import { VocalStudio } from './vocalStudio.js?v=12';
-import { createAmbientScene } from './ambientScene.js?v=12';
+} from './pitchToMidi.js?v=13';
+import { PianoRoll } from './pianoRoll.js?v=13';
+import { downloadMidiFile } from './midiExport.js?v=13';
+import { MusicTrainer } from './musicTrainer.js?v=13';
+import { VocalStudio } from './vocalStudio.js?v=13';
+import { createAmbientScene } from './ambientScene.js?v=13';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -1168,11 +1168,15 @@ function setAppSection(section) {
   }
 
   if (target === 'studio') {
+    if (pianoRoll) pianoRoll.resize();
     requestAnimationFrame(() => {
       if (pianoRoll) pianoRoll.resize();
       if (state.rawVocalBuffer) {
         drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
       }
+      requestAnimationFrame(() => {
+        if (pianoRoll) pianoRoll.resize();
+      });
     });
   }
 
@@ -1195,11 +1199,18 @@ function setMobileTab(tabName) {
   });
 
   if (target === 'melody') {
+    if (pianoRoll) {
+      pianoRoll.setActive(state.activeSection === 'studio');
+      pianoRoll.resize();
+    }
     requestAnimationFrame(() => {
       if (pianoRoll) pianoRoll.resize();
       if (state.rawVocalBuffer) {
         drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
       }
+      requestAnimationFrame(() => {
+        if (pianoRoll) pianoRoll.resize();
+      });
     });
   }
 }

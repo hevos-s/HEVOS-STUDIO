@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=12';
+} from './theory.js?v=13';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=12';
-import { applyAutoTunePcm } from './autoTune.js?v=12';
+} from './pitchToMidi.js?v=13';
+import { applyAutoTunePcm } from './autoTune.js?v=13';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=12';
+} from './audioEngine.js?v=13';
 
 export const VOCAL_PRESETS = [
   {
@@ -3099,7 +3099,7 @@ export class VocalStudio {
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 16) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -3156,7 +3156,7 @@ export class VocalStudio {
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 16) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {

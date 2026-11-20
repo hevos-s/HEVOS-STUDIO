@@ -1,19 +1,11 @@
 // ============================================================================
-// ambientScene.js — Không gian Âm thanh 3D Siêu nhẹ & Tương tác Nhạc (Three.js)
-// Tối ưu hiệu năng & làm mát PC (60fps Performance & PC Cooling Optimization):
-// - Khóa trần FPS: tối đa 32fps ở Tổng quan, 12fps khi có nhạc ở phòng làm việc
-//   (tự dừng tĩnh hoàn toàn khi ở phòng làm việc mà không có âm thanh/tương tác)
-// - PC > 1024px: ép pixelRatio = 1 và khóa chiều rộng buffer vẽ <= 1280px
-// - Mobile <= 1024px: pixelRatio <= 1.25
-// - Hình học gọn nhẹ 24x24 segments, tối đa 96 hạt bụi sáng, 0 vòng lặp đỉnh CPU,
-//   0 đèn chiếu bóng tốn kém (chỉ dùng MeshBasicMaterial / LineBasicMaterial / PointsMaterial)
-// - Hủy RAF tức thì khi tab ẩn (visibilitychange) & dùng mảng đệm cấp phát 1 lần
+// ambientScene.js — Không gian Âm thanh 3D Retina 60fps & Tương tác Nhạc (Three.js)
+// - Kết xuất gốc 60fps mượt mà (tự tạm dừng khi chuyển tab qua visibilitychange)
+// - Độ phân giải cao Retina (pixelRatio <= 2) & khử răng cưa antialias: true
+// - Tự động dịu ánh sáng & lùi nhẹ ra xa khi vào các phòng làm việc
 // ============================================================================
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-
-const HUB_FRAME_INTERVAL = 1000 / 32;
-const WORKSPACE_FRAME_INTERVAL = 1000 / 12;
 
 function createSoftGlowTexture(innerRgba, midRgba, outerRgba) {
   const size = 128;
@@ -96,7 +88,6 @@ export class AmbientAudioScene {
     this._elapsed = 0;
     this._paused = false;
     this._dirtyRender = true;
-    this._idleUntilMs = 0;
 
     if (!this.canvas || typeof window === 'undefined') return;
     this._initThree();
@@ -106,7 +97,7 @@ export class AmbientAudioScene {
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        antialias: false,
+        antialias: true,
         alpha: false,
         powerPreference: 'high-performance',
       });
@@ -147,16 +138,9 @@ export class AmbientAudioScene {
     const h = Math.max(1, window.innerHeight);
     this.isMobile = w < 768;
 
-    if (w > 1024) {
-      this.renderer.setPixelRatio(1);
-      const targetW = Math.min(w, 1280);
-      const targetH = Math.max(1, Math.round(targetW * (h / w)));
-      this.renderer.setSize(targetW, targetH, false);
-    } else {
-      const pr = Math.min(window.devicePixelRatio || 1, 1.25);
-      this.renderer.setPixelRatio(pr);
-      this.renderer.setSize(w, h, false);
-    }
+    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h, false);
 
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -386,10 +370,6 @@ export class AmbientAudioScene {
       const h = Math.max(1, window.innerHeight);
       this.pointer.tx = (e.clientX / w - 0.5) * 2;
       this.pointer.ty = (e.clientY / h - 0.5) * 2;
-      if (this.section !== 'hub') {
-        this._idleUntilMs = performance.now() + 900;
-        this._startLoop();
-      }
     };
     window.addEventListener('pointermove', this._onPointerMove, { passive: true });
 
@@ -479,14 +459,12 @@ export class AmbientAudioScene {
       : (this.isMobile ? 10.8 : 9.6);
     this.targetOrbScale = isHub ? 1.0 : 0.84;
     this._updateScrollTarget();
-    this._idleUntilMs = performance.now() + 1400;
     this._dirtyRender = true;
     this._startLoop();
   }
 
-  wake(durationMs = 1500) {
+  wake() {
     if (!this.supported || this.disposed || this._paused) return;
-    this._idleUntilMs = Math.max(this._idleUntilMs, performance.now() + durationMs);
     this._startLoop();
   }
 
@@ -657,28 +635,11 @@ export class AmbientAudioScene {
     this._rafId = null;
     if (this.disposed || this._paused) return;
 
-    const frameInterval = this.section === 'hub' ? HUB_FRAME_INTERVAL : WORKSPACE_FRAME_INTERVAL;
     const deltaMs = now - this._lastFrameMs;
+    const dt = Math.min(0.05, Math.max(0.001, deltaMs / 1000));
+    this._lastFrameMs = now;
 
-    if (deltaMs >= frameInterval - 1.5) {
-      const dt = Math.min(0.12, Math.max(0.008, deltaMs / 1000));
-      this._lastFrameMs = now;
-      this._stepFrame(dt);
-    }
-
-    // Khi ở phòng làm việc (studio/vocal/trainer): chỉ chạy ở 12fps khi đang chuyển cảnh,
-    // đang có âm thanh hoặc vừa tương tác; ngược lại dừng tĩnh để tiết kiệm CPU/GPU tối đa.
-    if (this.section !== 'hub') {
-      const settled =
-        Math.abs(this.currentIntensity - this.targetIntensity) < 0.012 &&
-        Math.abs(this.currentCamZ - this.targetCamZ) < 0.05 &&
-        Math.abs(this.currentOrbScale - this.targetOrbScale) < 0.01;
-      const hasAudio = this.audio.energy > 0.012;
-      if (settled && !hasAudio && now > this._idleUntilMs) {
-        return;
-      }
-    }
-
+    this._stepFrame(dt);
     this._rafId = requestAnimationFrame(this._tick);
   };
 
