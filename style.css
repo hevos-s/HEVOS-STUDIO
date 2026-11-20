@@ -31,6 +31,7 @@
   --ch-melody: #14B8A6;
   --ch-drums: #F59E0B;
   --ch-vocal: #F43F5E;
+  --ch-vocal2: #A855F7;
   --solo-blue: #3B82F6;
 
   /* Technical Corner Radii */
@@ -923,8 +924,9 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 240px;
+  flex: 1 1 480px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .status-badge {
@@ -987,9 +989,9 @@ button {
 }
 
 .vocal-waveform {
-  flex: 1;
-  min-width: 80px;
-  max-width: 240px;
+  flex: 1 1 80px;
+  min-width: 64px;
+  max-width: 220px;
   height: 24px;
   border-radius: var(--radius-sm);
   background: var(--bg-lcd);
@@ -1085,13 +1087,14 @@ button {
 
 .mixer-channels {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   background: var(--bg-panel);
 }
 
 .mixer-strip {
   position: relative;
+  min-width: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   padding: 7px 10px 6px;
@@ -1118,11 +1121,13 @@ button {
 .strip-cyan::before   { background: var(--ch-melody); }
 .strip-amber::before  { background: var(--ch-drums); }
 .strip-rose::before   { background: var(--ch-vocal); }
+.strip-violet::before { background: var(--ch-vocal2); }
 
 .strip-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .strip-indicator {
@@ -1136,6 +1141,7 @@ button {
 .strip-cyan .strip-indicator   { background: var(--ch-melody); }
 .strip-amber .strip-indicator  { background: var(--ch-drums); }
 .strip-rose .strip-indicator   { background: var(--ch-vocal); }
+.strip-violet .strip-indicator { background: var(--ch-vocal2); }
 
 .strip-name {
   font-size: 11px;
@@ -1236,6 +1242,9 @@ button {
 }
 .range-rose::-webkit-slider-thumb {
   background: linear-gradient(90deg, #FB7185 0 43%, #111317 43% 57%, #FB7185 57% 100%);
+}
+.range-violet::-webkit-slider-thumb {
+  background: linear-gradient(90deg, #C084FC 0 43%, #111317 43% 57%, #C084FC 57% 100%);
 }
 
 .fader-ticks {
@@ -1630,6 +1639,9 @@ button {
   .ctrl-slider {
     width: 82px;
   }
+  .mixer-strip {
+    padding: 6px 7px;
+  }
 }
 
 /* ==========================================================================
@@ -1808,7 +1820,8 @@ button {
     gap: 10px;
   }
 
-  .studio-app[data-active-tab="melody"] .panel[data-panel="melody"] {
+  .studio-app[data-active-tab="melody"] .panel[data-panel="melody"],
+  .studio-app[data-active-tab="vocal"] .panel[data-panel="melody"] {
     display: flex;
     flex: 1;
     min-height: 0;
@@ -2078,11 +2091,11 @@ button {
     gap: 8px;
   }
 
-  /* 3. Bottom Navigation Bar */
+  /* 3. Bottom Navigation Bar (4 Tabs: Hợp âm | Giai điệu | Thu âm | Mixer) */
   .mobile-bottom-nav {
     flex-shrink: 0;
     display: grid !important;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     background: var(--bg-panel);
     border-top: 1px solid var(--border);
     padding: 3px 4px calc(5px + env(safe-area-inset-bottom, 0px));
@@ -2090,6 +2103,7 @@ button {
   }
 
   .nav-tab {
+    position: relative;
     min-height: 50px;
     display: flex;
     flex-direction: column;
@@ -2103,6 +2117,17 @@ button {
     transition: color 0.12s ease, background 0.12s ease;
   }
 
+  .nav-dot {
+    position: absolute;
+    top: 7px;
+    right: calc(50% - 16px);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ch-vocal);
+    box-shadow: 0 0 6px rgba(244, 63, 94, 0.75);
+  }
+
   .nav-tab.active {
     color: var(--play-green-bright);
     background: #1C2724;
@@ -2111,6 +2136,11 @@ button {
   .nav-tab[data-tab-target="chords"].active {
     color: #A5B4FC;
     background: #212432;
+  }
+
+  .nav-tab[data-tab-target="vocal"].active {
+    color: #FDA4AF;
+    background: #2B1A20;
   }
 
   .nav-tab[data-tab-target="mixer"].active {
@@ -3081,4 +3111,824 @@ button {
     align-items: stretch;
   }
 }
+
+/* ==========================================================================
+   PHÒNG THU VOCAL CHUYÊN SÂU (SUB-TABS, MIC PREAMP, 2 TRACK, AUTO-TUNE, KỆ FX)
+   ========================================================================== */
+.workspace-subtabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px 0;
+  background: #15171B;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 3px 3px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: transparent;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.workspace-tab-btn:hover {
+  color: var(--text-1);
+}
+
+.workspace-tab-btn.active {
+  background: var(--bg-panel);
+  border-color: var(--border);
+  color: #F3F4F6;
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.workspace-tab-btn[data-workspace-tab="melody"].active {
+  color: #5EEAD4;
+  border-top: 2px solid var(--ch-melody);
+}
+
+.workspace-tab-btn[data-workspace-tab="vocal"].active {
+  color: #FDA4AF;
+  border-top: 2px solid var(--ch-vocal);
+}
+
+.vocal-presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ch-vocal);
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.8);
+}
+
+.workspace-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.vs-workspace {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #14161A;
+}
+
+.mic-gain-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.mic-gain-mini .mg-lbl {
+  font-weight: 700;
+  color: #93C5FD;
+}
+
+.mic-gain-mini .studio-range {
+  width: 56px;
+}
+
+.mic-gain-mini .mg-val {
+  font-size: 10.5px;
+  color: #E5E7EB;
+  min-width: 30px;
+}
+
+.vocal-studio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 12px;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 1. Mic Preamp & Input Strip */
+.vs-input-strip {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vs-vu-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vs-tag-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #93C5FD;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.vs-vu-meter {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  height: 10px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.vs-vu-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #10B981 0%, #34D399 64%, #F59E0B 84%, #EF4444 100%);
+  transition: width 0.045s linear;
+}
+
+.vs-vu-peak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0%;
+  width: 2px;
+  background: #FFFFFF;
+  opacity: 0.65;
+  transition: left 0.06s linear;
+}
+
+.vs-input-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vs-gain-ctrl {
+  flex: 1;
+  min-width: 210px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vs-ctrl-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+.vs-gain-ctrl .studio-range {
+  flex: 1;
+  min-width: 80px;
+}
+
+.vs-gain-val {
+  font-size: 11px;
+  color: #93C5FD;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.vs-monitor-btn.active {
+  background: #352315;
+  border-color: var(--ch-drums);
+  color: #FDE68A;
+}
+
+.vs-monitor-hint {
+  font-size: 10.5px;
+  color: var(--text-2);
+  background: #1B1813;
+  border: 1px solid #352D1E;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+
+/* 2. 2-Track Vocal Deck */
+.vs-tracks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.vs-track-card {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: border-color 0.14s ease;
+}
+
+.vs-track-lead.selected {
+  border-color: rgba(244, 63, 94, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(244, 63, 94, 0.25);
+}
+
+.vs-track-backing.selected {
+  border-color: rgba(168, 85, 247, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(168, 85, 247, 0.25);
+}
+
+.vs-track-card.recording {
+  border-color: var(--rec-red);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5);
+}
+
+.vs-track-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.vs-track-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.vs-track-select:hover {
+  background: var(--bg-module);
+}
+
+.vs-track-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.vs-track-lead .vs-track-led { background: var(--ch-vocal); }
+.vs-track-backing .vs-track-led { background: var(--ch-vocal2); }
+
+.vs-track-name {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #F3F4F6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vs-track-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.vs-track-badge.has-take {
+  background: #172B27;
+  border-color: var(--ch-melody);
+  color: #5EEAD4;
+}
+
+.vs-track-badge.has-at {
+  background: #2C1A23;
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #FDA4AF;
+}
+
+.vs-track-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.vs-rec-btn {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #2A191D;
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #FECACA;
+}
+
+.vs-rec-btn:hover {
+  background: #381F25 !important;
+  border-color: var(--rec-red) !important;
+}
+
+.vs-rec-btn.recording {
+  background: var(--rec-red) !important;
+  border-color: #FCA5A5 !important;
+  color: #FFFFFF;
+}
+
+.vs-rec-btn .rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.vs-sm-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.vs-del-btn:hover:not(:disabled) {
+  color: #FCA5A5;
+  border-color: var(--rec-red);
+  background: #351E22;
+}
+
+.vs-wave-wrap {
+  position: relative;
+  height: 64px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-lcd);
+  overflow: hidden;
+}
+
+.vs-wave-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.vs-wave-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.vs-track-sliders {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.vs-mini-slider {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  min-width: 0;
+}
+
+.vs-ms-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.vs-mini-slider .studio-range {
+  flex: 1;
+  min-width: 34px;
+}
+
+.vs-ms-val {
+  font-size: 10px;
+  color: #E5E7EB;
+  min-width: 34px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 3. FX Shell (Editing Banner + Auto-Tune + 6 Presets + Kệ FX) */
+.vs-fx-shell {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.vs-editing-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.vs-edit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ch-vocal);
+}
+
+.vs-edit-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #F9FAFB;
+}
+
+.vs-track-pills {
+  margin-left: auto;
+}
+
+.vs-track-pills .seg-btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.vs-autotune-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.vs-at-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.vs-at-titles {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.vs-at-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #F3F4F6;
+}
+
+.vs-at-key-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #5EEAD4;
+  background: #132522;
+  border: 1px solid rgba(20, 184, 166, 0.45);
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+
+.vs-at-right {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 210px;
+}
+
+.vs-at-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #FCD34D;
+  background: #2B2415;
+  border: 1px solid #594722;
+  padding: 2px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.vs-at-strength {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.vs-at-strength .studio-range {
+  width: 110px;
+}
+
+/* 6 Preset 1 chạm */
+.vs-presets-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vs-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+}
+
+.vs-subhead-note {
+  color: #93C5FD;
+  letter-spacing: 0.01em;
+}
+
+.vs-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.vs-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  text-align: left;
+  transition: all 0.12s ease;
+}
+
+.vs-preset-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.vs-preset-btn.active {
+  background: #291D23;
+  border-color: var(--ch-vocal);
+  box-shadow: inset 0 2px 0 var(--ch-vocal);
+}
+
+.vs-preset-name {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #F3F4F6;
+}
+
+.vs-preset-sub {
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+.vs-preset-btn.active .vs-preset-name {
+  color: #FDA4AF;
+}
+
+/* Kệ hiệu ứng chuyên sâu */
+.vs-rack-wrap {
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vs-rack-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.vs-rack-toggle:hover {
+  border-color: var(--border-strong);
+}
+
+.vs-rack-arrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #93C5FD;
+  white-space: nowrap;
+}
+
+.vs-rack-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.vs-rack-mod {
+  background: var(--bg-module);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vs-mod-title {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #A5B4FC;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+}
+
+.vs-fx-row {
+  display: grid;
+  grid-template-columns: minmax(115px, 1.2fr) minmax(70px, 1.5fr) 52px;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.vs-fx-row .mono-val {
+  font-size: 10.5px;
+  color: #E5E7EB;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.vs-pitch-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.vs-chip {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 3px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.vs-chip:hover {
+  color: #FFFFFF;
+  border-color: var(--border-strong);
+}
+
+.vs-chip.active {
+  background: #172B27;
+  border-color: var(--ch-melody);
+  color: #5EEAD4;
+}
+
+.vs-delay-divs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.vs-delay-divs .seg-btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 10.5px;
+}
+
+@media (max-width: 1150px) {
+  .vs-presets-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .vs-tracks-grid,
+  .vs-rack-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .studio-app[data-active-tab="melody"] #melody-workspace-view {
+    display: flex !important;
+  }
+  .studio-app[data-active-tab="melody"] #vocal-studio-view {
+    display: none !important;
+  }
+  .studio-app[data-active-tab="vocal"] #melody-workspace-view {
+    display: none !important;
+  }
+  .studio-app[data-active-tab="vocal"] #vocal-studio-view {
+    display: flex !important;
+  }
+
+  .vocal-studio-panel {
+    padding: 8px 8px 14px;
+  }
+
+  .vs-tracks-grid,
+  .vs-rack-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vs-track-sliders {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .vs-mini-slider {
+    padding: 5px 8px;
+  }
+
+  .vs-presets-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vs-preset-btn,
+  .vs-rec-btn,
+  .vs-rack-toggle,
+  .vs-chip {
+    min-height: 40px;
+  }
+
+  .vs-sm-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .vs-at-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vs-at-strength {
+    flex: 1;
+  }
+
+  .vs-at-strength .studio-range {
+    flex: 1;
+    width: auto;
+  }
+}
+
 

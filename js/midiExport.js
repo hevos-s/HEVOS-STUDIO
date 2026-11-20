@@ -13,7 +13,7 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=7';
+} from './audioEngine.js?v=8';
 
 export const MIDI_PPQ = 480;
 

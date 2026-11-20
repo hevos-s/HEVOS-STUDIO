@@ -3,7 +3,7 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=7';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=8';
 
 const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
 const MAX_VOCAL_HZ = 1050;  // ~C6
@@ -11,9 +11,53 @@ const MIN_MIDI_ROLL = 48;   // C3
 const MAX_MIDI_ROLL = 84;   // C6
 
 /**
+ * Nhận diện thiết bị di động / màn hình cảm ứng để tối ưu Mic Gain mặc định
+ */
+export function isMobileTouchDevice() {
+  if (typeof window === 'undefined' && typeof navigator === 'undefined') return false;
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  const hasTouch =
+    (typeof window !== 'undefined' && 'ontouchstart' in window) ||
+    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+  return Boolean(hasTouch || /Android|iPhone|iPad|iPod|Mobi/i.test(ua));
+}
+
+/**
+ * Độ nhạy Micro mặc định: 2.6x trên điện thoại (tránh phải hét to), 1.8x trên máy tính
+ */
+export function getDefaultMicGain() {
+  return isMobileTouchDevice() ? 2.6 : 1.8;
+}
+
+/**
+ * Tự động chuẩn hóa biên độ PCM (Auto-Normalize):
+ * Đẩy đỉnh sóng lên targetPeak (~0.85 = -1.4 dBFS) sau khi thu, giới hạn maxGain (8.0x) để tránh kéo nhiễu nền.
+ */
+export function normalizePcm(pcmFloat32, targetPeak = 0.85, maxGain = 8.0) {
+  if (!pcmFloat32 || pcmFloat32.length === 0) return new Float32Array(0);
+  let peak = 0;
+  for (let i = 0; i < pcmFloat32.length; i++) {
+    const abs = Math.abs(pcmFloat32[i]);
+    if (abs > peak) peak = abs;
+  }
+  const out = new Float32Array(pcmFloat32.length);
+  // Nếu tín hiệu gần như im lặng tuyệt đối thì giữ nguyên, không khuếch đại nhiễu
+  if (peak < 1e-4) {
+    out.set(pcmFloat32);
+    return out;
+  }
+  const gain = Math.min(maxGain, targetPeak / peak);
+  for (let i = 0; i < pcmFloat32.length; i++) {
+    const v = pcmFloat32[i] * gain;
+    out[i] = v > 0.99 ? 0.99 : v < -0.99 ? -0.99 : v;
+  }
+  return out;
+}
+
+/**
  * Downsample tín hiệu PCM bằng bộ lọc trung bình khối (giảm nhiễu hơi gió & tăng tốc DSP)
  */
-function downsampleBuffer(input, factor) {
+export function downsampleBuffer(input, factor) {
   if (factor <= 1) return input;
   const outLen = Math.floor(input.length / factor);
   const out = new Float32Array(outLen);
@@ -31,7 +75,7 @@ function downsampleBuffer(input, factor) {
 /**
  * Lọc thông dải giọng hát bậc 1 (HPF ~70 Hz khử ù/DC + LPF ~950 Hz giảm nhiễu gió & hài bậc cao gắt)
  */
-function bandpassVocalPcm(pcm, sr) {
+export function bandpassVocalPcm(pcm, sr) {
   if (!pcm || pcm.length === 0) return pcm;
   const out = new Float32Array(pcm.length);
 
@@ -66,7 +110,7 @@ function bandpassVocalPcm(pcm, sr) {
 /**
  * Tính RMS (độ lớn tín hiệu) của một khung sóng âm
  */
-function computeRms(frame) {
+export function computeRms(frame) {
   let sumSq = 0;
   for (let i = 0; i < frame.length; i++) {
     sumSq += frame[i] * frame[i];
@@ -281,13 +325,14 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
   if (rawFrames.length === 0) return [];
 
   // Ngưỡng giọng nói theo phân vị thứ 95 (bỏ qua gai nổ mic) + Hysteresis Gate
+  // Hạ ngưỡng RMS nhẹ nhàng để giọng ngân êm qua Preamp vẫn bắt MIDI chuẩn xác
   const sortedRms = rawFrames.map((f) => f.rms).sort((a, b) => a - b);
   const p95Index = Math.min(sortedRms.length - 1, Math.floor(sortedRms.length * 0.95));
   const voicePeakRms = sortedRms[p95Index];
-  if (voicePeakRms < 0.012) return []; // Hoàn toàn im lặng / chỉ có tiếng nền rất nhỏ
+  if (voicePeakRms < 0.007) return []; // Hoàn toàn im lặng / chỉ có tiếng nền rất nhỏ
 
-  const onsetGate = Math.max(0.018, voicePeakRms * 0.18);
-  const sustainGate = Math.max(0.011, voicePeakRms * 0.11);
+  const onsetGate = Math.max(0.010, voicePeakRms * 0.13);
+  const sustainGate = Math.max(0.006, voicePeakRms * 0.08);
 
   const frames = [];
   let inVoice = false;
@@ -581,6 +626,11 @@ export class VocalCapture {
     this.stream = null;
     this.audioCtx = null;
     this.sourceNode = null;
+    this.preampHpf = null;
+    this.preampPresence = null;
+    this.preampGain = null;
+    this.preampLimiter = null;
+    this.monitorGain = null;
     this.analyser = null;
     this.processorNode = null;
     this.silentGain = null;
@@ -595,6 +645,7 @@ export class VocalCapture {
     this._liveBuf = new Float32Array(2048);
     this._byteBuf = null;
     this._onLiveStats = null;
+    this._onPcmChunk = null;
   }
 
   /**
@@ -622,6 +673,11 @@ export class VocalCapture {
     }
     try { if (this.processorNode) this.processorNode.disconnect(); } catch (_) {}
     try { if (this.analyser) this.analyser.disconnect(); } catch (_) {}
+    try { if (this.monitorGain) this.monitorGain.disconnect(); } catch (_) {}
+    try { if (this.preampLimiter) this.preampLimiter.disconnect(); } catch (_) {}
+    try { if (this.preampGain) this.preampGain.disconnect(); } catch (_) {}
+    try { if (this.preampPresence) this.preampPresence.disconnect(); } catch (_) {}
+    try { if (this.preampHpf) this.preampHpf.disconnect(); } catch (_) {}
     try { if (this.sourceNode) this.sourceNode.disconnect(); } catch (_) {}
     try { if (this.silentGain) this.silentGain.disconnect(); } catch (_) {}
     if (this.stream) {
@@ -630,19 +686,57 @@ export class VocalCapture {
     }
     this.processorNode = null;
     this.analyser = null;
+    this.monitorGain = null;
+    this.preampLimiter = null;
+    this.preampGain = null;
+    this.preampPresence = null;
+    this.preampHpf = null;
     this.sourceNode = null;
     this.silentGain = null;
+    this._onPcmChunk = null;
     this.chunks = [];
     this.totalSamples = 0;
   }
 
   /**
-   * Mở micro bằng Native AudioContext thuần:
+   * Chỉnh trực tiếp độ nhạy Preamp Mic Gain (1.0x .. 5.0x) khi đang thu/theo dõi
+   */
+  setMicGain(gainVal) {
+    if (!this.preampGain || !this.audioCtx) return;
+    const clamped = Math.max(1.0, Math.min(5.0, Number(gainVal) || getDefaultMicGain()));
+    try {
+      this.preampGain.gain.setTargetAtTime(clamped, this.audioCtx.currentTime, 0.015);
+    } catch (_) {
+      this.preampGain.gain.value = clamped;
+    }
+  }
+
+  /**
+   * Bật/tắt Nghe trực tiếp (Monitor) qua tai nghe
+   */
+  setMonitor(enabled) {
+    if (!this.monitorGain || !this.audioCtx) return;
+    const target = enabled ? 0.85 : 0;
+    try {
+      this.monitorGain.gain.setTargetAtTime(target, this.audioCtx.currentTime, 0.015);
+    } catch (_) {
+      this.monitorGain.gain.value = target;
+    }
+  }
+
+  /**
+   * Mở micro bằng Native AudioContext thuần + Mạch Preamp phòng thu (HPF 85Hz -> Presence +2.5dB -> Mic Gain -> Soft Limiter):
    * - Gọi getUserMedia() ngay lập tức (không await trước đó để giữ user gesture iOS Safari)
    * - Tạo Native AudioContext SAU khi có stream để tránh chuyển chế độ sample-rate AVAudioSession
    * - Bỏ AudioWorklet Blob trên iOS/iPadOS để dùng ScriptProcessorNode ổn định 100%
    */
-  async openMic({ echoCancellation = false, onLiveStats = null } = {}) {
+  async openMic({
+    echoCancellation = false,
+    micGain = getDefaultMicGain(),
+    monitor = false,
+    onLiveStats = null,
+    onPcmChunk = null,
+  } = {}) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Trình duyệt này không hỗ trợ thu âm Micro (cần kết nối HTTPS hoặc localhost).');
     }
@@ -657,6 +751,7 @@ export class VocalCapture {
       this.audioCtx = null;
     }
     this._onLiveStats = onLiveStats;
+    this._onPcmChunk = onPcmChunk;
 
     try {
       // Thử xin micro ưu tiên thu mộc; nếu lỗi không phải thiếu quyền/thiết bị thì lùi về { audio: true }
@@ -695,18 +790,51 @@ export class VocalCapture {
 
       this.sampleRate = micAudioCtx.sampleRate || 44100;
       this.sourceNode = micAudioCtx.createMediaStreamSource(this.stream);
+
+      // Mạch Preamp đầu vào: lọc ù/gió 85Hz -> tôn độ rõ 3.2kHz -> khuếch đại Mic Gain -> Soft Limiter chống rè
+      this.preampHpf = micAudioCtx.createBiquadFilter();
+      this.preampHpf.type = 'highpass';
+      this.preampHpf.frequency.value = 85;
+      this.preampHpf.Q.value = 0.707;
+
+      this.preampPresence = micAudioCtx.createBiquadFilter();
+      this.preampPresence.type = 'peaking';
+      this.preampPresence.frequency.value = 3200;
+      this.preampPresence.Q.value = 1.0;
+      this.preampPresence.gain.value = 2.5;
+
+      this.preampGain = micAudioCtx.createGain();
+      this.preampGain.gain.value = Math.max(1.0, Math.min(5.0, Number(micGain) || getDefaultMicGain()));
+
+      this.preampLimiter = micAudioCtx.createDynamicsCompressor();
+      this.preampLimiter.threshold.value = -6;
+      this.preampLimiter.knee.value = 6;
+      this.preampLimiter.ratio.value = 12;
+      this.preampLimiter.attack.value = 0.003;
+      this.preampLimiter.release.value = 0.1;
+
+      this.sourceNode.connect(this.preampHpf);
+      this.preampHpf.connect(this.preampPresence);
+      this.preampPresence.connect(this.preampGain);
+      this.preampGain.connect(this.preampLimiter);
+
       this.analyser = micAudioCtx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.25;
+      this.preampLimiter.connect(this.analyser);
+
+      // Kênh Monitor trực tiếp (mặc định TẮT để tránh hú loa khi không đeo tai nghe)
+      this.monitorGain = micAudioCtx.createGain();
+      this.monitorGain.gain.value = monitor ? 0.85 : 0;
+      this.preampLimiter.connect(this.monitorGain);
+      this.monitorGain.connect(micAudioCtx.destination);
 
       // Nối vào gain = 0 để không gây hú loa (feedback) nhưng vẫn kích hoạt xử lý PCM
       this.silentGain = micAudioCtx.createGain();
       this.silentGain.gain.value = 0;
 
-      this.sourceNode.connect(this.analyser);
-
-      // Ghi PCM thô trực tiếp qua Native AudioContext (không dùng MediaRecorder)
-      await this._setupPcmNode(micAudioCtx);
+      // Ghi PCM sau mạch Preamp qua Native AudioContext (không dùng MediaRecorder)
+      await this._setupPcmNode(micAudioCtx, this.preampLimiter);
 
       this.isMonitoring = true;
       this._startMeterLoop();
@@ -716,7 +844,7 @@ export class VocalCapture {
     }
   }
 
-  async _setupPcmNode(micAudioCtx) {
+  async _setupPcmNode(micAudioCtx, inputNode = this.sourceNode) {
     const isIOS =
       /iP(ad|hone|od)/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -755,8 +883,9 @@ export class VocalCapture {
           const chunk = ev.data;
           this.chunks.push(chunk);
           this.totalSamples += chunk.length;
+          if (this._onPcmChunk) this._onPcmChunk(chunk);
         };
-        this.sourceNode.connect(node);
+        inputNode.connect(node);
         node.connect(this.silentGain);
         this.silentGain.connect(micAudioCtx.destination);
         this.processorNode = node;
@@ -775,8 +904,9 @@ export class VocalCapture {
         copy.set(input);
         this.chunks.push(copy);
         this.totalSamples += copy.length;
+        if (this._onPcmChunk) this._onPcmChunk(copy);
       };
-      this.sourceNode.connect(sp);
+      inputNode.connect(sp);
       sp.connect(this.silentGain);
       this.silentGain.connect(micAudioCtx.destination);
       this.processorNode = sp;
@@ -793,9 +923,9 @@ export class VocalCapture {
   }
 
   /**
-   * Dừng ghi, cắt phần trễ đầu chung giữa sóng âm & MIDI, đóng micro và trả về { pcmData, sampleRate, wavBlob }
+   * Dừng ghi, cắt phần trễ đầu, chuẩn hóa biên độ Auto-Normalize (~0.85), đóng micro và trả về { pcmData, sampleRate, wavBlob }
    */
-  finishCapture({ trimStartSec = 0 } = {}) {
+  finishCapture({ trimStartSec = 0, autoNormalize = true } = {}) {
     this.isCapturing = false;
     let result = null;
 
@@ -811,7 +941,10 @@ export class VocalCapture {
         Math.max(0, Math.floor(trimStartSec * sampleRate)),
         Math.floor(rawPcm.length * 0.25)
       );
-      const pcmData = trimSamples > 0 ? rawPcm.slice(trimSamples) : rawPcm;
+      let pcmData = trimSamples > 0 ? rawPcm.slice(trimSamples) : rawPcm;
+      if (autoNormalize) {
+        pcmData = normalizePcm(pcmData, 0.85, 8.0);
+      }
       const wavBlob = encodePcmToWavBlob(pcmData, sampleRate);
       result = { pcmData, sampleRate, wavBlob };
     }
@@ -837,9 +970,17 @@ export class VocalCapture {
         }
       }
 
-      const rms = computeRms(this._liveBuf);
-      // Quy đổi biên độ dễ nhìn trên đồng hồ (0..1)
-      const level = Math.min(1, Math.pow(rms * 6.5, 0.72));
+      let sumSq = 0;
+      let peak = 0;
+      for (let i = 0; i < this._liveBuf.length; i++) {
+        const v = this._liveBuf[i];
+        sumSq += v * v;
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+      }
+      const rms = Math.sqrt(sumSq / this._liveBuf.length);
+      // Quy đổi biên độ dễ nhìn trên đồng hồ VU (0..1)
+      const level = Math.min(1, Math.pow(rms * 5.2, 0.68));
 
       let liveNote = null;
       let liveFreq = null;
@@ -847,7 +988,7 @@ export class VocalCapture {
       // Chạy bắt cao độ trực tiếp mỗi ~50ms bằng YIN để tiết kiệm pin mobile mà vẫn mượt
       if (now - lastPitchTime > 48) {
         lastPitchTime = now;
-        if (rms > 0.015) {
+        if (rms > 0.008) {
           const factor = this.sampleRate >= 40000 ? 4 : 2;
           const down = bandpassVocalPcm(downsampleBuffer(this._liveBuf, factor), this.sampleRate / factor);
           const det = detectPitchYIN(down, this.sampleRate / factor, 0.18);
@@ -858,10 +999,10 @@ export class VocalCapture {
           }
         }
         if (this._onLiveStats) {
-          this._onLiveStats({ level, rms, noteName: liveNote, freq: liveFreq });
+          this._onLiveStats({ level, peak, rms, noteName: liveNote, freq: liveFreq });
         }
       } else if (this._onLiveStats) {
-        this._onLiveStats({ level, rms, noteName: undefined, freq: undefined });
+        this._onLiveStats({ level, peak, rms, noteName: undefined, freq: undefined });
       }
 
       this._meterRaf = requestAnimationFrame(loop);

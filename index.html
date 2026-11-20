@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#121316" />
   <title>HEVOS STUDIO — Phòng thu Phác thảo</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231A1C20'/%3E%3Cpath d='M6 19v-6m5 10V9m5 14V7m5 12v-8m5 6v-4' stroke='%2310B981' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="./style.css?v=7" />
+  <link rel="stylesheet" href="./style.css?v=8" />
   <!-- Thư viện ngoài duy nhất: Tone.js -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
@@ -210,10 +210,34 @@
         <div id="chord-strip" class="chord-strip bars-4" role="list" aria-label="Dải vòng hợp âm theo ô nhịp"></div>
       </section>
 
-      <!-- ==================== TAB 2: GIAI ĐIỆU & THU MIC ==================== -->
-      <section class="panel panel-melody" data-panel="melody" aria-label="Bảng chấm MIDI và Thu âm ngân nga">
-        <!-- Thanh công cụ Piano Roll -->
-        <div class="melody-toolbar">
+      <!-- ==================== TAB 2: GIAI ĐIỆU & THU ÂM VOCAL ==================== -->
+      <section class="panel panel-melody" data-panel="melody" aria-label="Bảng chấm MIDI và Phòng thu Vocal">
+        <!-- Thanh chuyển nhanh Piano Roll | Thu âm (Vocal) trên Desktop -->
+        <div class="workspace-subtabs desktop-only" id="workspace-subtabs" role="tablist" aria-label="Chế độ bảng giữa">
+          <button type="button" class="workspace-tab-btn active" data-workspace-tab="melody" role="tab" aria-selected="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+            <span>Giai điệu (Piano Roll)</span>
+          </button>
+          <button type="button" class="workspace-tab-btn" data-workspace-tab="vocal" role="tab" aria-selected="false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="17" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
+            </svg>
+            <span>Thu âm (Vocal)</span>
+            <span id="vocal-presence-dot" class="vocal-presence-dot hidden" title="Đang có bản thu giọng"></span>
+          </button>
+        </div>
+
+        <!-- Phân vùng A: Piano Roll & Ngân nga -> MIDI -->
+        <div id="melody-workspace-view" class="workspace-view">
+          <!-- Thanh công cụ Piano Roll -->
+          <div class="melody-toolbar">
           <div class="toolbar-cluster">
             <span class="section-dot dot-cyan desktop-only"></span>
             <div class="seg-group mode-group" id="pr-mode-group" role="group" aria-label="Chế độ tương tác bảng MIDI">
@@ -323,6 +347,11 @@
               <div class="mic-meter" title="Mức âm lượng micro">
                 <div id="mic-meter-fill" class="mic-meter-fill"></div>
               </div>
+              <label class="mic-gain-mini" title="Độ nhạy Micro Preamp">
+                <span class="mg-lbl">Mic</span>
+                <input type="range" class="studio-range" min="1.0" max="5.0" step="0.1" value="1.8" data-bind="micGain" aria-label="Độ nhạy Micro" />
+                <span class="mono-val mg-val" data-display="micGain">1.8x</span>
+              </label>
               <span class="live-pitch-chip" id="live-pitch-readout">Nốt: <strong>—</strong></span>
               <canvas id="vocal-waveform" class="vocal-waveform" aria-label="Sóng âm giọng thu nháp"></canvas>
             </div>
@@ -354,19 +383,29 @@
           </div>
         </div>
 
-        <!-- Khung HTML5 Canvas Piano Roll -->
-        <div class="piano-roll-wrap">
-          <canvas id="piano-roll-canvas" aria-label="Bảng chấm giai điệu MIDI Piano Roll"></canvas>
-          <!-- Lớp đếm vào 1 ô nhịp (Count-in) nổi bật gọn giữa màn hình -->
-          <div id="countin-overlay" class="countin-overlay hidden" aria-live="assertive">
-            <span class="countin-caption" id="countin-caption">CHUẨN BỊ NGÂN NGA</span>
-            <span class="countin-number" id="countin-number">4</span>
+          <!-- Khung HTML5 Canvas Piano Roll -->
+          <div class="piano-roll-wrap">
+            <canvas id="piano-roll-canvas" aria-label="Bảng chấm giai điệu MIDI Piano Roll"></canvas>
+            <!-- Lớp đếm vào 1 ô nhịp (Count-in) nổi bật gọn giữa màn hình -->
+            <div id="countin-overlay" class="countin-overlay hidden" aria-live="assertive">
+              <span class="countin-caption" id="countin-caption">CHUẨN BỊ NGÂN NGA</span>
+              <span class="countin-number" id="countin-number">4</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phân vùng B: Phòng thu Giọng hát (2 Track + Auto-Tune + Preset + Kệ FX) -->
+        <div id="vocal-studio-view" class="workspace-view vs-workspace hidden">
+          <div id="vocal-studio-panel" class="vocal-studio-panel"></div>
+          <div id="vocal-countin-overlay" class="countin-overlay hidden" aria-live="assertive">
+            <span class="countin-caption" id="vocal-countin-caption">CHUẨN BỊ THU GIỌNG</span>
+            <span class="countin-number" id="vocal-countin-number">4</span>
           </div>
         </div>
       </section>
 
-      <!-- ==================== TAB 3: MIXER 4 KÊNH & XUẤT FILE ==================== -->
-      <section class="panel panel-mixer" data-panel="mixer" aria-label="Mixer 4 kênh và Xuất file">
+      <!-- ==================== TAB 3: MIXER 5 KÊNH & XUẤT FILE ==================== -->
+      <section class="panel panel-mixer" data-panel="mixer" aria-label="Mixer 5 kênh và Xuất file">
         <!-- Mixer 4 kênh (Ngang gọn trên Desktop, Dọc rộng trên Mobile) -->
         <div class="mixer-channels" id="mixer-channels">
           <!-- Kênh 1: Hợp âm -->
@@ -429,25 +468,46 @@
             <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="drums"></div></div>
           </div>
 
-          <!-- Kênh 4: Giọng thu nháp -->
+          <!-- Kênh 4: Giọng chính -->
           <div class="mixer-strip strip-rose" data-channel="vocal">
             <div class="strip-head">
               <span class="strip-indicator"></span>
-              <span class="strip-name">Giọng thu nháp</span>
+              <span class="strip-name">Giọng chính</span>
               <span class="vocal-take-tag" id="vocal-take-tag">Trống</span>
               <span class="strip-val mono-val" data-vol-label="vocal">75%</span>
             </div>
             <div class="strip-body">
               <div class="fader-wrap">
-                <input type="range" class="studio-range daw-fader range-rose" min="0" max="100" value="75" data-vol="vocal" aria-label="Âm lượng Giọng thu nháp" />
+                <input type="range" class="studio-range daw-fader range-rose" min="0" max="100" value="75" data-vol="vocal" aria-label="Âm lượng Giọng chính" />
                 <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
               </div>
               <div class="ms-btns">
-                <button type="button" class="ms-btn" data-mute="vocal" title="Tắt tiếng Giọng thu nháp">M</button>
-                <button type="button" class="ms-btn" data-solo="vocal" title="Nghe riêng Giọng thu nháp">S</button>
+                <button type="button" class="ms-btn" data-mute="vocal" title="Tắt tiếng Giọng chính">M</button>
+                <button type="button" class="ms-btn" data-solo="vocal" title="Nghe riêng Giọng chính">S</button>
               </div>
             </div>
             <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="vocal"></div></div>
+          </div>
+
+          <!-- Kênh 5: Hát bè -->
+          <div class="mixer-strip strip-violet" data-channel="vocal2">
+            <div class="strip-head">
+              <span class="strip-indicator"></span>
+              <span class="strip-name">Hát bè</span>
+              <span class="vocal-take-tag" id="vocal2-take-tag">Trống</span>
+              <span class="strip-val mono-val" data-vol-label="vocal2">72%</span>
+            </div>
+            <div class="strip-body">
+              <div class="fader-wrap">
+                <input type="range" class="studio-range daw-fader range-violet" min="0" max="100" value="72" data-vol="vocal2" aria-label="Âm lượng Hát bè" />
+                <div class="fader-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
+              <div class="ms-btns">
+                <button type="button" class="ms-btn" data-mute="vocal2" title="Tắt tiếng Hát bè">M</button>
+                <button type="button" class="ms-btn" data-solo="vocal2" title="Nghe riêng Hát bè">S</button>
+              </div>
+            </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" data-meter="vocal2"></div></div>
           </div>
         </div>
 
@@ -540,6 +600,17 @@
         <span>Giai điệu</span>
       </button>
 
+      <button type="button" class="nav-tab" data-tab-target="vocal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3" />
+          <path d="M5 10a7 7 0 0 0 14 0" />
+          <line x1="12" y1="17" x2="12" y2="22" />
+          <line x1="8" y1="22" x2="16" y2="22" />
+        </svg>
+        <span>Thu âm</span>
+        <span id="mobile-vocal-dot" class="nav-dot hidden" aria-hidden="true"></span>
+      </button>
+
       <button type="button" class="nav-tab" data-tab-target="mixer">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
@@ -547,7 +618,7 @@
           <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
           <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
         </svg>
-        <span>Mixer &amp; Xuất</span>
+        <span>Mixer</span>
       </button>
     </nav>
   </div>
@@ -611,6 +682,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=7"></script>
+  <script type="module" src="./js/app.js?v=8"></script>
 </body>
 </html>

@@ -12,22 +12,24 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=7';
+} from './theory.js?v=8';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=7';
+} from './audioEngine.js?v=8';
 import {
   VocalCapture,
   drawVocalWaveform,
+  getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=7';
-import { PianoRoll } from './pianoRoll.js?v=7';
-import { downloadMidiFile } from './midiExport.js?v=7';
-import { MusicTrainer } from './musicTrainer.js?v=7';
+} from './pitchToMidi.js?v=8';
+import { PianoRoll } from './pianoRoll.js?v=8';
+import { downloadMidiFile } from './midiExport.js?v=8';
+import { MusicTrainer } from './musicTrainer.js?v=8';
+import { VocalStudio } from './vocalStudio.js?v=8';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -61,13 +63,15 @@ const state = {
   vocalQuantize: '1/16',
   overdubVocal: false,
   echoCancellation: false,
+  micGain: getDefaultMicGain(),
 
-  // Mixer 4 kênh
+  // Mixer 5 kênh (thêm Hát bè vocal2)
   mixer: {
     chords: { volume: 78, muted: false, solo: false },
     melody: { volume: 82, muted: false, solo: false },
     drums:  { volume: 68, muted: false, solo: false },
     vocal:  { volume: 75, muted: false, solo: false },
+    vocal2: { volume: 72, muted: false, solo: false },
   },
 
   // Lịch sử hoàn tác giai điệu
@@ -78,13 +82,15 @@ const state = {
   recordPhase: 'idle', // 'idle' | 'countin' | 'recording'
   rawVocalBuffer: null,
   editingBarIndex: null,
-  activeMobileTab: 'chords',
-  activeSection: 'studio', // 'studio' | 'trainer'
+  activeWorkspaceTab: 'melody', // 'melody' | 'vocal'
+  activeMobileTab: 'chords',    // 'chords' | 'melody' | 'vocal' | 'mixer'
+  activeSection: 'studio',      // 'studio' | 'trainer'
 };
 
 const vocalCapture = new VocalCapture();
 let pianoRoll = null;
 let musicTrainer = null;
+let vocalStudio = null;
 let recStopTimer = null;
 let uiRafId = null;
 let lastHighlightedBar = -1;
@@ -139,6 +145,14 @@ const el = {
   chkOverdub: $('#chk-overdub'),
   btnRequantize: $('#btn-requantize'),
   vocalTakeTag: $('#vocal-take-tag'),
+  vocal2TakeTag: $('#vocal2-take-tag'),
+
+  workspaceSubtabs: $('#workspace-subtabs'),
+  melodyWorkspaceView: $('#melody-workspace-view'),
+  vocalStudioView: $('#vocal-studio-view'),
+  vocalStudioPanel: $('#vocal-studio-panel'),
+  vocalPresenceDot: $('#vocal-presence-dot'),
+  mobileVocalDot: $('#mobile-vocal-dot'),
 
   countinOverlay: $('#countin-overlay'),
   countinCaption: $('#countin-caption'),
@@ -310,6 +324,8 @@ function syncGlobalControlsUI() {
   $$('[data-bind="echoCancellation"]').forEach(
     (chk) => (chk.checked = state.echoCancellation)
   );
+  $$('[data-bind="micGain"]').forEach((inp) => (inp.value = state.micGain.toFixed(1)));
+  $$('[data-display="micGain"]').forEach((d) => (d.textContent = `${state.micGain.toFixed(1)}x`));
 
   $$('[data-display="bpm"]').forEach((d) => (d.textContent = String(state.bpm)));
   $$('[data-display="humanize"]').forEach((d) => (d.textContent = `${state.humanize}%`));
@@ -375,9 +391,31 @@ function syncMixerUI() {
     if (soloBtn) soloBtn.classList.toggle('active-solo', data.solo);
   }
 
-  el.vocalTakeTag.textContent = state.rawVocalBuffer ? 'Đã thu' : 'Trống';
-  el.vocalTakeTag.classList.toggle('has-take', Boolean(state.rawVocalBuffer));
+  const flags = vocalStudio ? vocalStudio.getTrackTakeFlags() : { lead: false, backing: false };
+  const hasLead = Boolean(state.rawVocalBuffer || flags.lead);
+  const hasBacking = Boolean(flags.backing);
+
+  if (el.vocalTakeTag) {
+    el.vocalTakeTag.textContent = hasLead ? 'Đã thu' : 'Trống';
+    el.vocalTakeTag.classList.toggle('has-take', hasLead);
+  }
+  if (el.vocal2TakeTag) {
+    el.vocal2TakeTag.textContent = hasBacking ? 'Đã thu' : 'Trống';
+    el.vocal2TakeTag.classList.toggle('has-take', hasBacking);
+  }
+  const hasAnyVocal = hasLead || hasBacking;
+  if (el.vocalPresenceDot) el.vocalPresenceDot.classList.toggle('hidden', !hasAnyVocal);
+  if (el.mobileVocalDot) el.mobileVocalDot.classList.toggle('hidden', !hasAnyVocal);
+
   el.btnRequantize.disabled = !state.rawVocalBuffer;
+
+  if (vocalStudio) {
+    vocalStudio.syncFromApp({
+      micGain: state.micGain,
+      echoCancellation: state.echoCancellation,
+      mixer: state.mixer,
+    });
+  }
 }
 
 function updatePlayButtonUI() {
@@ -387,11 +425,13 @@ function updatePlayButtonUI() {
 }
 
 function updateRecordButtonUI() {
-  const isRec = state.recordPhase !== 'idle';
+  const phase =
+    vocalStudio && vocalStudio.isRecording() ? vocalStudio.recordPhase : state.recordPhase;
+  const isRec = phase !== 'idle';
   el.btnRecord.classList.toggle('recording', isRec);
-  if (state.recordPhase === 'countin') {
+  if (phase === 'countin') {
     el.btnRecordLabel.textContent = 'Đếm vào...';
-  } else if (state.recordPhase === 'recording') {
+  } else if (phase === 'recording') {
     el.btnRecordLabel.textContent = 'Dừng thu';
   } else {
     el.btnRecordLabel.textContent = 'Thu Mic';
@@ -416,6 +456,7 @@ function startPlayheadWatch() {
       $$('[data-meter]').forEach((m) => {
         m.style.width = '0%';
       });
+      if (vocalStudio) vocalStudio.tickPlayhead(0, false);
       return;
     }
 
@@ -443,6 +484,9 @@ function startPlayheadWatch() {
     if (state.recordPhase === 'recording') {
       el.vocalStatusBadge.textContent = `Đang thu · Ô ${curBar + 1}/${state.totalBars}`;
     }
+    if (vocalStudio) {
+      vocalStudio.tickPlayhead(beat, true);
+    }
 
     uiRafId = requestAnimationFrame(step);
   };
@@ -468,18 +512,11 @@ function applyPreset(presetId, notify = false) {
   state.chords = preset.chords.map((c) => ({ ...c }));
 
   recomputeVoicings();
-  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
   syncAudioEngine();
+  if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
 
   if (notify) {
     showToast(`Đã nạp vòng mẫu: ${preset.name}`);
@@ -500,18 +537,11 @@ function setTotalBars(bars) {
 
   state.totalBars = target;
   recomputeVoicings();
-  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
   syncAudioEngine();
+  if (vocalStudio) vocalStudio.onContextChange({ keyChanged: false });
 }
 
 function setKeyPc(newPc) {
@@ -534,18 +564,11 @@ function setKeyPc(newPc) {
 
   state.keyPc = newPc;
   recomputeVoicings();
-  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
   syncGlobalControlsUI();
   renderChordStrip();
   syncPianoRoll();
   syncAudioEngine();
+  if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
 }
 
 // ============================================================================
@@ -626,9 +649,15 @@ async function toggleVocalRecording() {
     return;
   }
 
+  if (vocalStudio && vocalStudio.isRecording()) {
+    vocalStudio.cancelRecording();
+  }
+
   // Trên mobile tự chuyển sang Tab Giai điệu để thấy đếm vào, sóng âm và nốt MIDI
   if (window.innerWidth < 768) {
     setMobileTab('melody');
+  } else if (state.activeWorkspaceTab !== 'melody') {
+    setWorkspaceTab('melody');
   }
 
   if (audioEngine.isPlaying) {
@@ -640,6 +669,7 @@ async function toggleVocalRecording() {
   // để không mất user-gesture activation trước getUserMedia trên iOS Safari
   const micPromise = vocalCapture.openMic({
     echoCancellation: state.echoCancellation,
+    micGain: state.micGain,
     onLiveStats: ({ level, noteName }) => {
       el.micMeterFill.style.width = `${Math.round(level * 100)}%`;
       if (noteName !== undefined) {
@@ -859,7 +889,7 @@ function handleExportMidi() {
 
 async function handleExportAudio() {
   if (audioEngine.isExporting) return;
-  if (state.recordPhase !== 'idle') {
+  if (state.recordPhase !== 'idle' || (vocalStudio && vocalStudio.isRecording())) {
     showToast('Vui lòng dừng thu âm trước khi xuất Audio.', true);
     return;
   }
@@ -1025,20 +1055,15 @@ function loadProjectById(id) {
   state.melodyNotes = Array.isArray(item.melodyNotes) ? item.melodyNotes.map((n) => ({ ...n })) : [];
   if (item.mixer) {
     state.mixer = JSON.parse(JSON.stringify(item.mixer));
+    if (!state.mixer.vocal2) {
+      state.mixer.vocal2 = { volume: 72, muted: false, solo: false };
+    }
   }
   state.undoStack = [];
   state.redoStack = [];
   state.selectedNoteId = null;
 
   recomputeVoicings();
-  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
   syncGlobalControlsUI();
   renderChordStrip();
   syncMixerUI();
@@ -1046,6 +1071,7 @@ function loadProjectById(id) {
   syncPianoRoll();
   syncAudioEngine();
   audioEngine.applyMixer(state.mixer);
+  if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
 
   el.projectsModal.classList.add('hidden');
   showToast(`Đã mở bản nháp "${item.name}"!`);
@@ -1059,8 +1085,39 @@ function deleteProjectById(id) {
 }
 
 // ============================================================================
-// Điều hướng Phân khu (Studio | Học nhạc) & Tab Mobile
+// Điều hướng Phân khu (Studio | Học nhạc), Workspace Tab & Tab Mobile
 // ============================================================================
+function setWorkspaceTab(tab) {
+  const target = tab === 'vocal' ? 'vocal' : 'melody';
+  state.activeWorkspaceTab = target;
+
+  if (el.workspaceSubtabs) {
+    $$('[data-workspace-tab]', el.workspaceSubtabs).forEach((btn) => {
+      const active = btn.dataset.workspaceTab === target;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+  }
+
+  if (el.melodyWorkspaceView) {
+    el.melodyWorkspaceView.classList.toggle('hidden', target !== 'melody');
+  }
+  if (el.vocalStudioView) {
+    el.vocalStudioView.classList.toggle('hidden', target !== 'vocal');
+  }
+
+  if (target === 'melody') {
+    requestAnimationFrame(() => {
+      if (pianoRoll) pianoRoll.resize();
+      if (state.rawVocalBuffer) {
+        drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
+      }
+    });
+  } else if (vocalStudio) {
+    vocalStudio.resizeAndRedraw();
+  }
+}
+
 function setAppSection(section) {
   const target = section === 'trainer' ? 'trainer' : 'studio';
   if (state.activeSection === target) return;
@@ -1068,6 +1125,9 @@ function setAppSection(section) {
   // Dừng sạch sẽ mọi âm thanh/vòng lặp/ghi âm ở phân khu cũ để không bao giờ bị lẫn tiếng
   if (state.recordPhase !== 'idle') {
     cancelRecordingCleanly();
+  }
+  if (vocalStudio && vocalStudio.isRecording()) {
+    vocalStudio.cancelRecording();
   }
   audioEngine.stop();
   updatePlayButtonUI();
@@ -1094,8 +1154,12 @@ function setAppSection(section) {
     musicTrainer.setSectionActive(target === 'trainer');
   }
 
-  if (target === 'studio' && pianoRoll) {
-    requestAnimationFrame(() => pianoRoll.resize());
+  if (target === 'studio') {
+    if (state.activeWorkspaceTab === 'vocal' && vocalStudio) {
+      vocalStudio.resizeAndRedraw();
+    } else if (pianoRoll) {
+      requestAnimationFrame(() => pianoRoll.resize());
+    }
   }
 }
 
@@ -1107,14 +1171,30 @@ function setMobileTab(tabName) {
     tab.classList.toggle('active', tab.dataset.tabTarget === tabName);
   });
 
-  // Đảm bảo Canvas Piano Roll & Waveform cập nhật kích thước ngay khi hiện Tab Giai điệu
   if (tabName === 'melody') {
-    requestAnimationFrame(() => {
-      if (pianoRoll) pianoRoll.resize();
-      if (state.rawVocalBuffer) {
-        drawVocalWaveform(el.vocalWaveform, state.rawVocalBuffer);
-      }
-    });
+    setWorkspaceTab('melody');
+  } else if (tabName === 'vocal') {
+    setWorkspaceTab('vocal');
+  }
+}
+
+function triggerContextualRecord() {
+  if (state.recordPhase !== 'idle') {
+    toggleVocalRecording();
+    return;
+  }
+  if (vocalStudio && vocalStudio.isRecording()) {
+    vocalStudio.toggleRecordActiveTrack();
+    return;
+  }
+  const inVocalStudio =
+    window.innerWidth < 768
+      ? state.activeMobileTab === 'vocal'
+      : state.activeWorkspaceTab === 'vocal';
+  if (inVocalStudio && vocalStudio) {
+    vocalStudio.toggleRecordActiveTrack();
+  } else {
+    toggleVocalRecording();
   }
 }
 
@@ -1135,6 +1215,10 @@ function bindEvents() {
       cancelRecordingCleanly();
       return;
     }
+    if (vocalStudio && vocalStudio.isRecording()) {
+      vocalStudio.cancelRecording();
+      return;
+    }
     try {
       if (audioEngine.isPlaying) {
         audioEngine.stop();
@@ -1150,10 +1234,19 @@ function bindEvents() {
     }
   });
 
-  // Thu Micro ngân nga
+  // Thu Micro theo ngữ cảnh (Ngân nga MIDI khi ở Piano Roll, Thu Vocal khi ở tab Thu âm)
   el.btnRecord.addEventListener('click', () => {
-    toggleVocalRecording();
+    triggerContextualRecord();
   });
+
+  // Chuyển sub-tab giữa Piano Roll & Thu âm (Vocal) trên Desktop
+  if (el.workspaceSubtabs) {
+    el.workspaceSubtabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-workspace-tab]');
+      if (!btn) return;
+      setWorkspaceTab(btn.dataset.workspaceTab);
+    });
+  }
 
   // Bấm vào pill Tông/BPM trên Mobile -> nhảy nhanh sang Tab Mixer/Cài đặt
   el.mobileQuickStatus.addEventListener('click', () => {
@@ -1169,49 +1262,27 @@ function bindEvents() {
     sel.addEventListener('change', (e) => {
       state.scaleType = e.target.value;
       recomputeVoicings();
-      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
-  syncGlobalControlsUI();
+      syncGlobalControlsUI();
       renderChordStrip();
       syncPianoRoll();
       syncAudioEngine();
+      if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
     });
   });
 
   $$('[data-bind="bpm"]').forEach((inp) => {
     inp.addEventListener('input', (e) => {
       state.bpm = Number(e.target.value);
-      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
-  syncGlobalControlsUI();
+      syncGlobalControlsUI();
       syncAudioEngine();
+      if (vocalStudio) vocalStudio.onContextChange({ keyChanged: false });
     });
   });
 
   $$('[data-bind="humanize"]').forEach((inp) => {
     inp.addEventListener('input', (e) => {
       state.humanize = Number(e.target.value);
-      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
-    });
-  }
-
-  syncGlobalControlsUI();
+      syncGlobalControlsUI();
       syncAudioEngine();
     });
   });
@@ -1219,15 +1290,22 @@ function bindEvents() {
   $$('[data-bind="echoCancellation"]').forEach((chk) => {
     chk.addEventListener('change', (e) => {
       state.echoCancellation = e.target.checked;
-      // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
-  if (el.trainerRoot) {
-    musicTrainer = new MusicTrainer(el.trainerRoot, {
-      audioEngine,
-      showToast,
+      syncGlobalControlsUI();
+      if (vocalStudio) vocalStudio.syncFromApp({ echoCancellation: state.echoCancellation });
     });
-  }
+  });
 
-  syncGlobalControlsUI();
+  $$('[data-bind="micGain"]').forEach((inp) => {
+    inp.addEventListener('input', (e) => {
+      state.micGain = Number(e.target.value);
+      vocalCapture.setMicGain(state.micGain);
+      $$('[data-bind="micGain"]').forEach((o) => {
+        if (o !== e.target) o.value = state.micGain.toFixed(1);
+      });
+      $$('[data-display="micGain"]').forEach((d) => {
+        d.textContent = `${state.micGain.toFixed(1)}x`;
+      });
+      if (vocalStudio) vocalStudio.syncFromApp({ micGain: state.micGain });
     });
   });
 
@@ -1455,6 +1533,12 @@ function bindEvents() {
     tab.addEventListener('click', () => setMobileTab(tab.dataset.tabTarget));
   });
 
+  window.addEventListener('resize', () => {
+    if (state.activeSection === 'studio' && state.activeWorkspaceTab === 'vocal' && vocalStudio) {
+      vocalStudio.resizeAndRedraw();
+    }
+  });
+
   // Phím tắt Desktop (chỉ áp dụng khi đang ở phân khu Studio)
   window.addEventListener('keydown', (e) => {
     if (state.activeSection !== 'studio') return;
@@ -1476,7 +1560,7 @@ function bindEvents() {
     if (e.key === 'r' || e.key === 'R') {
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        toggleVocalRecording();
+        triggerContextualRecord();
       }
       return;
     }
@@ -1537,6 +1621,53 @@ function init() {
   if (el.trainerRoot) {
     musicTrainer = new MusicTrainer(el.trainerRoot, {
       audioEngine,
+      showToast,
+    });
+  }
+
+  // Khởi tạo Phòng thu Giọng hát chuyên sâu (2 Track + Auto-Tune + Preset + Kệ FX)
+  if (el.vocalStudioPanel) {
+    vocalStudio = new VocalStudio(el.vocalStudioPanel, {
+      audioEngine,
+      getContext: () => ({
+        keyPc: state.keyPc,
+        scaleType: state.scaleType,
+        bpm: state.bpm,
+        totalBars: state.totalBars,
+      }),
+      getMicGain: () => state.micGain,
+      setMicGain: (val) => {
+        state.micGain = Math.max(1.0, Math.min(5.0, Number(val) || getDefaultMicGain()));
+        vocalCapture.setMicGain(state.micGain);
+        syncGlobalControlsUI();
+      },
+      getEchoCancellation: () => state.echoCancellation,
+      setEchoCancellation: (enabled) => {
+        state.echoCancellation = Boolean(enabled);
+        syncGlobalControlsUI();
+      },
+      getMixerTrackVolume: (chKey) => (state.mixer[chKey] ? state.mixer[chKey].volume : 75),
+      setMixerTrackVolume: (chKey, vol) => {
+        if (!state.mixer[chKey]) return;
+        state.mixer[chKey].volume = Math.max(0, Math.min(100, Number(vol) || 0));
+        syncMixerUI();
+        audioEngine.applyMixer(state.mixer);
+      },
+      onRecordingStateChange: () => {
+        updateRecordButtonUI();
+      },
+      onTakesChanged: () => {
+        syncMixerUI();
+      },
+      onStartPlayback: () => {
+        updatePlayButtonUI();
+        if (pianoRoll) pianoRoll.startAnimationLoop();
+        startPlayheadWatch();
+      },
+      onStopPlayback: () => {
+        audioEngine.stop();
+        updatePlayButtonUI();
+      },
       showToast,
     });
   }

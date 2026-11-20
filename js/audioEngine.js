@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=7';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=8';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -323,6 +323,7 @@ class AudioEngine {
         melody: { volume: 82, muted: false, solo: false },
         drums:  { volume: 68, muted: false, solo: false },
         vocal:  { volume: 75, muted: false, solo: false },
+        vocal2: { volume: 72, muted: false, solo: false },
       },
     };
 
@@ -344,11 +345,19 @@ class AudioEngine {
     this.trainerWrongSynth = null;
     this.trainerClickSynth = null;
 
+    // Thu nháp MIDI cũ (single track legacy)
     this.vocalPlayer = null;
     this.hasRawVocal = false;
     this._vocalObjectUrl = null;
     this._pendingVocalSource = null;
     this._muteVocalDuringRecord = false;
+    this._recordingTrackMask = null;
+
+    // 2 Kênh Thu âm Vocal Studio chuyên sâu (Lead + Backing/Ad-lib) kèm kệ hiệu ứng thời gian thực
+    this.vocalTracks = {
+      lead: this._makeEmptyVocalTrack('lead', 'vocal'),
+      backing: this._makeEmptyVocalTrack('backing', 'vocal2'),
+    };
 
     // Tone.Part & scheduled event IDs
     this.chordPart = null;
@@ -409,12 +418,13 @@ class AudioEngine {
       wet: 0.34,
     }).start();
 
-    // 4 Kênh Mixer độc lập
+    // 5 Kênh Mixer độc lập (thêm Hát bè vocal2)
     this.channels = {
       chords: new Tone.Gain(0.8).connect(this.masterBus),
       melody: new Tone.Gain(0.85).connect(this.masterBus),
       drums:  new Tone.Gain(0.7).connect(this.masterBus),
       vocal:  new Tone.Gain(0.75).connect(this.masterBus),
+      vocal2: new Tone.Gain(0.72).connect(this.masterBus),
     };
 
     // Đồng hồ đo mức tín hiệu từng kênh (Post-fader Level Meters)
@@ -423,6 +433,7 @@ class AudioEngine {
       melody: new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
       drums:  new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
       vocal:  new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
+      vocal2: new Tone.Meter({ normalRange: true, smoothing: 0.78 }),
     };
     Object.keys(this.channels).forEach((key) => {
       this.channels[key].connect(this.channelMeters[key]);
@@ -431,7 +442,7 @@ class AudioEngine {
     // Nối Chorus vào kênh hợp âm một lần duy nhất
     this.chordChorus.connect(this.channels.chords);
 
-    // Bộ lọc làm ấm cho kênh Vocal thu nháp + chút reverb nhẹ cho dễ hòa nhạc
+    // Bộ lọc làm ấm cho kênh Ngân nga MIDI cũ
     this.vocalHPF = new Tone.Filter(95, 'highpass');
     this.vocalComp = new Tone.Compressor(-18, 3);
     this.vocalReverbSend = new Tone.Gain(0.16);
@@ -439,6 +450,10 @@ class AudioEngine {
     this.vocalComp.connect(this.channels.vocal);
     this.vocalComp.connect(this.vocalReverbSend);
     this.vocalReverbSend.connect(this.reverbSend);
+
+    // Dựng kệ hiệu ứng thời gian thực riêng biệt cho 2 kênh Vocal Studio (Giọng chính & Hát bè)
+    this.vocalTracks.lead.chain = this._createVocalChain(this.channels.vocal);
+    this.vocalTracks.backing.chain = this._createVocalChain(this.channels.vocal2);
 
     // Bộ trống tổng hợp sắc nét
     this._initDrums();
@@ -457,6 +472,112 @@ class AudioEngine {
 
     this.applyMixer(this.state.mixer);
     this.initialized = true;
+
+    // Áp dụng các FX / Vocal đã nạp sẵn trước khi mở khóa AudioContext
+    ['lead', 'backing'].forEach((tid) => {
+      const t = this.vocalTracks[tid];
+      if (t.pendingFx) this.updateVocalTrackFx(tid, t.pendingFx);
+      if (t.pendingBlob) {
+        const blob = t.pendingBlob;
+        const off = t.syncOffsetMs;
+        t.pendingBlob = null;
+        this.setVocalTrackAudio(tid, blob, off).catch(() => {});
+      }
+    });
+  }
+
+  _makeEmptyVocalTrack(id, mixerKey) {
+    return {
+      id,
+      mixerKey,
+      player: null,
+      objectUrl: null,
+      eventId: null,
+      syncOffsetMs: 0,
+      hasAudio: false,
+      chain: null,
+      pendingBlob: null,
+      pendingFx: null,
+      loadSeq: 0,
+    };
+  }
+
+  /**
+   * Tạo kệ hiệu ứng Tone.js riêng cho mỗi kênh Vocal:
+   * Player -> Gate -> HPF/LPF -> EQ3 -> Compressor -> Warm Dist -> PitchShift -> Chorus -> Panner -> Channel + (Reverb & Delay Send)
+   */
+  _createVocalChain(destChannel) {
+    const Tone = window.Tone;
+    const input = new Tone.Gain(1);
+    const gate = new Tone.Gate({ threshold: -100, smoothing: 0.05 });
+    const hpf = new Tone.Filter(90, 'highpass');
+    const lpf = new Tone.Filter(18000, 'lowpass');
+    const eq = new Tone.EQ3({
+      low: 0,
+      mid: 0,
+      high: 0,
+      lowFrequency: 220,
+      highFrequency: 4500,
+    });
+    const comp = new Tone.Compressor({
+      threshold: -18,
+      ratio: 3.5,
+      attack: 0.008,
+      release: 0.14,
+    });
+    const dist = new Tone.Distortion({ distortion: 0.28, wet: 0 });
+    const pitch = new Tone.PitchShift({ pitch: 0, windowSize: 0.08, delayTime: 0, wet: 0 });
+    const chorus = new Tone.Chorus({
+      frequency: 1.35,
+      delayTime: 3.4,
+      depth: 0.35,
+      wet: 0,
+    }).start();
+    const panner = new Tone.Panner(0);
+
+    // Song song Reverb & Delay (Dry luôn phát ngay kể cả khi Reverb đang dựng Impulse Response)
+    const reverbSend = new Tone.Gain(0.14);
+    const reverb = new Tone.Reverb({ decay: 1.5, preDelay: 0.015, wet: 1 });
+    const delaySend = new Tone.Gain(0);
+    const delay = new Tone.FeedbackDelay({ delayTime: 0.35, feedback: 0.3, wet: 1 });
+
+    input.connect(gate);
+    gate.connect(hpf);
+    hpf.connect(lpf);
+    lpf.connect(eq);
+    eq.connect(comp);
+    comp.connect(dist);
+    dist.connect(pitch);
+    pitch.connect(chorus);
+    chorus.connect(panner);
+    panner.connect(destChannel);
+
+    panner.connect(reverbSend);
+    reverbSend.connect(reverb);
+    reverb.connect(destChannel);
+
+    panner.connect(delaySend);
+    delaySend.connect(delay);
+    delay.connect(destChannel);
+
+    return {
+      input,
+      gate,
+      hpf,
+      lpf,
+      eq,
+      comp,
+      dist,
+      pitch,
+      chorus,
+      panner,
+      reverbSend,
+      reverb,
+      delaySend,
+      delay,
+      lastDecay: 1.5,
+      delayDiv: '8n',
+    };
   }
 
   _ensureTrainerSynths() {
@@ -762,6 +883,192 @@ class AudioEngine {
     }
   }
 
+  _rampParam(param, val, dur = 0.025) {
+    if (param == null) return;
+    if (typeof param.rampTo === 'function') {
+      param.rampTo(val, dur);
+    } else if ('value' in param) {
+      param.value = val;
+    }
+  }
+
+  /**
+   * Nạp hoặc xóa bản thu Vocal Studio cho từng kênh ('lead' | 'backing')
+   */
+  async setVocalTrackAudio(trackId, blobOrBuffer, syncOffsetMs = 0) {
+    const track = this.vocalTracks[trackId];
+    if (!track) return;
+
+    track.loadSeq += 1;
+    const mySeq = track.loadSeq;
+
+    // Tránh phát đè giữa bản thu nháp MIDI cũ và kênh Giọng chính Vocal Studio
+    if (trackId === 'lead' && blobOrBuffer) {
+      if (this.vocalPlayer) {
+        try {
+          this.vocalPlayer.stop();
+          this.vocalPlayer.dispose();
+        } catch (_) {}
+        this.vocalPlayer = null;
+      }
+      this._pendingVocalSource = null;
+      this.hasRawVocal = false;
+    }
+
+    if (track.player) {
+      try {
+        track.player.stop();
+        track.player.dispose();
+      } catch (_) {}
+      track.player = null;
+    }
+    if (track.objectUrl) {
+      try { URL.revokeObjectURL(track.objectUrl); } catch (_) {}
+      track.objectUrl = null;
+    }
+
+    const source = blobOrBuffer && blobOrBuffer.wavBlob instanceof Blob ? blobOrBuffer.wavBlob : blobOrBuffer;
+    track.syncOffsetMs = Number(syncOffsetMs) || 0;
+
+    if (!source) {
+      track.hasAudio = false;
+      track.pendingBlob = null;
+      if (this.initialized) this.rebuildSchedule();
+      return;
+    }
+
+    track.hasAudio = true;
+    if (!this.initialized || !track.chain) {
+      track.pendingBlob = source;
+      return;
+    }
+
+    const Tone = window.Tone;
+    let toneBuf;
+    let createdUrl = null;
+
+    if (source instanceof Blob) {
+      createdUrl = URL.createObjectURL(source);
+      toneBuf = new Tone.ToneAudioBuffer();
+      try {
+        await toneBuf.load(createdUrl);
+      } catch (_) {
+        const arrBuf = await source.arrayBuffer();
+        const decoded = await Tone.context.decodeAudioData(arrBuf);
+        toneBuf = new Tone.ToneAudioBuffer(decoded);
+      }
+    } else {
+      toneBuf = new Tone.ToneAudioBuffer(source);
+    }
+
+    // Nếu trong lúc giải mã bất đồng bộ đã có bản mới hơn thay thế -> hủy bản cũ
+    if (track.loadSeq !== mySeq) {
+      if (createdUrl) {
+        try { URL.revokeObjectURL(createdUrl); } catch (_) {}
+      }
+      try { toneBuf.dispose(); } catch (_) {}
+      return;
+    }
+
+    track.objectUrl = createdUrl;
+    track.player = new Tone.Player(toneBuf).connect(track.chain.input);
+    track.pendingBlob = null;
+
+    if (this.initialized) {
+      this.rebuildSchedule();
+    }
+  }
+
+  /**
+   * Cập nhật độ bù trễ thời gian thực (-250ms .. +250ms) cho kênh Vocal
+   */
+  setVocalTrackSyncOffset(trackId, syncOffsetMs) {
+    const track = this.vocalTracks[trackId];
+    if (!track) return;
+    track.syncOffsetMs = Math.max(-250, Math.min(250, Number(syncOffsetMs) || 0));
+    if (this.initialized && track.player && track.player.loaded) {
+      this.rebuildSchedule();
+    }
+  }
+
+  clearVocalTrack(trackId) {
+    return this.setVocalTrackAudio(trackId, null, 0);
+  }
+
+  /**
+   * Cập nhật thông số hiệu ứng phòng thu (Gate, EQ, Comp, Pitch, Reverb, Delay, Pan) thời gian thực
+   */
+  updateVocalTrackFx(trackId, fx) {
+    const track = this.vocalTracks[trackId];
+    if (!track || !fx) return;
+    track.pendingFx = { ...fx };
+
+    const chain = track.chain;
+    if (!this.initialized || !chain) return;
+
+    try {
+      const gateThresh = Number(fx.gate ?? -60);
+      chain.gate.threshold = gateThresh <= -59 ? -100 : gateThresh;
+
+      this._rampParam(chain.hpf.frequency, Math.max(20, Math.min(2000, Number(fx.hpf ?? 90))));
+      this._rampParam(chain.lpf.frequency, Math.max(800, Math.min(20000, Number(fx.lpf ?? 18000))));
+
+      this._rampParam(chain.eq.low, Number(fx.eqLow ?? 0));
+      this._rampParam(chain.eq.mid, Number(fx.eqMid ?? 0));
+      this._rampParam(chain.eq.high, Number(fx.eqHigh ?? 0));
+
+      const compPct = Math.max(0, Math.min(100, Number(fx.comp ?? 35)));
+      this._rampParam(chain.comp.threshold, -8 - (compPct / 100) * 24);
+      this._rampParam(chain.comp.ratio, 1.5 + (compPct / 100) * 5.5);
+
+      const distPct = Math.max(0, Math.min(100, Number(fx.dist ?? 0)));
+      this._rampParam(chain.dist.wet, distPct / 100);
+
+      const pitchSemis = Math.max(-12, Math.min(12, Number(fx.pitch ?? 0)));
+      if (Math.abs(pitchSemis) < 0.05) {
+        chain.pitch.pitch = 0;
+        this._rampParam(chain.pitch.wet, 0);
+      } else {
+        chain.pitch.pitch = pitchSemis;
+        this._rampParam(chain.pitch.wet, 1);
+      }
+
+      const chorusPct = Math.max(0, Math.min(100, Number(fx.chorus ?? 0)));
+      this._rampParam(chain.chorus.wet, chorusPct / 100);
+
+      const panVal = Math.max(-1, Math.min(1, Number(fx.pan ?? 0) / 100));
+      this._rampParam(chain.panner.pan, panVal);
+
+      const revMix = Math.max(0, Math.min(100, Number(fx.reverbMix ?? 18)));
+      this._rampParam(chain.reverbSend.gain, (revMix / 100) * 0.85, 0.03);
+
+      const revDecay = Math.max(0.4, Math.min(6.0, Number(fx.reverbDecay ?? 1.5)));
+      if (Math.abs(revDecay - chain.lastDecay) > 0.04) {
+        chain.lastDecay = revDecay;
+        chain.reverb.decay = revDecay;
+      }
+
+      chain.delayDiv = fx.delayDiv || '8n';
+      this._syncVocalDelayTimes();
+      const delMix = Math.max(0, Math.min(100, Number(fx.delayMix ?? 0)));
+      this._rampParam(chain.delaySend.gain, (delMix / 100) * 0.72, 0.03);
+    } catch (err) {
+      console.warn('[HEVOS STUDIO Vocal FX]', err);
+    }
+  }
+
+  _syncVocalDelayTimes() {
+    if (!this.initialized) return;
+    const beatSec = 60 / Math.max(40, Math.min(240, Number(this.state.bpm) || 84));
+    ['lead', 'backing'].forEach((tid) => {
+      const chain = this.vocalTracks[tid].chain;
+      if (!chain) return;
+      const div = chain.delayDiv || '8n';
+      const sec = div === '4n' ? beatSec : div === '8n.' ? beatSec * 0.75 : beatSec * 0.5;
+      this._rampParam(chain.delay.delayTime, Math.max(0.05, Math.min(1.0, sec)), 0.03);
+    });
+  }
+
   _clearParts() {
     const Tone = window.Tone;
     if (this.chordPart) {
@@ -780,6 +1087,13 @@ class AudioEngine {
       Tone.Transport.clear(this.vocalEventId);
       this.vocalEventId = null;
     }
+    ['lead', 'backing'].forEach((tid) => {
+      const tr = this.vocalTracks[tid];
+      if (tr && tr.eventId !== null) {
+        Tone.Transport.clear(tr.eventId);
+        tr.eventId = null;
+      }
+    });
     if (this._loopEndCallbackId !== null) {
       Tone.Transport.clear(this._loopEndCallbackId);
       this._loopEndCallbackId = null;
@@ -813,6 +1127,8 @@ class AudioEngine {
     Tone.Transport.loop = true;
     Tone.Transport.loopStart = 0;
     Tone.Transport.loopEnd = loopDurationSec;
+
+    this._syncVocalDelayTimes();
 
     // --- 1. Lập lịch Hợp âm & Bass (dùng chung nguồn sinh thuần với bộ xuất MIDI) ---
     const chordSynth = this._getChordSynth(chordTimbre);
@@ -898,14 +1214,87 @@ class AudioEngine {
       this.drumPart.start(0);
     }
 
-    // --- 4. Lập lịch Giọng thu nháp đồng bộ đầu vòng lặp (tạm ẩn khi đang thu lại bản mới) ---
-    if (!this._muteVocalDuringRecord && this.vocalPlayer && this.vocalPlayer.loaded) {
+    // --- 4. Lập lịch 2 Kênh Giọng Hát Vocal Studio (hỗ trợ Sync Offset -250..+250ms & Overdub) ---
+    ['lead', 'backing'].forEach((tid) => {
+      this._scheduleVocalTrackPlayer(this.vocalTracks[tid], loopDurationSec);
+    });
+
+    // Kênh Giọng thu nháp Ngân nga -> MIDI (chỉ phát khi chưa có Track Giọng chính từ Vocal Studio)
+    if (
+      !this._muteVocalDuringRecord &&
+      this._recordingTrackMask !== 'all' &&
+      !this.vocalTracks.lead.hasAudio &&
+      this.vocalPlayer &&
+      this.vocalPlayer.loaded
+    ) {
       this.vocalEventId = Tone.Transport.schedule((time) => {
         try {
           this.vocalPlayer.stop(time);
           this.vocalPlayer.start(time, 0, loopDurationSec);
         } catch (_) {}
       }, 0);
+    }
+  }
+
+  _scheduleVocalTrackPlayer(track, loopDurationSec) {
+    if (!track || !track.player || !track.player.loaded) return;
+    const Tone = window.Tone;
+
+    try {
+      track.player.stop();
+    } catch (_) {}
+
+    const isMasked =
+      this._recordingTrackMask === 'all' ||
+      this._recordingTrackMask === track.id ||
+      (this._muteVocalDuringRecord && !this._recordingTrackMask && track.id === 'lead');
+    if (isMasked) return;
+
+    const offsetSec = (track.syncOffsetMs || 0) / 1000;
+    const bufDur = track.player.buffer ? track.player.buffer.duration : loopDurationSec;
+
+    if (offsetSec < 0) {
+      const absOff = Math.min(Math.max(0, bufDur - 0.05), Math.abs(offsetSec));
+      const playDur = Math.max(0.05, Math.min(loopDurationSec, bufDur - absOff));
+      track.eventId = Tone.Transport.schedule((time) => {
+        try {
+          track.player.stop(time);
+          track.player.start(time, absOff, playDur);
+        } catch (_) {}
+      }, 0);
+
+      if (this.isPlaying && Tone.Transport.state === 'started') {
+        const curLoopSec = ((Tone.Transport.seconds % loopDurationSec) + loopDurationSec) % loopDurationSec;
+        const bufOffset = absOff + curLoopSec;
+        const rem = Math.min(loopDurationSec - curLoopSec, bufDur - bufOffset);
+        if (rem > 0.04) {
+          try {
+            track.player.start(Tone.now() + 0.02, bufOffset, rem);
+          } catch (_) {}
+        }
+      }
+    } else {
+      const startSec = Math.min(Math.max(0, loopDurationSec - 0.05), offsetSec);
+      const playDur = Math.max(0.05, Math.min(loopDurationSec - startSec, bufDur));
+      track.eventId = Tone.Transport.schedule((time) => {
+        try {
+          track.player.stop(time);
+          track.player.start(time, 0, playDur);
+        } catch (_) {}
+      }, startSec);
+
+      if (this.isPlaying && Tone.Transport.state === 'started') {
+        const curLoopSec = ((Tone.Transport.seconds % loopDurationSec) + loopDurationSec) % loopDurationSec;
+        if (curLoopSec >= startSec) {
+          const bufOffset = curLoopSec - startSec;
+          const rem = Math.min(loopDurationSec - curLoopSec, bufDur - bufOffset);
+          if (rem > 0.04) {
+            try {
+              track.player.start(Tone.now() + 0.02, bufOffset, rem);
+            } catch (_) {}
+          }
+        }
+      }
     }
   }
 
@@ -973,10 +1362,11 @@ class AudioEngine {
     return Math.max(0.06, Math.min(0.22, lookAhead + 0.03 + baseLatency));
   }
 
-  async play(fromStart = false, { muteVocal = false } = {}) {
+  async play(fromStart = false, { muteVocal = false, recordingTrack = null } = {}) {
     await this.ensureReady();
     const Tone = window.Tone;
     this._muteVocalDuringRecord = Boolean(muteVocal);
+    this._recordingTrackMask = recordingTrack;
     if (fromStart) {
       Tone.Transport.stop();
       Tone.Transport.seconds = 0;
@@ -994,6 +1384,7 @@ class AudioEngine {
     Tone.Transport.seconds = 0;
     this.isPlaying = false;
     this._muteVocalDuringRecord = false;
+    this._recordingTrackMask = null;
 
     // Nhả hết nốt đang ngân
     Object.values(this.chordSynths).forEach((s) => {
@@ -1005,6 +1396,12 @@ class AudioEngine {
     if (this.vocalPlayer) {
       try { this.vocalPlayer.stop(); } catch (_) {}
     }
+    ['lead', 'backing'].forEach((tid) => {
+      const tr = this.vocalTracks[tid];
+      if (tr && tr.player) {
+        try { tr.player.stop(); } catch (_) {}
+      }
+    });
   }
 
   /**
@@ -1021,10 +1418,10 @@ class AudioEngine {
   }
 
   /**
-   * Đọc mức tín hiệu tức thời [0..1] trên 4 kênh Mixer cho đèn Level Meter
+   * Đọc mức tín hiệu tức thời [0..1] trên 5 kênh Mixer cho đèn Level Meter
    */
   getChannelLevels() {
-    const empty = { chords: 0, melody: 0, drums: 0, vocal: 0 };
+    const empty = { chords: 0, melody: 0, drums: 0, vocal: 0, vocal2: 0 };
     if (!this.initialized || !this.isPlaying || !this.channelMeters) return empty;
     const out = {};
     for (const [key, meter] of Object.entries(this.channelMeters)) {
@@ -1104,7 +1501,8 @@ class AudioEngine {
 
     const totalBeats = this.state.totalBars * 4;
     const loopDurationSec = totalBeats * (60 / this.state.bpm);
-    const tailSec = 0.55;
+    const hasVocalTail = this.vocalTracks.lead.hasAudio || this.vocalTracks.backing.hasAudio;
+    const tailSec = hasVocalTail ? 1.1 : 0.55;
 
     try {
       this.rebuildSchedule();
