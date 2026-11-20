@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=3';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=4';
 
 export const CHORD_TIMBRES = [
   { id: 'rhodes', label: 'Rhodes / EP Ấm' },
@@ -345,6 +345,7 @@ class AudioEngine {
     this.hasRawVocal = false;
     this._vocalObjectUrl = null;
     this._pendingVocalSource = null;
+    this._muteVocalDuringRecord = false;
 
     // Tone.Part & scheduled event IDs
     this.chordPart = null;
@@ -849,8 +850,8 @@ class AudioEngine {
       this.drumPart.start(0);
     }
 
-    // --- 4. Lập lịch Giọng thu nháp đồng bộ đầu vòng lặp ---
-    if (this.vocalPlayer && this.vocalPlayer.loaded) {
+    // --- 4. Lập lịch Giọng thu nháp đồng bộ đầu vòng lặp (tạm ẩn khi đang thu lại bản mới) ---
+    if (!this._muteVocalDuringRecord && this.vocalPlayer && this.vocalPlayer.loaded) {
       this.vocalEventId = Tone.Transport.schedule((time) => {
         try {
           this.vocalPlayer.stop(time);
@@ -911,9 +912,23 @@ class AudioEngine {
     });
   }
 
-  async play(fromStart = false) {
+  /**
+   * Ước lượng độ trễ tổng (Tone lookAhead + start offset + phần cứng đầu ra) để căn thẳng đầu beat 0
+   */
+  getRecordLatencyCompSec() {
+    const Tone = window.Tone;
+    const lookAhead = Tone && Tone.context ? (Tone.context.lookAhead || 0.1) : 0.1;
+    const baseLatency =
+      Tone && Tone.context && Tone.context.rawContext && typeof Tone.context.rawContext.baseLatency === 'number'
+        ? Tone.context.rawContext.baseLatency
+        : 0.02;
+    return Math.max(0.06, Math.min(0.22, lookAhead + 0.03 + baseLatency));
+  }
+
+  async play(fromStart = false, { muteVocal = false } = {}) {
     await this.ensureReady();
     const Tone = window.Tone;
+    this._muteVocalDuringRecord = Boolean(muteVocal);
     if (fromStart) {
       Tone.Transport.stop();
       Tone.Transport.seconds = 0;
@@ -930,6 +945,7 @@ class AudioEngine {
     Tone.Transport.stop();
     Tone.Transport.seconds = 0;
     this.isPlaying = false;
+    this._muteVocalDuringRecord = false;
 
     // Nhả hết nốt đang ngân
     Object.values(this.chordSynths).forEach((s) => {

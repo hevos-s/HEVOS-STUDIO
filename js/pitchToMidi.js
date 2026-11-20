@@ -3,10 +3,10 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=3';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=4';
 
-const MIN_VOCAL_HZ = 85;    // ~F2
-const MAX_VOCAL_HZ = 1100;  // ~C#6
+const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
+const MAX_VOCAL_HZ = 1050;  // ~C6
 const MIN_MIDI_ROLL = 48;   // C3
 const MAX_MIDI_ROLL = 84;   // C6
 
@@ -29,6 +29,41 @@ function downsampleBuffer(input, factor) {
 }
 
 /**
+ * Lọc thông dải giọng hát bậc 1 (HPF ~70 Hz khử ù/DC + LPF ~950 Hz giảm nhiễu gió & hài bậc cao gắt)
+ */
+function bandpassVocalPcm(pcm, sr) {
+  if (!pcm || pcm.length === 0) return pcm;
+  const out = new Float32Array(pcm.length);
+
+  // High-pass ~70Hz
+  const dt = 1 / Math.max(8000, sr);
+  const rcHpf = 1 / (2 * Math.PI * 70);
+  const alphaHpf = rcHpf / (rcHpf + dt);
+  let prevX = pcm[0];
+  let prevY = 0;
+  const hpf = new Float32Array(pcm.length);
+  hpf[0] = 0;
+  for (let i = 1; i < pcm.length; i++) {
+    const x = pcm[i];
+    prevY = alphaHpf * (prevY + x - prevX);
+    hpf[i] = prevY;
+    prevX = x;
+  }
+
+  // Low-pass ~950Hz
+  const rcLpf = 1 / (2 * Math.PI * 950);
+  const alphaLpf = dt / (rcLpf + dt);
+  let lpfY = hpf[0];
+  out[0] = lpfY;
+  for (let i = 1; i < hpf.length; i++) {
+    lpfY = lpfY + alphaLpf * (hpf[i] - lpfY);
+    out[i] = lpfY;
+  }
+
+  return out;
+}
+
+/**
  * Tính RMS (độ lớn tín hiệu) của một khung sóng âm
  */
 function computeRms(frame) {
@@ -40,127 +75,105 @@ function computeRms(frame) {
 }
 
 /**
- * Thuật toán McLeod Pitch Method (MPM / NSDF) chuẩn xác cao cho giọng ngân nga
- * Trả về { freq, clarity } hoặc null nếu không rõ cao độ
+ * Thuật toán YIN (Cumulative Mean Normalized Difference Function - CMNDF)
+ * Chuẩn xác cao cho giọng hát mộc và micro điện thoại, tránh nhảy nhầm quãng tám (+12).
+ * Trả về { freq, clarity } hoặc null nếu không rõ cao độ.
  */
-export function detectPitchMPM(frame, sampleRate, clarityThreshold = 0.80) {
-  const W = frame.length;
+export function detectPitchYIN(frame, sampleRate, yinThreshold = 0.16) {
+  const halfW = Math.floor(frame.length / 2);
   const minLag = Math.max(2, Math.floor(sampleRate / MAX_VOCAL_HZ));
-  const maxLag = Math.min(Math.floor(W * 0.72), Math.ceil(sampleRate / MIN_VOCAL_HZ));
+  const maxLag = Math.min(halfW - 2, Math.ceil(sampleRate / MIN_VOCAL_HZ));
   if (maxLag <= minLag + 2) return null;
 
-  // Khử thành phần DC offset
+  // Khử thành phần DC trong khung
   let mean = 0;
-  for (let i = 0; i < W; i++) mean += frame[i];
-  mean /= W;
+  for (let i = 0; i < frame.length; i++) mean += frame[i];
+  mean /= frame.length;
 
-  const x = new Float32Array(W);
-  let totalEnergy = 0;
-  for (let i = 0; i < W; i++) {
+  const x = new Float32Array(frame.length);
+  let energy = 0;
+  for (let i = 0; i < frame.length; i++) {
     const v = frame[i] - mean;
     x[i] = v;
-    totalEnergy += v * v;
+    energy += v * v;
   }
-  if (totalEnergy < 1e-8) return null;
+  if (energy < 1e-8) return null;
 
-  // Tính NSDF[tau] = 2 * r(tau) / m(tau) bằng cập nhật m(tau) O(1)
-  const nsdf = new Float32Array(maxLag + 1);
-  let m = 2 * totalEnergy;
-
-  // Cập nhật m đến trước minLag
-  for (let tau = 1; tau < minLag; tau++) {
-    m -= x[W - tau] * x[W - tau] + x[tau - 1] * x[tau - 1];
+  const diff = new Float32Array(maxLag + 2);
+  for (let tau = 1; tau <= maxLag + 1; tau++) {
+    let sum = 0;
+    for (let j = 0; j < halfW; j++) {
+      const d = x[j] - x[j + tau];
+      sum += d * d;
+    }
+    diff[tau] = sum;
   }
 
+  // CMNDF: d'(tau) = d(tau) / ((1/tau) * sum_{j=1..tau} d(j))
+  const cmndf = new Float32Array(maxLag + 2);
+  cmndf[0] = 1;
+  let runningSum = 0;
+  for (let tau = 1; tau <= maxLag + 1; tau++) {
+    runningSum += diff[tau];
+    cmndf[tau] = runningSum > 1e-12 ? diff[tau] / (runningSum / tau) : 1;
+  }
+
+  // Chọn cực tiểu cục bộ ĐẦU TIÊN nhỏ hơn yinThreshold
+  let bestTau = -1;
   for (let tau = minLag; tau <= maxLag; tau++) {
-    m -= x[W - tau] * x[W - tau] + x[tau - 1] * x[tau - 1];
-    if (m <= 1e-9) {
-      nsdf[tau] = 0;
-      continue;
-    }
-    let acf = 0;
-    const limit = W - tau;
-    for (let j = 0; j < limit; j++) {
-      acf += x[j] * x[j + tau];
-    }
-    nsdf[tau] = (2 * acf) / m;
-  }
-
-  // Tìm các đỉnh cục bộ trong từng vùng dương (Key Maxima) sau điểm cắt 0 đầu tiên
-  const keyMaxima = [];
-  let inPositive = false;
-  let seenNegative = false;
-  let peakTau = -1;
-  let peakVal = -Infinity;
-
-  // Kiểm tra xem tại minLag tín hiệu đã âm chưa
-  if (nsdf[minLag] <= 0) {
-    seenNegative = true;
-  }
-
-  for (let tau = minLag; tau <= maxLag; tau++) {
-    const val = nsdf[tau];
-    if (!seenNegative) {
-      if (val <= 0) seenNegative = true;
-      continue;
-    }
-
-    if (val > 0) {
-      if (!inPositive) {
-        inPositive = true;
-        peakTau = tau;
-        peakVal = val;
-      } else if (val > peakVal) {
-        peakVal = val;
-        peakTau = tau;
+    if (cmndf[tau] < yinThreshold) {
+      while (tau + 1 <= maxLag && cmndf[tau + 1] < cmndf[tau]) {
+        tau++;
       }
-    } else if (inPositive) {
-      keyMaxima.push({ tau: peakTau, val: peakVal });
-      inPositive = false;
-      peakTau = -1;
-      peakVal = -Infinity;
-    }
-  }
-  if (inPositive && peakTau > 0) {
-    keyMaxima.push({ tau: peakTau, val: peakVal });
-  }
-
-  if (keyMaxima.length === 0) return null;
-
-  let maxPeak = -Infinity;
-  for (const km of keyMaxima) {
-    if (km.val > maxPeak) maxPeak = km.val;
-  }
-
-  if (maxPeak < clarityThreshold) return null;
-
-  // Chọn đỉnh ĐẦU TIÊN đạt >= 0.88 * maxPeak (chống bắt nhầm xuống quãng tám dưới)
-  const threshold = 0.88 * maxPeak;
-  let chosen = keyMaxima[0];
-  for (const km of keyMaxima) {
-    if (km.val >= threshold) {
-      chosen = km;
+      bestTau = tau;
       break;
     }
   }
 
-  // Nội suy parabol để đạt độ chính xác cao độ dưới 1 mẫu
-  let refinedTau = chosen.tau;
-  if (chosen.tau > minLag && chosen.tau < maxLag) {
-    const y0 = nsdf[chosen.tau - 1];
-    const y1 = nsdf[chosen.tau];
-    const y2 = nsdf[chosen.tau + 1];
-    const denom = 2 * (y0 - 2 * y1 + y2);
+  // Fallback sang cực tiểu toàn cục nếu vẫn rất sạch (< 0.23)
+  if (bestTau === -1) {
+    let minVal = Infinity;
+    let minIdx = -1;
+    for (let tau = minLag; tau <= maxLag; tau++) {
+      if (cmndf[tau] < minVal) {
+        minVal = cmndf[tau];
+        minIdx = tau;
+      }
+    }
+    if (minVal < 0.23) {
+      bestTau = minIdx;
+    } else {
+      return null;
+    }
+  }
+
+  const bestVal = cmndf[bestTau];
+
+  // Nội suy parabol quanh cực tiểu để đạt độ chính xác dưới 1 mẫu
+  let refinedTau = bestTau;
+  if (bestTau > minLag && bestTau < maxLag) {
+    const s0 = cmndf[bestTau - 1];
+    const s1 = cmndf[bestTau];
+    const s2 = cmndf[bestTau + 1];
+    const denom = 2 * (s0 - 2 * s1 + s2);
     if (Math.abs(denom) > 1e-9) {
-      const shift = Math.max(-0.5, Math.min(0.5, (y0 - y2) / denom));
-      refinedTau = chosen.tau + shift;
+      const shift = Math.max(-0.5, Math.min(0.5, (s0 - s2) / denom));
+      refinedTau = bestTau + shift;
     }
   }
 
   const freq = sampleRate / refinedTau;
   if (freq < MIN_VOCAL_HZ || freq > MAX_VOCAL_HZ) return null;
 
-  return { freq, clarity: chosen.val };
+  return { freq, clarity: Math.max(0, Math.min(1, 1 - bestVal)) };
+}
+
+/**
+ * Wrapper tương thích ngược gọi thẳng bộ bắt cao độ YIN
+ */
+export function detectPitchMPM(frame, sampleRate, clarityOrThreshold = 0.80) {
+  const yinThreshold = clarityOrThreshold <= 0.5 ? clarityOrThreshold : 0.16;
+  return detectPitchYIN(frame, sampleRate, yinThreshold);
 }
 
 function medianOf(values) {
@@ -226,7 +239,8 @@ function extractPcmAndRate(vocalSource) {
 }
 
 /**
- * Chuyển đổi trực tiếp dữ liệu PCM / AudioBuffer thu từ micro thành mảng nốt MIDI sạch sẽ
+ * Chuyển đổi trực tiếp dữ liệu PCM / AudioBuffer thu từ micro thành mảng nốt MIDI sạch sẽ,
+ * giữ nguyên đường nét cao độ (contour), quãng giọng tự nhiên và đồng bộ thời gian chính xác.
  */
 export function transcribeAudioBufferToMidi(vocalSource, options) {
   const {
@@ -237,56 +251,69 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
     voicedChords = [],
     scaleSnap = true,
     quantizeGrid = '1/16', // '1/16' | '1/8' | 'off'
-    rmsThreshold = 0.015,
-    clarityThreshold = 0.81,
+    yinThreshold = 0.16,
     minNoteDurationSec = 0.085,
   } = options;
 
   const { rawData, origSr } = extractPcmAndRate(vocalSource);
   if (!rawData || rawData.length === 0) return [];
 
-  // Bù trễ phần cứng micro (~38ms) để nốt MIDI vào đúng phách hơn
-  const latencyCompSamples = Math.min(Math.floor(origSr * 0.038), Math.floor(rawData.length * 0.1));
-  const trimmed = latencyCompSamples > 0 ? rawData.subarray(latencyCompSamples) : rawData;
-
   // Downsample xuống ~11–12kHz để lọc tiếng xì hơi và tăng tốc phân tích
   const factor = origSr >= 40000 ? 4 : origSr >= 20000 ? 2 : 1;
-  const pcm = downsampleBuffer(trimmed, factor);
+  const downsampled = downsampleBuffer(rawData, factor);
   const sr = origSr / factor;
 
-  // Chuẩn hóa nhẹ ngưỡng RMS thích ứng nếu người dùng ngân nhỏ
-  let peakAmp = 0;
-  for (let i = 0; i < pcm.length; i++) {
-    const a = Math.abs(pcm[i]);
-    if (a > peakAmp) peakAmp = a;
-  }
-  if (peakAmp < 0.008) return []; // Hoàn toàn im lặng
-
-  const adaptiveGate = Math.max(0.008, Math.min(rmsThreshold, peakAmp * 0.10));
+  // Lọc thông dải giọng hát trước khi ước lượng cao độ
+  const pcm = bandpassVocalPcm(downsampled, sr);
 
   const windowSize = 512;
   const hopSize = 128; // ~10.6ms/khung tại 12kHz
   const hopSec = hopSize / sr;
-  const frames = [];
+  const rawFrames = [];
 
   for (let start = 0; start + windowSize <= pcm.length; start += hopSize) {
     const slice = pcm.subarray(start, start + windowSize);
     const rms = computeRms(slice);
-    const timeSec = (start + windowSize * 0.35) / sr;
+    const timeSec = start / sr;
+    rawFrames.push({ start, timeSec, rms, slice });
+  }
 
-    if (rms < adaptiveGate) {
-      frames.push({ timeSec, midi: null, rms, clarity: 0 });
+  if (rawFrames.length === 0) return [];
+
+  // Ngưỡng giọng nói theo phân vị thứ 95 (bỏ qua gai nổ mic) + Hysteresis Gate
+  const sortedRms = rawFrames.map((f) => f.rms).sort((a, b) => a - b);
+  const p95Index = Math.min(sortedRms.length - 1, Math.floor(sortedRms.length * 0.95));
+  const voicePeakRms = sortedRms[p95Index];
+  if (voicePeakRms < 0.012) return []; // Hoàn toàn im lặng / chỉ có tiếng nền rất nhỏ
+
+  const onsetGate = Math.max(0.018, voicePeakRms * 0.18);
+  const sustainGate = Math.max(0.011, voicePeakRms * 0.11);
+
+  const frames = [];
+  let inVoice = false;
+
+  for (const rf of rawFrames) {
+    if (!inVoice) {
+      if (rf.rms >= onsetGate) {
+        inVoice = true;
+      } else {
+        frames.push({ timeSec: rf.timeSec, midi: null, rms: rf.rms, clarity: 0 });
+        continue;
+      }
+    } else if (rf.rms < sustainGate) {
+      inVoice = false;
+      frames.push({ timeSec: rf.timeSec, midi: null, rms: rf.rms, clarity: 0 });
       continue;
     }
 
-    const res = detectPitchMPM(slice, sr, clarityThreshold);
+    const res = detectPitchYIN(rf.slice, sr, yinThreshold);
     if (!res) {
-      frames.push({ timeSec, midi: null, rms, clarity: 0 });
+      frames.push({ timeSec: rf.timeSec, midi: null, rms: rf.rms, clarity: 0 });
     } else {
       frames.push({
-        timeSec,
+        timeSec: rf.timeSec,
         midi: freqToMidi(res.freq),
-        rms,
+        rms: rf.rms,
         clarity: res.clarity,
       });
     }
@@ -294,30 +321,51 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
 
   if (frames.length === 0) return [];
 
-  // Bước 1: Bộ lọc trung vị (Median Filter 5 khung) loại bỏ gai nhảy cao độ đột ngột & làm êm vibrato
-  const smoothed = frames.map((f, idx) => {
+  // Bước 1: Hiệu chỉnh các khung nhảy nhầm quãng tám đơn lẻ (±12 bán cung) theo trung vị vùng ±18 khung
+  const octaveFixed = frames.map((f, idx) => {
+    if (f.midi === null) return { ...f };
+    const localPitches = [];
+    for (let k = -18; k <= 18; k++) {
+      const nb = frames[idx + k];
+      if (nb && nb.midi !== null) localPitches.push(nb.midi);
+    }
+    if (localPitches.length >= 5) {
+      const localMed = medianOf(localPitches);
+      const diff = f.midi - localMed;
+      if (Math.abs(diff - 12) <= 1.2) {
+        return { ...f, midi: f.midi - 12 };
+      }
+      if (Math.abs(diff + 12) <= 1.2) {
+        return { ...f, midi: f.midi + 12 };
+      }
+    }
+    return { ...f };
+  });
+
+  // Bước 2: Bộ lọc trung vị 5 khung (làm êm vibrato, khử gai cao độ)
+  const smoothed = octaveFixed.map((f, idx) => {
     if (f.midi === null) return { ...f };
     const neigh = [];
     for (let k = -2; k <= 2; k++) {
-      const nb = frames[idx + k];
+      const nb = octaveFixed[idx + k];
       if (nb && nb.midi !== null) neigh.push(nb.midi);
     }
     return { ...f, midi: neigh.length >= 2 ? medianOf(neigh) : f.midi };
   });
 
-  // Bước 2: Hàn gắn các khe đứt siêu ngắn (1–2 khung ~20ms) giữa hai đoạn cùng cao độ
+  // Bước 3: Hàn gắn khe đứt ngắn (<= 2 khung ~21ms) giữa hai đoạn cùng cao độ
   for (let i = 1; i < smoothed.length - 2; i++) {
     if (smoothed[i].midi === null) {
       const prev = smoothed[i - 1].midi;
       const next1 = smoothed[i + 1].midi;
       const next2 = smoothed[i + 2].midi;
-      if (prev !== null && next1 !== null && Math.abs(prev - next1) <= 0.85) {
+      if (prev !== null && next1 !== null && Math.abs(prev - next1) <= 0.72) {
         smoothed[i].midi = (prev + next1) / 2;
       } else if (
         prev !== null &&
         next1 === null &&
         next2 !== null &&
-        Math.abs(prev - next2) <= 0.85
+        Math.abs(prev - next2) <= 0.72
       ) {
         smoothed[i].midi = (prev + next2) / 2;
         smoothed[i + 1].midi = (prev + next2) / 2;
@@ -325,44 +373,59 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
     }
   }
 
-  // Bước 3: Gom nhóm các khung thành từng đoạn nốt nhạc (hỗ trợ cả ngân rung vibrato lẫn hát lặp chữ)
+  // Bước 4: Tách nốt theo điểm neo cố định (Fixed Anchor — không bị trôi khi hát liền bậc C-D-E)
   const segments = [];
   let current = null;
+  let pendingDeviant = null;
 
-  const closeSegment = () => {
-    if (!current) return;
-    const durSec = current.endTime - current.startTime;
-    if (durSec >= minNoteDurationSec && current.pitches.length >= 4) {
-      segments.push(current);
+  const finalizeSegment = (seg) => {
+    if (!seg) return;
+    const durSec = seg.endTime - seg.startTime;
+    if (durSec >= minNoteDurationSec && seg.pitches.length >= 4) {
+      segments.push(seg);
     }
-    current = null;
+  };
+
+  const startNewSegment = (f) => ({
+    startTime: f.timeSec,
+    lastStartTime: f.timeSec,
+    endTime: f.timeSec + (windowSize * 0.5) / sr,
+    pitches: [f.midi],
+    rmsList: [f.rms],
+    anchorMidi: f.midi,
+    localPeakRms: f.rms,
+    dipped: false,
+  });
+
+  const appendToSegment = (seg, f) => {
+    seg.lastStartTime = f.timeSec;
+    seg.endTime = f.timeSec + (windowSize * 0.5) / sr;
+    seg.pitches.push(f.midi);
+    seg.rmsList.push(f.rms);
+    // Cập nhật điểm neo từ 10 khung ổn định đầu tiên để giữ vững cao độ gốc của nốt
+    if (seg.pitches.length <= 10) {
+      seg.anchorMidi = medianOf(seg.pitches);
+    }
   };
 
   for (let i = 0; i < smoothed.length; i++) {
     const f = smoothed[i];
     if (f.midi === null) {
-      closeSegment();
+      if (current) {
+        finalizeSegment(current);
+        current = null;
+      }
+      pendingDeviant = null;
       continue;
     }
 
     if (!current) {
-      current = {
-        startTime: f.timeSec,
-        endTime: f.timeSec + hopSec,
-        pitches: [f.midi],
-        rmsList: [f.rms],
-        localPeakRms: f.rms,
-        dipped: false,
-      };
+      current = startNewSegment(f);
+      pendingDeviant = null;
       continue;
     }
 
-    // Lấy trung vị gần nhất để bám vibrato
-    const recent = current.pitches.slice(-12);
-    const refPitch = medianOf(recent);
-    const pitchDiff = Math.abs(f.midi - refPitch);
-
-    // Phát hiện hát lặp cùng 1 cao độ ("na - na"): âm lượng tụt sâu rồi bật mạnh trở lại
+    // Kiểm tra ngắt lặp chữ cùng cao độ ("na - na")
     const segDur = f.timeSec - current.startTime;
     if (f.rms > current.localPeakRms) {
       current.localPeakRms = f.rms;
@@ -372,35 +435,58 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
     const reArticulated =
       current.dipped && f.rms > current.localPeakRms * 0.62 && segDur > 0.14;
 
-    if (pitchDiff <= 0.82 && !reArticulated) {
-      current.endTime = f.timeSec + hopSec;
-      current.pitches.push(f.midi);
-      current.rmsList.push(f.rms);
+    if (reArticulated) {
+      finalizeSegment(current);
+      current = startNewSegment(f);
+      pendingDeviant = null;
+      continue;
+    }
+
+    const pitchDiff = Math.abs(f.midi - current.anchorMidi);
+    if (pitchDiff <= 0.58) {
+      if (pendingDeviant) {
+        appendToSegment(current, pendingDeviant);
+        pendingDeviant = null;
+      }
+      appendToSegment(current, f);
     } else {
-      closeSegment();
-      current = {
-        startTime: f.timeSec,
-        endTime: f.timeSec + hopSec,
-        pitches: [f.midi],
-        rmsList: [f.rms],
-        localPeakRms: f.rms,
-        dipped: false,
-      };
+      // Cần 2 khung lệch liên tiếp (> 0.58 bán cung) mới cắt sang nốt mới để tránh nhiễu 1 khung
+      if (!pendingDeviant) {
+        pendingDeviant = f;
+      } else {
+        finalizeSegment(current);
+        current = startNewSegment(pendingDeviant);
+        appendToSegment(current, f);
+        pendingDeviant = null;
+      }
     }
   }
-  closeSegment();
+  if (current) {
+    if (pendingDeviant) appendToSegment(current, pendingDeviant);
+    finalizeSegment(current);
+  }
 
-  // Bước 4: Ép tông (Scale Snap ưu tiên nốt hợp âm) + Căn lưới nhịp (Quantize)
+  if (segments.length === 0) return [];
+
+  // Bước 5: Ép tông nhẹ nhàng (chordBias = 0.12), căn nhịp & giữ nguyên đường nét quãng giọng (Whole-Melody Contour)
   const totalBeats = totalBars * 4;
   const beatsPerSec = bpm / 60;
   const gridStep = quantizeGrid === '1/8' ? 0.5 : quantizeGrid === '1/16' ? 0.25 : 0;
 
   const rawNotes = [];
   for (const seg of segments) {
-    // Bỏ 15% đầu và cuối đoạn dài để tránh luyến mở đầu làm lệch cao độ chính
+    // Loại bỏ khung luyến nhanh ở biên (|midi[i+1] - midi[i-1]| > 0.6) để lấy đúng cao độ vững
+    const steady = [];
+    for (let i = 0; i < seg.pitches.length; i++) {
+      if (i > 0 && i < seg.pitches.length - 1) {
+        if (Math.abs(seg.pitches[i + 1] - seg.pitches[i - 1]) > 0.6) continue;
+      }
+      steady.push(seg.pitches[i]);
+    }
     const trimCount = seg.pitches.length >= 10 ? Math.floor(seg.pitches.length * 0.15) : 0;
-    const corePitches =
+    const fallbackCore =
       trimCount > 0 ? seg.pitches.slice(trimCount, seg.pitches.length - trimCount) : seg.pitches;
+    const corePitches = steady.length >= 3 ? steady : fallbackCore;
     const medianMidi = medianOf(corePitches);
 
     let startBeat = seg.startTime * beatsPerSec;
@@ -420,24 +506,23 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
       durBeats = Math.max(0.25, totalBeats - startBeat);
     }
 
-    // Xác định hợp âm ở ô nhịp hiện tại để ưu tiên hòa âm
+    // Xác định hợp âm ở ô nhịp hiện tại (chordBias nhẹ = 0.12 để giữ nguyên nốt lướt đúng tông)
     const barIdx = Math.min(
       Math.max(0, Math.floor(startBeat / 4)),
       Math.max(0, voicedChords.length - 1)
     );
     const barChordPcs = voicedChords[barIdx]?.allPitchClasses || null;
 
-    let finalMidi = scaleSnap
-      ? snapMidiToScale(medianMidi, keyPc, scaleType, barChordPcs, 0.30)
+    const finalMidi = scaleSnap
+      ? snapMidiToScale(medianMidi, keyPc, scaleType, barChordPcs, 0.12)
       : Math.round(medianMidi);
-
-    // Giữ nốt nằm trong quãng hiển thị Piano Roll (C3–C6)
-    while (finalMidi < MIN_MIDI_ROLL) finalMidi += 12;
-    while (finalMidi > MAX_MIDI_ROLL) finalMidi -= 12;
 
     // Tính lực đánh velocity tự nhiên theo âm lượng giọng hát
     const avgRms = seg.rmsList.reduce((a, b) => a + b, 0) / seg.rmsList.length;
-    const normVel = Math.max(0.58, Math.min(0.95, 0.55 + (avgRms / Math.max(0.08, peakAmp)) * 0.4));
+    const normVel = Math.max(
+      0.58,
+      Math.min(0.95, 0.55 + (avgRms / Math.max(0.08, voicePeakRms)) * 0.4)
+    );
 
     rawNotes.push({
       id: `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
@@ -448,20 +533,36 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
     });
   }
 
-  // Bước 5: Sắp xếp & dọn chồng chéo đơn âm để giai điệu sạch đẹp, không dính nốt
+  if (rawNotes.length === 0) return [];
+
+  // Căn chỉnh quãng tám đồng bộ cho TOÀN BỘ giai điệu (tránh bẻ quãng từng nốt làm méo giai điệu giọng nam/nữ)
+  let minMidi = Math.min(...rawNotes.map((n) => n.midi));
+  let maxMidi = Math.max(...rawNotes.map((n) => n.midi));
+  let octaveShift = 0;
+
+  while (minMidi + octaveShift < MIN_MIDI_ROLL && maxMidi + octaveShift + 12 <= MAX_MIDI_ROLL) {
+    octaveShift += 12;
+  }
+  while (maxMidi + octaveShift > MAX_MIDI_ROLL && minMidi + octaveShift - 12 >= MIN_MIDI_ROLL) {
+    octaveShift -= 12;
+  }
+
+  for (const n of rawNotes) {
+    n.midi = Math.max(MIN_MIDI_ROLL, Math.min(MAX_MIDI_ROLL, n.midi + octaveShift));
+  }
+
+  // Bước 6: Sắp xếp & dọn chồng chéo đơn âm để giai điệu sạch đẹp, không dính nốt
   rawNotes.sort((a, b) => a.startBeat - b.startBeat);
   const cleanNotes = [];
   for (const n of rawNotes) {
     const prev = cleanNotes[cleanNotes.length - 1];
     if (prev) {
-      // Nếu cùng điểm bắt đầu do căn nhịp -> giữ nốt dài hơn
       if (Math.abs(n.startBeat - prev.startBeat) < 0.05) {
         if (n.durationBeats > prev.durationBeats) {
           cleanNotes[cleanNotes.length - 1] = n;
         }
         continue;
       }
-      // Cắt đuôi nốt trước nếu trùm sang nốt sau
       if (prev.startBeat + prev.durationBeats > n.startBeat) {
         prev.durationBeats = Math.max(0.15, Number((n.startBeat - prev.startBeat).toFixed(3)));
       }
@@ -692,20 +793,25 @@ export class VocalCapture {
   }
 
   /**
-   * Dừng ghi, đóng micro và trả về { pcmData, sampleRate, wavBlob }
+   * Dừng ghi, cắt phần trễ đầu chung giữa sóng âm & MIDI, đóng micro và trả về { pcmData, sampleRate, wavBlob }
    */
-  finishCapture() {
+  finishCapture({ trimStartSec = 0 } = {}) {
     this.isCapturing = false;
     let result = null;
 
     if (this.totalSamples > 0) {
-      const pcmData = new Float32Array(this.totalSamples);
+      const rawPcm = new Float32Array(this.totalSamples);
       let offset = 0;
       for (const chunk of this.chunks) {
-        pcmData.set(chunk, offset);
+        rawPcm.set(chunk, offset);
         offset += chunk.length;
       }
       const sampleRate = this.sampleRate || 44100;
+      const trimSamples = Math.min(
+        Math.max(0, Math.floor(trimStartSec * sampleRate)),
+        Math.floor(rawPcm.length * 0.25)
+      );
+      const pcmData = trimSamples > 0 ? rawPcm.slice(trimSamples) : rawPcm;
       const wavBlob = encodePcmToWavBlob(pcmData, sampleRate);
       result = { pcmData, sampleRate, wavBlob };
     }
@@ -738,13 +844,13 @@ export class VocalCapture {
       let liveNote = null;
       let liveFreq = null;
 
-      // Chạy bắt cao độ trực tiếp mỗi ~50ms để tiết kiệm pin mobile mà vẫn mượt
+      // Chạy bắt cao độ trực tiếp mỗi ~50ms bằng YIN để tiết kiệm pin mobile mà vẫn mượt
       if (now - lastPitchTime > 48) {
         lastPitchTime = now;
-        if (rms > 0.012) {
+        if (rms > 0.015) {
           const factor = this.sampleRate >= 40000 ? 4 : 2;
-          const down = downsampleBuffer(this._liveBuf, factor);
-          const det = detectPitchMPM(down, this.sampleRate / factor, 0.78);
+          const down = bandpassVocalPcm(downsampleBuffer(this._liveBuf, factor), this.sampleRate / factor);
+          const det = detectPitchYIN(down, this.sampleRate / factor, 0.18);
           if (det) {
             liveFreq = det.freq;
             const m = freqToMidi(det.freq);

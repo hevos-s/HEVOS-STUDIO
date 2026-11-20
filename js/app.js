@@ -12,21 +12,21 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=3';
+} from './theory.js?v=4';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=3';
+} from './audioEngine.js?v=4';
 import {
   VocalCapture,
   drawVocalWaveform,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=3';
-import { PianoRoll } from './pianoRoll.js?v=3';
-import { downloadMidiFile } from './midiExport.js?v=3';
+} from './pitchToMidi.js?v=4';
+import { PianoRoll } from './pianoRoll.js?v=4';
+import { downloadMidiFile } from './midiExport.js?v=4';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -639,25 +639,26 @@ async function toggleVocalRecording() {
     return;
   }
 
-  // 2. Bắt đầu thu song song với nhạc đệm từ đầu vòng lặp
+  // 2. Bắt đầu phát nhạc đệm (ẩn bản thu giọng cũ nếu có) rồi mở đệm ghi âm để khớp beat 0
   state.recordPhase = 'recording';
   updateRecordButtonUI();
   el.vocalStatusBadge.textContent = `Đang thu · Ô 1/${state.totalBars}`;
 
+  await audioEngine.play(true, { muteVocal: true });
   vocalCapture.beginCapture();
-  await audioEngine.play(true);
   updatePlayButtonUI();
   pianoRoll.startAnimationLoop();
   startPlayheadWatch();
 
-  // Tự động dừng sạch sẽ khi hoàn tất trọn 1 vòng lặp (4 hoặc 8 ô nhịp)
+  // Tự động dừng sạch sẽ khi hoàn tất trọn 1 vòng lặp + phần bù trễ đầu để không bị cụt đuôi
   const loopMs = Math.round(state.totalBars * 4 * (60 / state.bpm) * 1000);
+  const compMs = Math.round(audioEngine.getRecordLatencyCompSec() * 1000);
   clearTimeout(recStopTimer);
   recStopTimer = setTimeout(() => {
     if (state.recordPhase === 'recording') {
       finishVocalRecording();
     }
-  }, loopMs + 60);
+  }, loopMs + compMs + 80);
 }
 
 function cancelRecordingCleanly() {
@@ -677,8 +678,9 @@ async function finishVocalRecording() {
   clearTimeout(recStopTimer);
   recStopTimer = null;
 
+  const trimStartSec = audioEngine.getRecordLatencyCompSec();
   audioEngine.stop();
-  const take = vocalCapture.finishCapture();
+  const take = vocalCapture.finishCapture({ trimStartSec });
   state.recordPhase = 'idle';
   updatePlayButtonUI();
   updateRecordButtonUI();
@@ -1212,10 +1214,16 @@ function bindEvents() {
 
   el.chkScaleSnap.addEventListener('change', (e) => {
     state.scaleSnap = e.target.checked;
+    if (state.rawVocalBuffer) {
+      runVocalTranscription(true);
+    }
   });
 
   el.vocalQuantizeSelect.addEventListener('change', (e) => {
     state.vocalQuantize = e.target.value;
+    if (state.rawVocalBuffer) {
+      runVocalTranscription(true);
+    }
   });
 
   el.chkOverdub.addEventListener('change', (e) => {
