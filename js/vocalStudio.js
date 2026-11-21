@@ -13,22 +13,28 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=24';
+} from './theory.js?v=25';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=24';
+} from './pitchToMidi.js?v=25';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=24';
+} from './autoTune.js?v=25';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=24';
+} from './audioEngine.js?v=25';
+import {
+  encodeAudioBufferByFormat,
+  encodeAudioBufferToWavBlob,
+} from './audioEncode.js?v=25';
+
+export { encodeAudioBufferToWavBlob };
 
 export const VOCAL_PRESETS = [
   {
@@ -200,57 +206,6 @@ export function formatTimeClock(sec) {
 }
 
 /**
- * Đóng gói AudioBuffer (1 hoặc 2 kênh stereo) thành file Blob chuẩn RIFF/WAVE 16-bit PCM
- */
-export function encodeAudioBufferToWavBlob(audioBuffer) {
-  const numChannels = Math.min(2, Math.max(1, audioBuffer.numberOfChannels || 1));
-  const sampleRate = Math.round(audioBuffer.sampleRate || 44100);
-  const numFrames = audioBuffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = numChannels * bytesPerSample;
-  const dataBytes = numFrames * blockAlign;
-  const arrayBuf = new ArrayBuffer(44 + dataBytes);
-  const view = new DataView(arrayBuf);
-
-  const writeStr = (offset, str) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  };
-
-  writeStr(0, 'RIFF');
-  view.setUint32(4, 36 + dataBytes, true);
-  writeStr(8, 'WAVE');
-  writeStr(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-  writeStr(36, 'data');
-  view.setUint32(40, dataBytes, true);
-
-  const ch0 = audioBuffer.getChannelData(0);
-  const ch1 = numChannels > 1 ? audioBuffer.getChannelData(1) : ch0;
-
-  let offset = 44;
-  for (let i = 0; i < numFrames; i++) {
-    const s0 = Math.max(-1, Math.min(1, ch0[i]));
-    view.setInt16(offset, Math.round(s0 < 0 ? s0 * 0x8000 : s0 * 0x7fff), true);
-    offset += 2;
-    if (numChannels > 1) {
-      const s1 = Math.max(-1, Math.min(1, ch1[i]));
-      view.setInt16(offset, Math.round(s1 < 0 ? s1 * 0x8000 : s1 * 0x7fff), true);
-      offset += 2;
-    }
-  }
-
-  return new Blob([arrayBuf], { type: 'audio/wav' });
-}
-
-/**
  * Xử lý Noise Gate mượt trên mảng PCM Float32 (attack 4ms, release 45ms)
  */
 export function applyNoiseGatePcm(pcm, sampleRate, thresholdDb = -60) {
@@ -373,6 +328,7 @@ export class VocalStudio {
     this.autoKeyEnabled = true;
     this.lastDetectedKeyInfo = null;
     this.vocalBpm = 90;
+    this.exportFormat = 'wav';
     this.countInEnabled = true;
     this.metronomeEnabled = false;
     this.monitorEnabled = false;
@@ -836,9 +792,13 @@ export class VocalStudio {
             </select>
           </div>
 
-          <!-- 2 Nút Xuất Bản Thu Hoàn Chỉnh (.WAV) -->
+          <!-- Bộ chọn định dạng (.WAV / .MP3) & Xuất Bản Thu Hoàn Chỉnh -->
           <div class="vs-export-btns">
-            <button type="button" class="btn btn-cyan-solid vs-export-btn" id="vs-btn-export-mix" title="Trộn Beat nền + Giọng chính + Hát bè (đã qua Auto-Tune & FX) thành file .WAV chất lượng cao">
+            <div class="export-fmt-switch vs-fmt-switch" id="vs-fmt-switch" role="group" aria-label="Định dạng xuất Vocal">
+              <button type="button" class="fmt-pill active" data-vs-fmt="wav">WAV</button>
+              <button type="button" class="fmt-pill" data-vs-fmt="mp3">MP3</button>
+            </div>
+            <button type="button" class="btn btn-cyan-solid vs-export-btn" id="vs-btn-export-mix" title="Trộn Beat nền + Giọng chính + Hát bè (đã qua Auto-Tune & FX) theo định dạng đã chọn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
@@ -846,7 +806,7 @@ export class VocalStudio {
               </svg>
               <span id="vs-export-mix-label">Xuất Bản Mix (.wav)</span>
             </button>
-            <button type="button" class="btn btn-indigo-outline vs-export-btn" id="vs-btn-export-vocal-only" title="Chỉ xuất riêng phần giọng hát đã qua Auto-Tune & FX thành file .WAV">
+            <button type="button" class="btn btn-indigo-outline vs-export-btn" id="vs-btn-export-vocal-only" title="Chỉ xuất riêng phần giọng hát đã qua Auto-Tune & FX theo định dạng đã chọn">
               <span id="vs-export-vocal-label">Xuất Riêng Giọng (.wav)</span>
             </button>
             <button type="button" class="btn btn-amber-outline vs-export-btn vs-send-vocal-top-btn" id="vs-btn-send-vocal-arr" title="Kết xuất toàn bộ giọng hát đã qua Auto-Tune & FX rồi đưa sang Kho Clip & Timeline của Dựng bài & Master">
@@ -1223,7 +1183,14 @@ export class VocalStudio {
       });
     }
 
-    // 2 Nút Xuất Mix (.wav) & Xuất Riêng Giọng (.wav)
+    // Chọn định dạng xuất (.WAV / .MP3) & 2 Nút Xuất Mix / Xuất Riêng Giọng
+    qq('[data-vs-fmt]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.exportFormat = btn.dataset.vsFmt === 'mp3' ? 'mp3' : 'wav';
+        this._syncExportFormatUI();
+      });
+    });
+
     const btnExportMix = q('#vs-btn-export-mix');
     if (btnExportMix) {
       btnExportMix.addEventListener('click', () => this.exportWavMixdown({ vocalOnly: false }));
@@ -2955,10 +2922,24 @@ export class VocalStudio {
     return offline.startRendering();
   }
 
+  _syncExportFormatUI() {
+    if (!this.root) return;
+    const fmt = this.exportFormat === 'mp3' ? 'mp3' : 'wav';
+    this.root.querySelectorAll('[data-vs-fmt]').forEach((btn) => {
+      const active = btn.dataset.vsFmt === fmt;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+    const lblMix = this.root.querySelector('#vs-export-mix-label');
+    const lblVoc = this.root.querySelector('#vs-export-vocal-label');
+    if (lblMix) lblMix.textContent = `Xuất Bản Mix (.${fmt})`;
+    if (lblVoc) lblVoc.textContent = `Xuất Riêng Giọng (.${fmt})`;
+  }
+
   async exportWavMixdown({ vocalOnly = false } = {}) {
     if (this.isExporting) return;
     if (this.recordPhase !== 'idle') {
-      this._toast('Vui lòng dừng thu âm trước khi xuất file WAV.', true);
+      this._toast('Vui lòng dừng thu âm trước khi xuất file âm thanh.', true);
       return;
     }
 
@@ -2975,6 +2956,7 @@ export class VocalStudio {
       return;
     }
 
+    const fmt = this.exportFormat === 'mp3' ? 'mp3' : 'wav';
     this.isExporting = true;
     const btnMix = this.root.querySelector('#vs-btn-export-mix');
     const btnVoc = this.root.querySelector('#vs-btn-export-vocal-only');
@@ -2982,8 +2964,8 @@ export class VocalStudio {
     const lblVoc = this.root.querySelector('#vs-export-vocal-label');
     if (btnMix) btnMix.disabled = true;
     if (btnVoc) btnVoc.disabled = true;
-    if (vocalOnly && lblVoc) lblVoc.textContent = 'Đang kết xuất WAV...';
-    if (!vocalOnly && lblMix) lblMix.textContent = 'Đang kết xuất Mix...';
+    if (vocalOnly && lblVoc) lblVoc.textContent = `Đang xuất ${fmt.toUpperCase()}...`;
+    if (!vocalOnly && lblMix) lblMix.textContent = `Đang xuất ${fmt.toUpperCase()}...`;
 
     try {
       const renderedBuffer = await this._renderOfflineMixBuffer({
@@ -2996,13 +2978,19 @@ export class VocalStudio {
         return;
       }
 
-      const wavBlob = encodeAudioBufferToWavBlob(renderedBuffer);
+      const encoded = await encodeAudioBufferByFormat(renderedBuffer, fmt, {
+        kbps: 192,
+        onProgress: (pct) => {
+          if (vocalOnly && lblVoc) lblVoc.textContent = `${fmt.toUpperCase()} ${pct}%...`;
+          if (!vocalOnly && lblMix) lblMix.textContent = `${fmt.toUpperCase()} ${pct}%...`;
+        },
+      });
       const preferFlats = shouldPreferFlats(this.vocalKeyPc, this.vocalScaleType);
       const keySlug = pcToNoteName(this.vocalKeyPc, preferFlats).replace('#', 's').toLowerCase();
       const tag = vocalOnly ? 'vocal-only' : 'full-mix';
-      const filename = `hevos-vocal-${tag}-${keySlug}-${this.vocalBpm}bpm.wav`;
+      const filename = `hevos-vocal-${tag}-${keySlug}-${this.vocalBpm}bpm.${encoded.ext}`;
 
-      const url = URL.createObjectURL(wavBlob);
+      const url = URL.createObjectURL(encoded.blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
@@ -3012,33 +3000,48 @@ export class VocalStudio {
       setTimeout(() => URL.revokeObjectURL(url), 2500);
 
       this._toast(
-        `Đã xuất file WAV chất lượng cao (${formatTimeClock(renderedBuffer.duration)}): ${filename}`
+        `Đã xuất file ${fmt.toUpperCase()} (${formatTimeClock(renderedBuffer.duration)}): ${filename}`
       );
     } catch (err) {
-      console.error('[HEVOS VocalStudio Export WAV]', err);
-      this._toast('Lỗi khi kết xuất file WAV.', true);
+      console.error('[HEVOS VocalStudio Export]', err);
+      this._toast(err.message || `Lỗi khi kết xuất file ${fmt.toUpperCase()}.`, true);
     } finally {
       this.isExporting = false;
       if (btnMix) btnMix.disabled = false;
       if (btnVoc) btnVoc.disabled = false;
-      if (lblMix) lblMix.textContent = 'Xuất Bản Mix (.wav)';
-      if (lblVoc) lblVoc.textContent = 'Xuất Riêng Giọng (.wav)';
+      this._syncExportFormatUI();
     }
   }
 
   async _downloadSingleTrackWav(trackId) {
     const tr = this.tracks[trackId];
     if (!tr || !tr.rawPcm) return;
+    const fmt = this.exportFormat === 'mp3' ? 'mp3' : 'wav';
     try {
       const rendered = await this._renderOfflineMixBuffer({
         includeBeat: false,
         onlyTrackId: trackId,
       });
-      const blob = rendered
-        ? encodeAudioBufferToWavBlob(rendered)
-        : encodePcmToWavBlob(tr.playablePcm || tr.rawPcm, tr.sampleRate);
+      let blob;
+      let ext = fmt;
+      if (rendered) {
+        const res = await encodeAudioBufferByFormat(rendered, fmt, { kbps: 192 });
+        blob = res.blob;
+        ext = res.ext;
+      } else if (fmt === 'mp3') {
+        const sr = tr.sampleRate || 44100;
+        const pcm = tr.playablePcm || tr.rawPcm;
+        const tmpBuf = new AudioBuffer({ numberOfChannels: 1, length: pcm.length, sampleRate: sr });
+        tmpBuf.getChannelData(0).set(pcm);
+        const res = await encodeAudioBufferByFormat(tmpBuf, 'mp3', { kbps: 192 });
+        blob = res.blob;
+        ext = res.ext;
+      } else {
+        blob = encodePcmToWavBlob(tr.playablePcm || tr.rawPcm, tr.sampleRate);
+        ext = 'wav';
+      }
       const suffix = tr.autoTune.enabled ? 'autotune-fx' : 'fx';
-      const filename = `hevos-${trackId}-${suffix}.wav`;
+      const filename = `hevos-${trackId}-${suffix}.${ext}`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -3047,9 +3050,10 @@ export class VocalStudio {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      this._toast(`Đã tải file giọng: ${filename}`);
+      this._toast(`Đã tải file giọng (${ext.toUpperCase()}): ${filename}`);
     } catch (err) {
       console.warn('[HEVOS Single Track Download]', err);
+      this._toast(err.message || `Lỗi khi tải track ${fmt.toUpperCase()}.`, true);
     }
   }
 
@@ -3423,6 +3427,7 @@ export class VocalStudio {
     if (editDot) editDot.style.background = tr.waveColor;
 
     this._syncBeatTrackUI();
+    this._syncExportFormatUI();
     this._syncTrackCardHeader('lead');
     this._syncTrackCardHeader('backing');
     this._syncMuteSoloButtons();

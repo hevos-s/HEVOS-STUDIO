@@ -14,26 +14,27 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=24';
+} from './theory.js?v=25';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=24';
+} from './audioEngine.js?v=25';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=24';
-import { PianoRoll } from './pianoRoll.js?v=24';
-import { downloadMidiFile } from './midiExport.js?v=24';
-import { MusicTrainer } from './musicTrainer.js?v=24';
-import { VocalStudio } from './vocalStudio.js?v=24';
-import { ArrangementStudio } from './arrangementStudio.js?v=24';
-import { createAmbientScene } from './ambientScene.js?v=24';
+} from './pitchToMidi.js?v=25';
+import { PianoRoll } from './pianoRoll.js?v=25';
+import { downloadMidiFile } from './midiExport.js?v=25';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=25';
+import { MusicTrainer } from './musicTrainer.js?v=25';
+import { VocalStudio } from './vocalStudio.js?v=25';
+import { ArrangementStudio } from './arrangementStudio.js?v=25';
+import { createAmbientScene } from './ambientScene.js?v=25';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -53,6 +54,7 @@ const state = {
   chordTimbre: defaultPreset.timbre,
   drumPattern: defaultPreset.drums,
   melodyTimbre: 'bell',
+  beatExportFormat: 'wav',
 
   chords: defaultPreset.chords.map((c) => ({ ...c })),
   voicedChords: [],
@@ -408,6 +410,7 @@ function syncGlobalControlsUI() {
   el.chordTimbreSelect.value = state.chordTimbre;
   el.drumPatternSelect.value = state.drumPattern;
   el.melodyTimbreSelect.value = state.melodyTimbre;
+  syncBeatExportFormatUI();
   if (state.activePresetId) {
     el.presetSelect.value = state.activePresetId;
   }
@@ -1008,6 +1011,20 @@ function handleExportMidi() {
   );
 }
 
+function syncBeatExportFormatUI() {
+  const fmt = state.beatExportFormat === 'mp3' ? 'mp3' : 'wav';
+  $$('[data-beat-fmt]').forEach((btn) => {
+    const active = btn.dataset.beatFmt === fmt;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  });
+  $$('.export-audio-label').forEach((l) => {
+    l.textContent = l.closest('.mobile-export-grid')
+      ? `Xuất Beat (.${fmt})`
+      : `Xuất ${fmt.toUpperCase()}`;
+  });
+}
+
 async function handleExportAudio() {
   if (audioEngine.isExporting) return;
   if (state.recordPhase !== 'idle' || (vocalStudio && vocalStudio.isRecording())) {
@@ -1015,39 +1032,58 @@ async function handleExportAudio() {
     return;
   }
 
+  const fmt = state.beatExportFormat === 'mp3' ? 'mp3' : 'wav';
   const btns = $$('[data-action="export-audio"]');
   const labels = $$('.export-audio-label');
   btns.forEach((b) => (b.disabled = true));
+  labels.forEach((l) => (l.textContent = `Đang xuất ${fmt.toUpperCase()}...`));
 
   try {
-    showToast('Đang thu xuất 1 vòng nhạc nháp, vui lòng chờ vài giây...');
-    const result = await audioEngine.exportLoopAudio((pct) => {
-      labels.forEach((l) => (l.textContent = `Đang xuất ${pct}%...`));
+    showToast(`Đang kết xuất vòng Beat sang ${fmt.toUpperCase()}...`);
+    const renderedBuffer = await audioEngine.renderBeatOffline({
+      bpm: state.bpm,
+      totalBars: state.totalBars,
+      humanize: state.humanize,
+      chordStyle: state.chordStyle,
+      chordTimbre: state.chordTimbre,
+      drumPattern: state.drumPattern,
+      melodyTimbre: state.melodyTimbre,
+      voicedChords: state.voicedChords,
+      melodyNotes: state.melodyNotes,
+      mixer: state.mixer,
+    });
+    if (!renderedBuffer) {
+      showToast('Không có dữ liệu beat để xuất.', true);
+      return;
+    }
+
+    const encoded = await encodeAudioBufferByFormat(renderedBuffer, fmt, {
+      kbps: 192,
+      onProgress: (pct) => {
+        labels.forEach((l) => (l.textContent = `${fmt.toUpperCase()} ${pct}%...`));
+      },
     });
 
-    if (result && result.blob) {
+    if (encoded && encoded.blob) {
       const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
       const keyName = pcToNoteName(state.keyPc, preferFlats).replace('#', 's').toLowerCase();
-      const filename = `hevos-studio-demo-${keyName}-${state.bpm}bpm.${result.ext}`;
-      const url = URL.createObjectURL(result.blob);
+      const filename = `hevos-beat-${keyName}-${state.bpm}bpm.${encoded.ext}`;
+      const url = URL.createObjectURL(encoded.blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      showToast(`Đã xuất file âm thanh: ${filename}`);
+      setTimeout(() => URL.revokeObjectURL(url), 2500);
+      showToast(`Đã xuất Beat định dạng ${fmt.toUpperCase()}: ${filename}`);
     }
   } catch (err) {
-    showToast(err.message || 'Không thể xuất file âm thanh trên trình duyệt này.', true);
+    console.error('[HEVOS Beat Export]', err);
+    showToast(err.message || `Không thể xuất file ${fmt.toUpperCase()} trên trình duyệt này.`, true);
   } finally {
     btns.forEach((b) => (b.disabled = false));
-    labels.forEach((l) => {
-      l.textContent = l.closest('.mobile-export-grid')
-        ? 'Xuất nhạc nháp (Audio)'
-        : 'Xuất Audio';
-    });
+    syncBeatExportFormatUI();
     updatePlayButtonUI();
   }
 }
@@ -1783,6 +1819,12 @@ function bindEvents() {
   });
 
   // Xuất MIDI & Xuất Audio (cả nút Desktop và Mobile)
+  $$('[data-beat-fmt]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      state.beatExportFormat = btn.dataset.beatFmt === 'mp3' ? 'mp3' : 'wav';
+      syncBeatExportFormatUI();
+    })
+  );
   $$('[data-action="export-midi"]').forEach((btn) =>
     btn.addEventListener('click', handleExportMidi)
   );

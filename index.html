@@ -9,9 +9,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=24" />
-  <!-- Thư viện ngoài: Tone.js (Âm thanh) & Three.js (Không gian 3D trong ambientScene.js) -->
+  <link rel="stylesheet" href="./style.css?v=25" />
+  <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 </head>
 <body>
   <canvas id="bg-3d-canvas" aria-hidden="true"></canvas>
@@ -355,13 +356,19 @@
           <span>Xuất MIDI</span>
         </button>
 
-        <button class="btn btn-cyan-outline" type="button" data-action="export-audio" title="Thu xuất 1 vòng nhạc nháp">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
-          </svg>
-          <span class="export-audio-label">Xuất Audio</span>
-        </button>
+        <div class="export-audio-combo" title="Chọn định dạng xuất Beat (.WAV không nén hoặc .MP3 192kbps)">
+          <div class="export-fmt-switch" data-beat-fmt-group role="group" aria-label="Định dạng xuất Beat">
+            <button type="button" class="fmt-pill active" data-beat-fmt="wav">WAV</button>
+            <button type="button" class="fmt-pill" data-beat-fmt="mp3">MP3</button>
+          </div>
+          <button class="btn btn-cyan-outline" type="button" data-action="export-audio" title="Kết xuất 1 vòng nhạc theo định dạng đã chọn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
+            </svg>
+            <span class="export-audio-label">Xuất WAV</span>
+          </button>
+        </div>
 
         <button class="btn btn-amber-outline" type="button" data-action="send-beat-arrangement" title="Kết xuất nhanh vòng beat gửi sang Kho Clip Dựng bài & Master">
           <span class="send-arr-label">Gửi Beat sang Dựng bài →</span>
@@ -785,9 +792,15 @@
               <button class="btn btn-indigo-solid btn-lg" type="button" data-action="export-midi">
                 Xuất file MIDI (.mid)
               </button>
-              <button class="btn btn-cyan-solid btn-lg" type="button" data-action="export-audio">
-                <span class="export-audio-label">Xuất nhạc nháp (Audio)</span>
-              </button>
+              <div class="mobile-audio-export-row">
+                <div class="export-fmt-switch mobile-fmt-switch" data-beat-fmt-group role="group" aria-label="Định dạng xuất Beat Mobile">
+                  <button type="button" class="fmt-pill active" data-beat-fmt="wav">WAV</button>
+                  <button type="button" class="fmt-pill" data-beat-fmt="mp3">MP3</button>
+                </div>
+                <button class="btn btn-cyan-solid btn-lg" type="button" data-action="export-audio">
+                  <span class="export-audio-label">Xuất Beat (.wav)</span>
+                </button>
+              </div>
               <button class="btn btn-amber-solid btn-lg" type="button" data-action="send-beat-arrangement">
                 <span class="send-arr-label">Gửi Beat sang Dựng bài →</span>
               </button>
@@ -897,6 +910,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=24"></script>
+  <script type="module" src="./js/app.js?v=25"></script>
 </body>
 </html>
