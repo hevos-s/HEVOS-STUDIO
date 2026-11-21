@@ -14,26 +14,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=23';
+} from './theory.js?v=24';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=23';
+} from './audioEngine.js?v=24';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=23';
-import { PianoRoll } from './pianoRoll.js?v=23';
-import { downloadMidiFile } from './midiExport.js?v=23';
-import { MusicTrainer } from './musicTrainer.js?v=23';
-import { VocalStudio } from './vocalStudio.js?v=23';
-import { ArrangementStudio } from './arrangementStudio.js?v=23';
-import { createAmbientScene } from './ambientScene.js?v=23';
+} from './pitchToMidi.js?v=24';
+import { PianoRoll } from './pianoRoll.js?v=24';
+import { downloadMidiFile } from './midiExport.js?v=24';
+import { MusicTrainer } from './musicTrainer.js?v=24';
+import { VocalStudio } from './vocalStudio.js?v=24';
+import { ArrangementStudio } from './arrangementStudio.js?v=24';
+import { createAmbientScene } from './ambientScene.js?v=24';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -133,6 +133,8 @@ const el = {
   presetSelect: $('#preset-select'),
   vibeChips: $('#vibe-chips'),
   chordStyleSelect: $('#chord-style-select'),
+  pianoStyleChips: $('#piano-style-chips'),
+  chordStyleDesc: $('#chord-style-desc'),
   chordTimbreSelect: $('#chord-timbre-select'),
   drumPatternSelect: $('#drum-pattern-select'),
   melodyTimbreSelect: $('#melody-timbre-select'),
@@ -338,10 +340,26 @@ function populateSelects() {
     })
     .join('');
 
-  // 4. Kiểu đệm, Chất tiếng đàn, Trống, Tiếng giai điệu
-  el.chordStyleSelect.innerHTML = CHORD_STYLES.map(
-    (s) => `<option value="${s.id}">${s.label}</option>`
-  ).join('');
+  // 4. Kiểu đệm (nhóm Đệm Piano Cơ bản & Beat Hiện Đại), Chất tiếng đàn, Trống, Tiếng giai điệu
+  const styleGroups = Array.from(new Set(CHORD_STYLES.map((s) => s.group || 'Khác')));
+  el.chordStyleSelect.innerHTML = styleGroups
+    .map((grp) => {
+      const items = CHORD_STYLES.filter((s) => (s.group || 'Khác') === grp);
+      const opts = items.map((s) => `<option value="${s.id}">${s.label}</option>`).join('');
+      return `<optgroup label="${grp}">${opts}</optgroup>`;
+    })
+    .join('');
+
+  if (el.pianoStyleChips) {
+    const pianoBaseIds = ['block', 'broken_1357', 'pattern_158', 'bass_chord'];
+    el.pianoStyleChips.innerHTML = pianoBaseIds
+      .map((id) => {
+        const s = CHORD_STYLES.find((item) => item.id === id);
+        if (!s) return '';
+        return `<button type="button" class="piano-style-chip" data-style-id="${s.id}" title="${s.desc}">${s.shortLabel}</button>`;
+      })
+      .join('');
+  }
 
   el.chordTimbreSelect.innerHTML = CHORD_TIMBRES.map(
     (t) => `<option value="${t.id}">${t.label}</option>`
@@ -378,6 +396,15 @@ function syncGlobalControlsUI() {
   });
 
   el.chordStyleSelect.value = state.chordStyle;
+  if (el.pianoStyleChips) {
+    $$('.piano-style-chip', el.pianoStyleChips).forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.styleId === state.chordStyle);
+    });
+  }
+  if (el.chordStyleDesc) {
+    const activeStyle = CHORD_STYLES.find((s) => s.id === state.chordStyle);
+    el.chordStyleDesc.textContent = activeStyle ? activeStyle.desc : '';
+  }
   el.chordTimbreSelect.value = state.chordTimbre;
   el.drumPatternSelect.value = state.drumPattern;
   el.melodyTimbreSelect.value = state.melodyTimbre;
@@ -1560,8 +1587,19 @@ function bindEvents() {
   // Kiểu đệm, Tiếng đàn, Trống, Tiếng Giai điệu
   el.chordStyleSelect.addEventListener('change', (e) => {
     state.chordStyle = e.target.value;
+    syncGlobalControlsUI();
     syncAudioEngine();
   });
+
+  if (el.pianoStyleChips) {
+    el.pianoStyleChips.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-style-id]');
+      if (!btn) return;
+      state.chordStyle = btn.dataset.styleId;
+      syncGlobalControlsUI();
+      syncAudioEngine();
+    });
+  }
 
   el.chordTimbreSelect.addEventListener('change', (e) => {
     state.chordTimbre = e.target.value;

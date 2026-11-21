@@ -898,6 +898,57 @@ button {
   flex-wrap: wrap;
 }
 
+.piano-style-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.piano-style-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.piano-style-chip {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.piano-style-chip:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #FAFAFA;
+}
+
+.piano-style-chip.active {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.65);
+  color: #67E8F9;
+}
+
+.chord-style-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
 .chord-strip {
   display: grid;
   gap: 7px;

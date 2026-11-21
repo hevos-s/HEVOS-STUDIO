@@ -877,72 +877,74 @@ export function buildBarChordEvents(
       pushTaggedChord(3.0, tagWithBass(upper), 0.90, 0.70, 0, false);
     }
   } else if (style === 'broken_1357') {
-    // Broken Chord / Arpeggio: Chơi lần lượt đúng thứ tự 1-3-5 (hợp âm 3) & 1-3-5-7 (hợp âm 7)
+    // Broken Chord / Arpeggio: Rải từng nốt 1-3-5 (hợp âm 3) & 1-3-5-7 (hợp âm 7) có pedal ngân mượt
     if (isTurnaround) {
-      pushEvent(b1,  0.0, 2.80, 0.72, 'bass');
-      pushEvent(r1,  0.0, 0.85, 0.66, 'chord');
-      pushEvent(r3,  0.5, 0.75, 0.62, 'chord');
-      pushEvent(r5,  1.0, 0.70, 0.66, 'chord');
-      pushEvent(r7,  1.5, 0.68, 0.64, 'chord');
-      pushEvent(r1 + 12 <= 82 ? r1 + 12 : r7, 2.0, 0.60, 0.64, 'chord');
-      pushEvent(r5,  2.5, 0.55, 0.56, 'chord');
+      pushEvent(b1,  0.0, 2.85, 0.72, 'bass');
+      pushEvent(r1,  0.0, 1.45, 0.66, 'chord');
+      pushEvent(r3,  0.5, 1.35, 0.62, 'chord');
+      pushEvent(r5,  1.0, 1.25, 0.66, 'chord');
+      pushEvent(r7,  1.5, 1.15, 0.64, 'chord');
+      pushEvent(r1 + 12 <= 82 ? r1 + 12 : r7, 2.0, 1.00, 0.64, 'chord');
+      pushEvent(r5,  2.5, 0.85, 0.56, 'chord');
       pushEvent(passingBass, 3.0, 0.92, 0.64, 'bass');
-      pushEvent(r3,  3.0, 0.50, 0.58, 'chord');
-      pushEvent(r7,  3.5, 0.45, 0.54, 'chord');
+      pushEvent(r3,  3.0, 0.78, 0.58, 'chord');
+      pushEvent(r7,  3.5, 0.46, 0.54, 'chord');
     } else if (isOddBar) {
-      // Ô lẻ: rải 1-3-5-7 đi lên rồi xuống êm mượt
+      // Ô lẻ: rải 1-3-5-7 đi lên rồi xuống với pedal ngân hòa âm
       pushEvent(b1,  0.0, 3.70, 0.72, 'bass');
-      pushEvent(r1,  0.0, 0.85, 0.65, 'chord');
-      pushEvent(r3,  0.5, 0.80, 0.60, 'chord');
-      pushEvent(r5,  1.0, 0.78, 0.64, 'chord');
-      pushEvent(r7,  1.5, 0.75, 0.62, 'chord');
+      pushEvent(r1,  0.0, 1.55, 0.65, 'chord');
+      pushEvent(r3,  0.5, 1.45, 0.60, 'chord');
+      pushEvent(r5,  1.0, 1.35, 0.64, 'chord');
+      pushEvent(r7,  1.5, 1.25, 0.62, 'chord');
       pushEvent(warmHighBass, 2.0, 1.75, 0.54, 'bass');
-      pushEvent(r5,  2.0, 0.70, 0.60, 'chord');
-      pushEvent(r3,  2.5, 0.65, 0.56, 'chord');
-      pushEvent(r5,  3.0, 0.55, 0.58, 'chord');
+      pushEvent(r5,  2.0, 1.15, 0.60, 'chord');
+      pushEvent(r3,  2.5, 1.00, 0.56, 'chord');
+      pushEvent(r5,  3.0, 0.82, 0.58, 'chord');
       pushEvent(r7,  3.5, 0.46, 0.52, 'chord');
     } else {
-      // Ô chẵn: mẫu rải lặp 1-3-5-7 / 1-3-5-8 rõ ràng cho Ballad & Pop
-      pushEvent(b1,  0.0, 2.20, 0.74, 'bass');
-      pushEvent(r1,  0.0, 0.90, 0.66, 'chord');
-      pushEvent(r3,  0.5, 0.85, 0.60, 'chord');
-      pushEvent(r5,  1.0, 0.80, 0.64, 'chord');
-      pushEvent(r7,  1.5, 0.75, 0.60, 'chord');
-      pushEvent(b1,  2.0, 1.80, 0.68, 'bass');
-      pushEvent(r1,  2.0, 0.82, 0.64, 'chord');
-      pushEvent(r3,  2.5, 0.75, 0.58, 'chord');
-      pushEvent(r5,  3.0, 0.65, 0.62, 'chord');
+      // Ô chẵn: mẫu rải lặp 1-3-5-7 / 1-3-5-8 giữ pedal ngân nối âm chuẩn Piano
+      pushEvent(b1,  0.0, 2.25, 0.74, 'bass');
+      pushEvent(r1,  0.0, 1.55, 0.66, 'chord');
+      pushEvent(r3,  0.5, 1.45, 0.60, 'chord');
+      pushEvent(r5,  1.0, 1.35, 0.64, 'chord');
+      pushEvent(r7,  1.5, 1.25, 0.60, 'chord');
+      pushEvent(b1,  2.0, 1.85, 0.68, 'bass');
+      pushEvent(r1,  2.0, 1.45, 0.64, 'chord');
+      pushEvent(r3,  2.5, 1.20, 0.58, 'chord');
+      pushEvent(r5,  3.0, 0.90, 0.62, 'chord');
       pushEvent(r7,  3.5, 0.46, 0.54, 'chord');
     }
   } else if (style === 'pattern_158') {
-    // Kiểu đệm 1-5-8 kinh điển (tay trái rải rộng 1 -> 5 -> 8, tay phải thả hòa âm)
+    // Quy tắc rải 1-5-8 chuẩn phím đàn Piano (giữ pedal 1->5->8 kết hợp tay phải rải màu 3/7/9)
+    const r3Top = r3 + 12 <= 82 ? r3 + 12 : vTop;
+    const r5Top = r5 + 12 <= 82 ? r5 + 12 : v2;
     if (isTurnaround) {
-      pushEvent(b1,  0.0, 1.45, 0.78, 'bass');
-      pushEvent(b5,  0.5, 1.15, 0.68, 'bass');
-      pushEvent(b8,  1.0, 1.10, 0.72, 'bass');
-      pushTaggedChord(1.5, tagUpper([v1, vTop]), 0.65, 0.58, 0.02, false);
-      pushEvent(b1,  2.0, 1.00, 0.74, 'bass');
-      pushEvent(b5,  2.5, 0.70, 0.64, 'bass');
+      pushEvent(b1,    0.0, 2.65, 0.78, 'bass');
+      pushEvent(b5,    0.5, 2.15, 0.66, 'chord');
+      pushEvent(b8,    1.0, 1.75, 0.70, 'chord');
+      pushEvent(r3Top, 1.5, 1.35, 0.64, 'chord');
+      pushEvent(r5Top, 2.0, 0.95, 0.62, 'chord');
+      pushEvent(r3Top, 2.5, 0.75, 0.58, 'chord');
       pushEvent(passingBass, 3.0, 0.92, 0.68, 'bass');
-      pushTaggedChord(3.0, tagUpper([v0, v2, vTop]), 0.85, 0.62, 0.02, false);
+      pushTaggedChord(3.0, tagUpper([v1, vTop]), 0.85, 0.62, 0.02, false);
     } else if (isOddBar) {
-      pushEvent(b1,  0.0, 1.80, 0.76, 'bass');
-      pushEvent(b5,  0.5, 1.30, 0.66, 'bass');
-      pushEvent(b8,  1.0, 1.15, 0.70, 'bass');
-      pushTaggedChord(1.5, tagUpper(upper), 0.75, 0.60, 0.02, true);
-      pushEvent(b5,  2.0, 1.45, 0.64, 'bass');
-      pushEvent(b8,  2.5, 1.10, 0.66, 'bass');
-      pushTaggedChord(3.0, tagUpper([v1, vOct]), 0.82, 0.58, 0.02, false);
+      pushEvent(b1,    0.0, 3.60, 0.76, 'bass');
+      pushEvent(b5,    0.5, 2.80, 0.64, 'chord');
+      pushEvent(b8,    1.0, 2.40, 0.68, 'chord');
+      pushEvent(r3Top, 1.5, 1.85, 0.64, 'chord');
+      pushTaggedChord(2.0, tagUpper([v0, v1, vTop]), 1.35, 0.62, 0.02, false);
+      pushEvent(b5,    2.5, 1.15, 0.56, 'chord');
+      pushEvent(r3Top, 3.0, 0.82, 0.58, 'chord');
+      pushEvent(vOct,  3.5, 0.46, 0.50, 'chord');
     } else {
-      pushEvent(b1,  0.0, 1.90, 0.78, 'bass');
-      pushEvent(b5,  0.5, 1.40, 0.68, 'bass');
-      pushEvent(b8,  1.0, 1.25, 0.72, 'bass');
-      pushEvent(b5,  1.5, 0.80, 0.60, 'bass');
-      pushEvent(b1,  2.0, 1.70, 0.74, 'bass');
-      pushTaggedChord(2.0, tagUpper(upper), 1.45, 0.66, 0.024, false);
-      pushEvent(b5,  2.5, 1.10, 0.62, 'bass');
-      pushEvent(b8,  3.0, 0.85, 0.66, 'bass');
-      pushEvent(vOct, 3.5, 0.45, 0.52, 'chord');
+      pushEvent(b1,    0.0, 3.70, 0.78, 'bass');
+      pushEvent(b5,    0.5, 2.85, 0.66, 'chord');
+      pushEvent(b8,    1.0, 2.45, 0.70, 'chord');
+      pushEvent(b5,    1.5, 1.80, 0.58, 'chord');
+      pushEvent(r3Top, 2.0, 1.55, 0.66, 'chord');
+      pushEvent(r5Top, 2.5, 1.20, 0.60, 'chord');
+      pushEvent(b8,    3.0, 0.85, 0.62, 'chord');
+      pushEvent(r3Top, 3.5, 0.46, 0.52, 'chord');
     }
   } else if (style === 'bass_chord') {
     // Bass + Chord: Tay trái chơi nốt trầm, tay phải đánh hợp âm đệm hát nền tảng

@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=23';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=24';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -26,16 +26,76 @@ export const CHORD_TIMBRES = [
 ];
 
 export const CHORD_STYLES = [
-  { id: 'rnb',         label: 'Lơi nhịp R&B / Neo-Soul' },
-  { id: 'pop_groove',  label: 'Pop Trầm Ấm / Pulse' },
-  { id: 'block',       label: 'Block Chord (Bấm cùng lúc · Chắc nhịp)' },
-  { id: 'broken_1357', label: 'Broken Chord / Arpeggio (1-3-5 · 1-3-5-7)' },
-  { id: 'pattern_158', label: 'Rải 1-5-8 (Tay trái rộng · Ballad/Pop)' },
-  { id: 'bass_chord',  label: 'Bass + Chord (Đệm hát Piano chuẩn)' },
-  { id: 'pop',         label: 'Đệm Pop Hiện Đại' },
-  { id: 'ballad',      label: 'Rải Ballad' },
-  { id: 'lofi',        label: 'Chill / Lo-Fi Rải Chậm' },
-  { id: 'strum',       label: 'Quạt chả Acoustic' },
+  {
+    id: 'block',
+    group: 'Đệm Phím Piano Cơ Bản',
+    shortLabel: 'Block Chord',
+    label: 'Block Chord (Cùng lúc)',
+    desc: 'Block Chord · Bấm các nốt hợp âm cùng lúc. Phù hợp đoạn cần chắc nhịp, cao trào hoặc đệm hát đơn giản.',
+  },
+  {
+    id: 'broken_1357',
+    group: 'Đệm Phím Piano Cơ Bản',
+    shortLabel: 'Broken 1-3-5 / 1-3-5-7',
+    label: 'Broken 1-3-5 / 1-3-5-7',
+    desc: 'Broken Chord / Arpeggio · Chơi từng nốt theo thứ tự 1-3-5 hoặc 1-3-5-7. Phù hợp Ballad, Pop và đoạn cần chuyển động.',
+  },
+  {
+    id: 'pattern_158',
+    group: 'Đệm Phím Piano Cơ Bản',
+    shortLabel: 'Rải 1-5-8 Piano',
+    label: 'Rải 1-5-8 Piano',
+    desc: 'Rải 1-5-8 · Quy tắc rải tay trái 1 → 5 → 8 có pedal ngân nối tiếp tay phải, chuẩn cảm giác đệm phím đàn Piano.',
+  },
+  {
+    id: 'bass_chord',
+    group: 'Đệm Phím Piano Cơ Bản',
+    shortLabel: 'Bass + Chord',
+    label: 'Bass + Chord (Đệm hát)',
+    desc: 'Bass + Chord · Tay trái chơi nốt trầm, tay phải chơi hợp âm. Nền tảng quan trọng để đệm hát.',
+  },
+  {
+    id: 'rnb',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'R&B / Neo-Soul',
+    label: 'Lơi nhịp R&B / Neo-Soul',
+    desc: 'R&B / Neo-Soul · Rải lơi nhịp, đảo phách êm tai với ghost chords và bước dẫn passing bass.',
+  },
+  {
+    id: 'pop_groove',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'Pop Trầm Ấm',
+    label: 'Pop Trầm Ấm / Pulse',
+    desc: 'Pop Trầm Ấm · Bass sâu chắc nhịp kết hợp rải nốt trên tạo chiều sâu, rất hợp tiếng Piano Pop Trầm Ấm.',
+  },
+  {
+    id: 'pop',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'Pop Hiện Đại',
+    label: 'Đệm Pop Hiện Đại',
+    desc: 'Pop Hiện Đại · Chặt nhịp gọn gàng, giàu năng lượng theo từng ô nhịp.',
+  },
+  {
+    id: 'ballad',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'Rải Ballad',
+    label: 'Rải Ballad',
+    desc: 'Rải Ballad · Mềm mại có sustain pedal cảm xúc và câu đáp dịu dàng giữa các ô.',
+  },
+  {
+    id: 'lofi',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'Chill / Lo-Fi',
+    label: 'Chill / Lo-Fi Rải Chậm',
+    desc: 'Chill / Lo-Fi · Rải chậm sâu lắng, hợp với hợp âm maj7/m7 thư giãn.',
+  },
+  {
+    id: 'strum',
+    group: 'Đệm Beat & Groove Hiện Đại',
+    shortLabel: 'Quạt Acoustic',
+    label: 'Quạt chả Acoustic',
+    desc: 'Quạt chả Acoustic · Mô phỏng lên xuống dây đàn guitar acoustic.',
+  },
 ];
 
 export const DRUM_PATTERNS = [

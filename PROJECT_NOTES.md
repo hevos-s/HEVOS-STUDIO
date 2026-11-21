@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=23`, `./js/app.js?v=23`, `./theory.js?v=23`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=24`, `./js/app.js?v=24`, `./theory.js?v=24`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=23`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=24`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
