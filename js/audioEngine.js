@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=21';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=22';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -18,17 +18,20 @@ const getToneNow = (Tone) => {
 };
 
 export const CHORD_TIMBRES = [
-  { id: 'rhodes', label: 'Rhodes / EP Ấm' },
-  { id: 'piano',  label: 'Grand Piano Êm' },
-  { id: 'pad',    label: 'Pad Lo-Fi Mơ Màng' },
-  { id: 'guitar', label: 'Guitar Acoustic Gảy' },
+  { id: 'rhodes',       label: 'Rhodes / EP Ấm' },
+  { id: 'modern_piano', label: 'Piano Pop Trầm Ấm' },
+  { id: 'piano',        label: 'Grand Piano Êm' },
+  { id: 'pad',          label: 'Pad Lo-Fi Mơ Màng' },
+  { id: 'guitar',       label: 'Guitar Acoustic Gảy' },
 ];
 
 export const CHORD_STYLES = [
-  { id: 'rnb',    label: 'Lơi nhịp R&B / Neo-Soul' },
-  { id: 'ballad', label: 'Rải Ballad' },
-  { id: 'pop',    label: 'Đệm Pop Hiện Đại' },
-  { id: 'strum',  label: 'Quạt chả Acoustic' },
+  { id: 'rnb',        label: 'Lơi nhịp R&B / Neo-Soul' },
+  { id: 'pop_groove', label: 'Pop Trầm Ấm / Pulse' },
+  { id: 'pop',        label: 'Đệm Pop Hiện Đại' },
+  { id: 'ballad',     label: 'Rải Ballad' },
+  { id: 'lofi',       label: 'Chill / Lo-Fi Rải Chậm' },
+  { id: 'strum',      label: 'Quạt chả Acoustic' },
 ];
 
 export const DRUM_PATTERNS = [
@@ -116,8 +119,10 @@ export function generateAccompanimentEvents({
   const bassEvents = [];
   const allEvents = [];
 
+  const lenChords = voicedChords.length;
   voicedChords.slice(0, totalBars).forEach((vc, barIdx) => {
-    const barEvents = buildBarChordEvents(vc, barIdx, chordStyle);
+    const nextVc = lenChords > 0 ? voicedChords[(barIdx + 1) % Math.min(lenChords, totalBars)] : null;
+    const barEvents = buildBarChordEvents(vc, barIdx, chordStyle, nextVc, totalBars);
     barEvents.forEach((ev, evIdx) => {
       const swungBeat = applySwingBeat(
         ev.startBeat,
@@ -356,6 +361,7 @@ class AudioEngine {
 
     this.channels = {};
     this.chordSynths = {};
+    this.bassSynth = null;
     this.melodySynths = {};
     this.drums = {};
     this.countInSynth = null;
@@ -751,6 +757,32 @@ class AudioEngine {
     this.drums = { kick, snareNoise, rim, hat, click };
   }
 
+  _getBassSynth() {
+    const Tone = window.Tone;
+    if (this.bassSynth) return this.bassSynth;
+
+    const eq = new Tone.EQ3({
+      low: 2.8,
+      mid: -1.0,
+      high: -6,
+      lowFrequency: 140,
+      highFrequency: 1200,
+    });
+    const filter = new Tone.Filter(460, 'lowpass');
+    const synth = new Tone.PolySynth(Tone.Synth, {
+      volume: -12,
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.012, decay: 0.68, sustain: 0.36, release: 0.34 },
+    });
+    synth.maxPolyphony = 16;
+    synth.connect(eq);
+    eq.connect(filter);
+    filter.connect(this.channels.chords);
+
+    this.bassSynth = synth;
+    return synth;
+  }
+
   _getChordSynth(timbreId) {
     const Tone = window.Tone;
     if (this.chordSynths[timbreId]) return this.chordSynths[timbreId];
@@ -759,7 +791,32 @@ class AudioEngine {
     let filter;
     const revSend = new Tone.Gain(0.24).connect(this.reverbSend);
 
-    if (timbreId === 'piano') {
+    if (timbreId === 'modern_piano') {
+      // Piano Pop Hiện Đại Trầm Ấm (Felt / Modern Upright Piano: thân ấm dày, dải cao êm không chói)
+      const warmEq = new Tone.EQ3({
+        low: 3.2,
+        mid: 0.6,
+        high: -3.5,
+        lowFrequency: 230,
+        highFrequency: 2800,
+      });
+      const chorusSend = new Tone.Gain(0.16).connect(this.chordChorus);
+      filter = new Tone.Filter(1650, 'lowpass');
+      synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -12,
+        oscillator: {
+          type: 'custom',
+          partials: [1, 0.56, 0.22, 0.08, 0.025, 0.008],
+        },
+        envelope: { attack: 0.011, decay: 1.55, sustain: 0.20, release: 0.68 },
+      });
+      revSend.gain.value = 0.30;
+      synth.connect(warmEq);
+      warmEq.connect(filter);
+      filter.connect(this.channels.chords);
+      filter.connect(chorusSend);
+      filter.connect(revSend);
+    } else if (timbreId === 'piano') {
       filter = new Tone.Filter(2600, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
         volume: -14,
@@ -1200,6 +1257,11 @@ class AudioEngine {
   }
 
   _releaseAllSynths() {
+    if (this.bassSynth) {
+      try {
+        this.bassSynth.releaseAll();
+      } catch (_) {}
+    }
     Object.values(this.chordSynths).forEach((s) => {
       try {
         s.releaseAll();
@@ -1330,8 +1392,9 @@ class AudioEngine {
       ]);
     };
 
-    // --- 1. Lập lịch Hợp âm & Bass (dùng chung nguồn sinh thuần với bộ xuất MIDI) ---
+    // --- 1. Lập lịch Hợp âm & Bass (tách riêng Warm Bass cho role='bass' và Chord Synth cho tay phải) ---
     const chordSynth = this._getChordSynth(chordTimbre);
+    const bassSynth = this._getBassSynth();
     const { allEvents: accEvents } = generateAccompanimentEvents({
       voicedChords,
       totalBars,
@@ -1348,6 +1411,7 @@ class AudioEngine {
           tick: Math.round(Math.max(0, Math.min(totalBeats - 0.02, ev.startBeat)) * ppq),
           val: {
             midi: Math.max(24, Math.min(108, Math.round(ev.midi))),
+            role: ev.role === 'bass' ? 'bass' : 'chord',
             durSec: Number.isFinite(ev.durationBeat)
               ? Math.max(0.05, Math.min(4.0, ev.durationBeat * beatSec))
               : 0.4,
@@ -1360,11 +1424,13 @@ class AudioEngine {
 
     this.chordPart = new Tone.Part((time, val) => {
       if (!Number.isFinite(time) || !val || !Number.isFinite(val.midi)) return;
-      const safeTime = this._nextSafeTime('chord', time);
+      const isBass = val.role === 'bass';
+      const safeTime = this._nextSafeTime(isBass ? 'bass' : 'chord', time);
       const dur = Number.isFinite(val.durSec) ? Math.max(0.04, Math.min(4.0, val.durSec)) : 0.4;
       const vel = Number.isFinite(val.vel) ? Math.max(0.05, Math.min(0.92, val.vel)) : 0.65;
       try {
-        chordSynth.triggerAttackRelease(midiToToneNote(val.midi), dur, safeTime, vel);
+        const targetSynth = isBass ? bassSynth : chordSynth;
+        targetSynth.triggerAttackRelease(midiToToneNote(val.midi), dur, safeTime, vel);
       } catch (_) {}
     }, chordPartEvents);
     this.chordPart.start(0);
@@ -1564,12 +1630,17 @@ class AudioEngine {
     if (!voicedChord || !Number.isFinite(voicedChord.bassMidi)) return;
     await this.ensureReady();
     const synth = this._getChordSynth(this.state.chordTimbre);
+    const bassSynth = this._getBassSynth();
     const baseNow = getToneNow(window.Tone) + 0.005;
-    const notes = [voicedChord.bassMidi, ...(voicedChord.upperMidis || [])];
-    notes.forEach((midi, idx) => {
+    try {
+      const bt = this._nextSafeTime('bass', baseNow);
+      bassSynth.triggerAttackRelease(midiToToneNote(Math.round(voicedChord.bassMidi)), 0.85, bt, 0.74);
+    } catch (_) {}
+    const upper = voicedChord.upperMidis || [];
+    upper.forEach((midi, idx) => {
       if (!Number.isFinite(midi)) return;
-      const t = this._nextSafeTime('chord', baseNow + idx * 0.022);
-      const vel = Math.max(0.2, Math.min(0.9, 0.70 - idx * 0.03));
+      const t = this._nextSafeTime('chord', baseNow + (idx + 1) * 0.022);
+      const vel = Math.max(0.2, Math.min(0.9, 0.68 - idx * 0.03));
       try {
         synth.triggerAttackRelease(midiToToneNote(Math.round(midi)), 0.75, t, vel);
       } catch (_) {}
@@ -1952,6 +2023,7 @@ class AudioEngine {
       });
       return offline.createPeriodicWave(real, imag);
     };
+    const modernPianoWave = makeWave([1, 0.56, 0.22, 0.08, 0.025, 0.008]);
     const pianoWave = makeWave([1, 0.45, 0.22, 0.1, 0.045, 0.018]);
     const guitarWave = makeWave([1, 0.68, 0.44, 0.28, 0.16, 0.08, 0.035]);
     const fluteWave = makeWave([1, 0.26, 0.09, 0.03]);
@@ -1981,8 +2053,14 @@ class AudioEngine {
           osc.type = 'triangle';
           sub.type = 'sine';
           sub.frequency.setValueAtTime(freq * 0.5, start);
-          filter.frequency.setValueAtTime(520, start);
+          filter.frequency.setValueAtTime(480, start);
           pan.pan.value = 0;
+        } else if (cTimbre === 'modern_piano') {
+          osc.setPeriodicWave(modernPianoWave);
+          sub.type = 'sine';
+          sub.frequency.setValueAtTime(freq * 0.5, start);
+          filter.frequency.setValueAtTime(1650, start);
+          pan.pan.value = ((ev.midi % 12) - 5.5) * 0.028;
         } else if (cTimbre === 'piano') {
           osc.setPeriodicWave(pianoWave);
           sub.type = 'sine';
@@ -2021,7 +2099,7 @@ class AudioEngine {
         env.gain.linearRampToValueAtTime(0.0001, end);
 
         const subG = offline.createGain();
-        subG.gain.value = isBass ? 0.35 : cTimbre === 'pad' ? 0.5 : 0.14;
+        subG.gain.value = isBass ? 0.35 : cTimbre === 'pad' ? 0.5 : cTimbre === 'modern_piano' ? 0.22 : 0.14;
 
         osc.connect(filter);
         sub.connect(subG);

@@ -13,22 +13,22 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=21';
+} from './theory.js?v=22';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=21';
+} from './pitchToMidi.js?v=22';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=21';
+} from './autoTune.js?v=22';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=21';
+} from './audioEngine.js?v=22';
 
 export const VOCAL_PRESETS = [
   {
@@ -1849,7 +1849,8 @@ export class VocalStudio {
         humanize: studioCtx.humanize ?? 50,
       });
 
-      // Tổng hợp tiếng đàn Rhodes/EP ấm + Bass + Trống trên OfflineAudioContext
+      // Tổng hợp tiếng đàn ấm (hỗ trợ Piano Pop Trầm Ấm / Rhodes / Piano) + Bass + Trống trên OfflineAudioContext
+      const isWarmModernPiano = studioCtx.chordTimbre === 'modern_piano';
       const scheduleNote = (freq, startSec, durSec, vel, isBass = false) => {
         if (startSec >= totalSec) return;
         const osc = offline.createOscillator();
@@ -1857,15 +1858,18 @@ export class VocalStudio {
         const env = offline.createGain();
         const filter = offline.createBiquadFilter();
 
-        osc.type = isBass ? 'triangle' : 'sine';
-        sub.type = 'triangle';
+        osc.type = isBass ? 'triangle' : isWarmModernPiano ? 'triangle' : 'sine';
+        sub.type = isBass || isWarmModernPiano ? 'sine' : 'triangle';
         osc.frequency.setValueAtTime(freq, startSec);
-        sub.frequency.setValueAtTime(isBass ? freq * 0.5 : freq * 2, startSec);
+        sub.frequency.setValueAtTime(
+          isBass || isWarmModernPiano ? freq * 0.5 : freq * 2,
+          startSec
+        );
 
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(isBass ? 520 : 2200, startSec);
+        filter.frequency.setValueAtTime(isBass ? 480 : isWarmModernPiano ? 1650 : 2200, startSec);
 
-        const peak = Math.max(0.02, vel * (isBass ? 0.24 : 0.14));
+        const peak = Math.max(0.02, vel * (isBass ? 0.24 : isWarmModernPiano ? 0.16 : 0.14));
         const end = Math.min(totalSec, startSec + Math.max(0.08, durSec));
         env.gain.setValueAtTime(0.0001, startSec);
         env.gain.linearRampToValueAtTime(peak, startSec + 0.012);
@@ -1873,7 +1877,7 @@ export class VocalStudio {
         env.gain.exponentialRampToValueAtTime(0.0001, end + 0.08);
 
         const subGain = offline.createGain();
-        subGain.gain.value = isBass ? 0.35 : 0.12;
+        subGain.gain.value = isBass ? 0.35 : isWarmModernPiano ? 0.22 : 0.12;
 
         osc.connect(filter);
         sub.connect(subGain);

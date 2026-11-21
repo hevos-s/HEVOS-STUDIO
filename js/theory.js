@@ -401,9 +401,13 @@ export function generateVoicedProgression(chords, keyPc, scaleType) {
     let bestScore = Infinity;
 
     for (const cand of candidates) {
-      let score = intrinsicVoicingCost(cand, 63);
+      // Thay đổi nhẹ độ cao trung tâm theo vai trò từng ô nhịp (A -> A' -> B -> Turnaround)
+      // để vòng hợp âm có nhịp dâng/lắng tự nhiên thay vì bó mãi ở 1 vùng cao độ
+      const barPhase = i % 4;
+      const dynamicCenter = barPhase === 0 ? 61 : barPhase === 1 ? 62 : barPhase === 2 ? 64 : 60;
+      let score = intrinsicVoicingCost(cand, dynamicCenter);
       if (prevVoicing) {
-        score += transitionCost(prevVoicing, cand) * 1.25;
+        score += transitionCost(prevVoicing, cand) * 1.05;
       }
       // Ở ô nhịp cuối, kéo nhẹ về gần ô nhịp đầu để vòng lặp (loop) quay đầu êm tai
       if (i === resolvedList.length - 1 && result.length > 0) {
@@ -612,6 +616,26 @@ export const PROGRESSION_PRESETS = [
 
   // --- Pop Hiện Đại ---
   {
+    id: 'pop-piano-warm',
+    vibe: 'Pop Hiện Đại',
+    name: 'Pop Piano Trầm Ấm',
+    desc: 'Iadd9 – V – vim7 – IVmaj7',
+    keyPc: 0, // C
+    scaleType: 'major',
+    bpm: 98,
+    bars: 4,
+    style: 'pop_groove',
+    timbre: 'modern_piano',
+    drums: 'pop',
+    humanize: 42,
+    chords: [
+      { degree: 0, extension: 'add9' },
+      { degree: 4, extension: 'triad' },
+      { degree: 5, extension: 'm7' },
+      { degree: 3, extension: 'maj7' },
+    ],
+  },
+  {
     id: 'pop-modern',
     vibe: 'Pop Hiện Đại',
     name: 'Pop Sôi Động',
@@ -678,7 +702,13 @@ export const PROGRESSION_PRESETS = [
  * Gắn rõ role ('bass' | 'chord') để tách chuẩn Track 1 (Hợp âm tay phải) và Track 2 (Bass nền).
  * Dùng chung cho cả Tone.js playback VÀ bộ xuất MIDI (.mid)!
  */
-export function buildBarChordEvents(voicedChord, barIndex, style = 'rnb') {
+export function buildBarChordEvents(
+  voicedChord,
+  barIndex,
+  style = 'rnb',
+  nextVoicedChord = null,
+  totalBars = 4
+) {
   const barStart = barIndex * 4;
   const bass = voicedChord.bassMidi;
   const upper = voicedChord.upperMidis; // sorted ascending, 3 or 4 notes
@@ -687,7 +717,35 @@ export function buildBarChordEvents(voicedChord, barIndex, style = 'rnb') {
   const v1 = upper[Math.min(1, n - 1)];
   const v2 = upper[Math.min(2, n - 1)];
   const vTop = upper[n - 1];
+  const vOct = vTop + 12 <= 82 ? vTop + 12 : v0 + 12 <= 80 ? v0 + 12 : vTop;
   const events = [];
+
+  const phase = barIndex % 4;
+  const isOddBar = phase % 2 === 1;
+  const isTurnaround = barIndex === totalBars - 1 || phase === 3;
+  const isLiftBar = phase === 2;
+
+  // Tính nốt dẫn Bass (Passing Bass) nối mượt sang hợp âm kế tiếp
+  const computePassingBass = () => {
+    const nextBass = nextVoicedChord && Number.isFinite(nextVoicedChord.bassMidi)
+      ? nextVoicedChord.bassMidi
+      : bass;
+    let leadBass;
+    if (nextBass !== bass) {
+      const stepDir = nextBass > bass ? -1 : 1;
+      leadBass = nextBass + stepDir;
+      if (Math.abs(nextBass - bass) <= 2) {
+        leadBass = nextBass + 7 <= 56 ? nextBass + 7 : nextBass - 5;
+      }
+    } else {
+      leadBass = bass + 7 <= 56 ? bass + 7 : bass - 5;
+    }
+    while (leadBass < 34) leadBass += 12;
+    while (leadBass > 56) leadBass -= 12;
+    return leadBass;
+  };
+  const passingBass = computePassingBass();
+  const warmHighBass = bass + 12 <= 58 ? bass + 12 : bass;
 
   const pushEvent = (midi, beatOffset, dur, vel, role) => {
     const durationBeat = Math.max(0.15, dur);
@@ -718,46 +776,182 @@ export function buildBarChordEvents(voicedChord, barIndex, style = 'rnb') {
   const tagWithBass = (list) => [{ midi: bass, role: 'bass' }, ...tagUpper(list)];
 
   if (style === 'ballad') {
-    // Rải Ballad mềm mại có sustain pedal cảm xúc
-    pushEvent(bass, 0.0, 3.85, 0.74, 'bass');
-    pushEvent(v0,   0.0, 2.20, 0.62, 'chord');
-    pushEvent(v1,   0.5, 2.00, 0.56, 'chord');
-    pushEvent(v2,   1.0, 1.90, 0.60, 'chord');
-    pushEvent(vTop, 1.5, 1.80, 0.54, 'chord');
-    // Nửa ô sau bồng bềnh nhẹ
-    pushEvent(bass + 12 <= 58 ? bass + 12 : bass, 2.0, 1.80, 0.52, 'bass');
-    pushEvent(v1,   2.0, 1.70, 0.58, 'chord');
-    pushEvent(v2,   2.5, 1.40, 0.52, 'chord');
-    pushEvent(vTop, 3.0, 0.95, 0.56, 'chord');
-    pushEvent(v0,   3.5, 0.55, 0.46, 'chord');
+    // Rải Ballad biến thể A / A' / B / Turnaround có nốt luyến & passing bass cuối câu
+    if (isTurnaround) {
+      pushEvent(bass, 0.0, 2.75, 0.74, 'bass');
+      pushEvent(v0,   0.0, 1.80, 0.62, 'chord');
+      pushEvent(v1,   0.5, 1.60, 0.56, 'chord');
+      pushEvent(v2,   1.0, 1.50, 0.60, 'chord');
+      pushEvent(vTop, 1.5, 1.25, 0.58, 'chord');
+      pushEvent(vOct, 2.0, 0.90, 0.55, 'chord');
+      pushEvent(v2,   2.5, 0.65, 0.50, 'chord');
+      pushEvent(passingBass, 3.0, 0.92, 0.58, 'bass');
+      pushTaggedChord(3.0, tagUpper([v1, vTop]), 0.85, 0.54, 0.03, false);
+    } else if (isOddBar) {
+      // Ô lẻ: đảo chiều rải xuống nhẹ ở nửa sau tạo câu đáp dịu dàng
+      pushEvent(bass, 0.0, 3.45, 0.72, 'bass');
+      pushEvent(v0,   0.0, 1.95, 0.60, 'chord');
+      pushEvent(v2,   0.5, 1.75, 0.56, 'chord');
+      pushEvent(vTop, 1.0, 1.55, 0.60, 'chord');
+      pushEvent(v1,   1.5, 1.35, 0.52, 'chord');
+      pushEvent(warmHighBass, 2.0, 1.60, 0.50, 'bass');
+      pushEvent(v2,   2.0, 1.55, 0.56, 'chord');
+      pushEvent(vTop, 2.5, 1.15, 0.52, 'chord');
+      pushEvent(vOct, 3.0, 0.78, 0.54, 'chord');
+      pushEvent(v1,   3.5, 0.45, 0.44, 'chord');
+    } else if (isLiftBar) {
+      // Ô 3: mở rộng quãng + nhịp lướt tinh tế tạo cao trào nửa sau vòng hợp âm
+      pushEvent(bass, 0.0, 3.70, 0.76, 'bass');
+      pushEvent(v0,   0.0, 2.10, 0.64, 'chord');
+      pushEvent(v1,   0.5, 1.90, 0.58, 'chord');
+      pushEvent(vTop, 1.0, 1.50, 0.62, 'chord');
+      pushEvent(vOct, 1.75, 1.25, 0.56, 'chord');
+      pushEvent(warmHighBass, 2.0, 1.70, 0.54, 'bass');
+      pushEvent(v1,   2.25, 1.35, 0.60, 'chord');
+      pushEvent(v2,   2.75, 1.05, 0.54, 'chord');
+      pushEvent(vTop, 3.25, 0.72, 0.56, 'chord');
+      pushEvent(vOct, 3.5, 0.48, 0.48, 'chord');
+    } else {
+      pushEvent(bass, 0.0, 3.85, 0.74, 'bass');
+      pushEvent(v0,   0.0, 2.20, 0.62, 'chord');
+      pushEvent(v1,   0.5, 2.00, 0.56, 'chord');
+      pushEvent(v2,   1.0, 1.90, 0.60, 'chord');
+      pushEvent(vTop, 1.5, 1.80, 0.54, 'chord');
+      pushEvent(warmHighBass, 2.0, 1.80, 0.52, 'bass');
+      pushEvent(v1,   2.0, 1.70, 0.58, 'chord');
+      pushEvent(v2,   2.5, 1.40, 0.52, 'chord');
+      pushEvent(vTop, 3.0, 0.95, 0.56, 'chord');
+      pushEvent(v0,   3.5, 0.55, 0.46, 'chord');
+    }
   } else if (style === 'rnb') {
-    // Lơi nhịp R&B / Neo-Soul: rải nhẹ đầu hợp âm + đảo phách êm tai
-    pushTaggedChord(0.0, tagWithBass(upper), 1.45, 0.74, 0.032, false);
-    // Phách nhấn đảo nhịp nhẹ (pickup 1.75)
-    pushTaggedChord(1.75, tagUpper(upper), 0.45, 0.50, 0.015, false);
-    // Hợp âm trả lời lơi nhịp ở 2.5
-    pushTaggedChord(2.5, tagWithBass(upper), 1.15, 0.68, 0.025, false);
-    // Chấm đuôi tinh tế ở 3.5
-    pushEvent(vTop, 3.5, 0.45, 0.48, 'chord');
-    if (n >= 2) {
-      pushEvent(upper[n - 2], 3.53, 0.42, 0.42, 'chord');
+    // Lơi nhịp R&B / Neo-Soul có câu hỏi-đáp, ghost chords & passing bass dẫn ô
+    if (isTurnaround) {
+      pushTaggedChord(0.0, tagWithBass(upper), 1.40, 0.74, 0.030, false);
+      pushTaggedChord(1.75, tagUpper(upper.slice(-2)), 0.42, 0.48, 0.015, true);
+      pushTaggedChord(2.5, tagWithBass(upper), 0.88, 0.68, 0.024, false);
+      pushEvent(passingBass, 3.5, 0.46, 0.58, 'bass');
+      pushTaggedChord(3.5, tagUpper([v1, vOct]), 0.44, 0.52, 0.02, false);
+    } else if (isOddBar) {
+      pushTaggedChord(0.0, tagWithBass(upper), 1.65, 0.72, 0.036, false);
+      pushEvent(vOct, 1.5, 0.38, 0.44, 'chord');
+      pushTaggedChord(2.25, tagUpper(upper), 0.75, 0.60, 0.022, true);
+      pushEvent(warmHighBass, 2.5, 0.95, 0.54, 'bass');
+      pushTaggedChord(3.25, tagUpper([v1, v2]), 0.55, 0.46, 0.014, false);
+    } else if (isLiftBar) {
+      pushTaggedChord(0.0, tagWithBass([...upper, vOct]), 1.50, 0.76, 0.028, false);
+      pushTaggedChord(1.5, tagUpper(upper.slice(-2)), 0.40, 0.48, 0.012, false);
+      pushTaggedChord(2.5, tagWithBass(upper), 1.05, 0.70, 0.024, false);
+      pushEvent(vOct, 3.5, 0.45, 0.50, 'chord');
+    } else {
+      pushTaggedChord(0.0, tagWithBass(upper), 1.45, 0.74, 0.032, false);
+      pushTaggedChord(1.75, tagUpper(upper), 0.45, 0.50, 0.015, false);
+      pushTaggedChord(2.5, tagWithBass(upper), 1.15, 0.68, 0.025, false);
+      pushEvent(vTop, 3.5, 0.45, 0.48, 'chord');
+      if (n >= 2) {
+        pushEvent(upper[n - 2], 3.53, 0.42, 0.42, 'chord');
+      }
     }
   } else if (style === 'pop') {
-    // Đệm Pop Hiện Đại: chặt nhịp gọn gàng, năng lượng
-    pushTaggedChord(0.0, tagWithBass(upper), 0.85, 0.78, 0.01, false);
-    pushTaggedChord(1.0, tagUpper(upper), 0.65, 0.60, 0.008, false);
-    pushTaggedChord(1.5, tagUpper(upper.slice(-2)), 0.42, 0.52, 0.008, false);
-    pushTaggedChord(2.0, tagWithBass(upper), 0.78, 0.72, 0.01, false);
-    pushTaggedChord(3.0, tagUpper(upper), 0.58, 0.64, 0.008, false);
-    pushTaggedChord(3.5, tagWithBass(upper.slice(0, 2)), 0.42, 0.50, 0.008, false);
+    // Đệm Pop Hiện Đại: nhấn mạnh, rải nhịp phụ & bước dẫn bass
+    if (isTurnaround) {
+      pushTaggedChord(0.0, tagWithBass(upper), 0.88, 0.78, 0.010, false);
+      pushTaggedChord(1.0, tagUpper(upper), 0.62, 0.62, 0.008, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.75, 0.74, 0.010, false);
+      pushEvent(passingBass, 3.0, 0.46, 0.60, 'bass');
+      pushTaggedChord(3.0, tagUpper([v1, vTop]), 0.42, 0.64, 0.008, false);
+      pushEvent(passingBass, 3.5, 0.44, 0.64, 'bass');
+      pushTaggedChord(3.5, tagUpper([v2, vOct]), 0.44, 0.60, 0.010, false);
+    } else if (isOddBar) {
+      pushTaggedChord(0.0, tagWithBass(upper), 0.92, 0.76, 0.012, false);
+      pushTaggedChord(1.0, tagUpper([v0, v1]), 0.48, 0.54, 0.008, false);
+      pushTaggedChord(1.5, tagUpper([v2, vTop]), 0.68, 0.62, 0.010, false);
+      pushEvent(bass, 2.5, 0.95, 0.70, 'bass');
+      pushTaggedChord(2.5, tagUpper(upper), 0.75, 0.68, 0.010, false);
+      pushEvent(vOct, 3.5, 0.42, 0.50, 'chord');
+    } else if (isLiftBar) {
+      pushTaggedChord(0.0, tagWithBass([...upper, vOct]), 0.85, 0.80, 0.012, false);
+      pushTaggedChord(1.0, tagUpper(upper), 0.60, 0.62, 0.008, false);
+      pushTaggedChord(1.5, tagUpper(upper.slice(-2)), 0.45, 0.54, 0.008, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.75, 0.74, 0.010, false);
+      pushTaggedChord(3.0, tagUpper([...upper.slice(-2), vOct]), 0.56, 0.66, 0.010, false);
+      pushTaggedChord(3.5, tagUpper([v1, v2]), 0.42, 0.52, 0.008, false);
+    } else {
+      pushTaggedChord(0.0, tagWithBass(upper), 0.85, 0.78, 0.01, false);
+      pushTaggedChord(1.0, tagUpper(upper), 0.65, 0.60, 0.008, false);
+      pushTaggedChord(1.5, tagUpper(upper.slice(-2)), 0.42, 0.52, 0.008, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.78, 0.72, 0.01, false);
+      pushTaggedChord(3.0, tagUpper(upper), 0.58, 0.64, 0.008, false);
+      pushTaggedChord(3.5, tagWithBass(upper.slice(0, 2)), 0.42, 0.50, 0.008, false);
+    }
+  } else if (style === 'pop_groove') {
+    // Pop Trầm Ấm / Pulse (rất hợp Piano Pop Trầm Ấm: bass ấm nâng đỡ + rải nốt trên tạo chiều sâu)
+    if (isTurnaround) {
+      pushEvent(bass, 0.0, 2.35, 0.76, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.90, 0.72, 0.018, false);
+      pushEvent(vTop, 1.0, 0.50, 0.56, 'chord');
+      pushEvent(v2,   1.5, 0.45, 0.52, 'chord');
+      pushEvent(warmHighBass, 2.0, 0.88, 0.62, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.82, 0.68, 0.016, false);
+      pushEvent(passingBass, 3.0, 0.92, 0.66, 'bass');
+      pushEvent(vOct, 3.0, 0.48, 0.58, 'chord');
+      pushEvent(vTop, 3.5, 0.46, 0.52, 'chord');
+    } else if (isOddBar) {
+      pushEvent(bass, 0.0, 2.25, 0.74, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 1.30, 0.70, 0.022, false);
+      pushEvent(vOct, 1.5, 0.48, 0.52, 'chord');
+      pushEvent(bass, 2.0, 1.85, 0.68, 'bass');
+      pushTaggedChord(2.5, tagUpper([v0, v1, v2]), 0.85, 0.62, 0.018, false);
+      pushEvent(vTop, 3.5, 0.46, 0.50, 'chord');
+    } else if (isLiftBar) {
+      pushEvent(bass, 0.0, 1.85, 0.78, 'bass');
+      pushTaggedChord(0.0, tagUpper([...upper, vOct]), 0.85, 0.74, 0.016, false);
+      pushEvent(v1,   1.0, 0.46, 0.54, 'chord');
+      pushEvent(vTop, 1.5, 0.46, 0.58, 'chord');
+      pushEvent(bass, 2.0, 1.85, 0.72, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.82, 0.68, 0.014, false);
+      pushEvent(v2,   3.0, 0.45, 0.56, 'chord');
+      pushEvent(vOct, 3.5, 0.45, 0.54, 'chord');
+    } else {
+      pushEvent(bass, 0.0, 2.35, 0.76, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.92, 0.72, 0.020, false);
+      pushEvent(v1,   1.0, 0.45, 0.52, 'chord');
+      pushEvent(v2,   1.5, 0.45, 0.56, 'chord');
+      pushEvent(bass, 2.0, 1.85, 0.70, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.88, 0.66, 0.016, false);
+      pushEvent(vTop, 3.0, 0.48, 0.54, 'chord');
+      pushEvent(v1,   3.5, 0.44, 0.46, 'chord');
+    }
+  } else if (style === 'lofi') {
+    // Chill / Lo-Fi Rải Chậm sâu lắng
+    const topShimmer = isOddBar ? vOct : vTop;
+    pushEvent(bass, 0.0, isTurnaround ? 2.9 : 3.7, 0.70, 'bass');
+    pushTaggedChord(0.0, tagUpper(upper), 1.65, 0.64, 0.048, false);
+    pushEvent(topShimmer, 1.75, 0.65, 0.46, 'chord');
+    if (isTurnaround) {
+      pushEvent(passingBass, 3.0, 0.92, 0.56, 'bass');
+      pushTaggedChord(3.0, tagUpper([v1, vTop]), 0.85, 0.52, 0.032, true);
+    } else {
+      pushTaggedChord(isOddBar ? 2.5 : 2.75, tagUpper(upper), 1.15, 0.56, 0.036, isOddBar);
+    }
   } else if (style === 'strum') {
-    // Quạt chả Acoustic: D - D U - U D U với độ rải dây đàn lên/xuống
-    pushTaggedChord(0.0, tagWithBass(upper), 0.92, 0.80, 0.022, false); // Down
-    pushTaggedChord(1.0, tagWithBass([v0, v1]), 0.42, 0.60, 0.016, false); // Down palm-muted feel
-    pushTaggedChord(1.5, tagUpper(upper), 0.48, 0.55, 0.018, true); // Up
-    pushTaggedChord(2.5, tagWithBass(upper), 0.52, 0.64, 0.018, true); // Up
-    pushTaggedChord(3.0, tagWithBass(upper), 0.48, 0.74, 0.020, false); // Down
-    pushTaggedChord(3.5, tagUpper(upper), 0.42, 0.52, 0.016, true); // Up
+    // Quạt chả Acoustic: biến thể accent giữa các ô + passing bass cuối vòng
+    pushTaggedChord(0.0, tagWithBass(upper), 0.92, 0.80, 0.022, false);
+    pushTaggedChord(1.0, tagWithBass([v0, v1]), 0.42, 0.60, 0.016, false);
+    pushTaggedChord(1.5, tagUpper(isLiftBar ? [...upper, vOct] : upper), 0.48, 0.56, 0.018, true);
+    if (isTurnaround) {
+      pushTaggedChord(2.5, tagWithBass(upper), 0.48, 0.64, 0.018, true);
+      pushEvent(passingBass, 3.0, 0.48, 0.66, 'bass');
+      pushTaggedChord(3.0, tagUpper(upper), 0.45, 0.72, 0.020, false);
+      pushTaggedChord(3.5, tagUpper([v1, vTop]), 0.42, 0.54, 0.016, true);
+    } else if (isOddBar) {
+      pushTaggedChord(2.5, tagUpper(upper), 0.48, 0.60, 0.018, true);
+      pushTaggedChord(3.0, tagWithBass(upper), 0.52, 0.74, 0.020, false);
+      pushTaggedChord(3.5, tagUpper([v2, vOct]), 0.42, 0.52, 0.016, true);
+    } else {
+      pushTaggedChord(2.5, tagWithBass(upper), 0.52, 0.64, 0.018, true);
+      pushTaggedChord(3.0, tagWithBass(upper), 0.48, 0.74, 0.020, false);
+      pushTaggedChord(3.5, tagUpper(upper), 0.42, 0.52, 0.016, true);
+    }
   } else {
     pushTaggedChord(0.0, tagWithBass(upper), 3.8, 0.72, 0.02, false);
   }

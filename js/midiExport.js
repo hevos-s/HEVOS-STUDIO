@@ -13,15 +13,16 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=21';
+} from './audioEngine.js?v=22';
 
 export const MIDI_PPQ = 480;
 
 const CHORD_GM_PROGRAM = {
-  rhodes: 4,  // Electric Piano 1 (Rhodes)
-  piano: 0,   // Acoustic Grand Piano
-  pad: 89,    // Pad 2 (Warm)
-  guitar: 24, // Acoustic Guitar (Nylon)
+  rhodes: 4,       // Electric Piano 1 (Rhodes)
+  modern_piano: 0, // Acoustic Grand / Warm Pop Piano
+  piano: 0,        // Acoustic Grand Piano
+  pad: 89,         // Pad 2 (Warm)
+  guitar: 24,      // Acoustic Guitar (Nylon)
 };
 
 const BASS_GM_PROGRAM = 33; // Electric Bass (Finger)
