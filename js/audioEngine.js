@@ -1,9 +1,9 @@
-﻿// ============================================================================
+// ============================================================================
 // audioEngine.js — Bộ máy Âm thanh Tone.js: Đệm hợp âm có hồn, 4 chất tiếng,
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=19';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=20';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;

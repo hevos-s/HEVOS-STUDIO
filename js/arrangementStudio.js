@@ -1349,6 +1349,7 @@ export class ArrangementStudio {
     suggestedTrackIndex = null,
     suggestedStartSec = null,
     autoPlace = false,
+    autoPlaceIfEmpty = false,
   }) {
     if (!audioBuffer || audioBuffer.length === 0) return null;
     const meta = SOURCE_META[sourceType] || SOURCE_META.file;
@@ -1376,6 +1377,18 @@ export class ArrangementStudio {
 
     if (autoPlace) {
       this.placeClipOnTimeline(clip.id);
+    } else if (autoPlaceIfEmpty) {
+      const targetTrackIndex = clamp(
+        clip.suggestedTrackIndex ?? 0,
+        0,
+        this.tracks.length - 1
+      );
+      const hasPlacementOnTrack = this.placements.some(
+        (p) => p.trackIndex === targetTrackIndex
+      );
+      if (!hasPlacementOnTrack) {
+        this.placeClipOnTimeline(clip.id, { trackIndex: targetTrackIndex });
+      }
     }
     return clip;
   }

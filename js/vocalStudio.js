@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // vocalStudio.js — Phòng Thu Vocal Độc Lập Hoàn Toàn (Standalone Vocal Booth)
 // - Tách biệt 100% khỏi Tone.Transport của mục Sáng tác Beat
 // - Track 0: Nhập Beat MP3/WAV/M4A/OGG từ máy, Thu mộc tự do, hoặc Render Beat từ Sáng tác
@@ -13,18 +13,18 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=19';
+} from './theory.js?v=20';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=19';
-import { applyAutoTunePcm } from './autoTune.js?v=19';
+} from './pitchToMidi.js?v=20';
+import { applyAutoTunePcm } from './autoTune.js?v=20';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=19';
+} from './audioEngine.js?v=20';
 
 export const VOCAL_PRESETS = [
   {
@@ -636,7 +636,8 @@ export class VocalStudio {
       }
       return;
     }
-    let pcm = tr.autoTune.enabled && tr.tunedPcm ? tr.tunedPcm : tr.rawPcm;
+    const hasValidTuned = tr.tunedPcm && typeof tr.tunedPcm.length === 'number' && tr.tunedPcm.length > 0;
+    let pcm = tr.autoTune.enabled && hasValidTuned ? tr.tunedPcm : tr.rawPcm;
     if (tr.fx.gate > -59) {
       pcm = applyNoiseGatePcm(pcm, tr.sampleRate, tr.fx.gate);
     }
@@ -817,6 +818,13 @@ export class VocalStudio {
             </button>
             <button type="button" class="btn btn-indigo-outline vs-export-btn" id="vs-btn-export-vocal-only" title="Chỉ xuất riêng phần giọng hát đã qua Auto-Tune & FX thành file .WAV">
               <span id="vs-export-vocal-label">Xuất Riêng Giọng (.wav)</span>
+            </button>
+            <button type="button" class="btn btn-amber-outline vs-export-btn vs-send-vocal-top-btn" id="vs-btn-send-vocal-arr" title="Kết xuất toàn bộ giọng hát đã qua Auto-Tune & FX rồi đưa sang Kho Clip & Timeline của Dựng bài & Master">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+              <span id="vs-send-vocal-arr-label">Gửi Vocal sang Dựng bài →</span>
             </button>
           </div>
         </div>
@@ -1174,6 +1182,11 @@ export class VocalStudio {
     const btnExportVocal = q('#vs-btn-export-vocal-only');
     if (btnExportVocal) {
       btnExportVocal.addEventListener('click', () => this.exportWavMixdown({ vocalOnly: true }));
+    }
+
+    const btnSendVocalArr = q('#vs-btn-send-vocal-arr');
+    if (btnSendVocalArr) {
+      btnSendVocalArr.addEventListener('click', () => this._sendAllVocalsToArrangement());
     }
 
     // --- 2. Track 0: Nguồn Beat Nền ---
@@ -2587,7 +2600,12 @@ export class VocalStudio {
   // ============================================================================
   // Xuất Bản Thu Hoàn Chỉnh (.WAV) & Xuất Riêng Giọng (.WAV) bằng OfflineAudioContext
   // ============================================================================
-  async _renderOfflineMixBuffer({ includeBeat = true, onlyTrackId = null } = {}) {
+  async _renderOfflineMixBuffer({
+    includeBeat = true,
+    onlyTrackId = null,
+    respectVolume = false,
+    applyStartTrim = false,
+  } = {}) {
     const hasLead = Boolean(this.tracks.lead.rawPcm);
     const hasBack = Boolean(this.tracks.backing.rawPcm);
     const hasBeat = Boolean(this.beatTrack.audioBuffer);
@@ -2670,7 +2688,7 @@ export class VocalStudio {
       buf.getChannelData(0).set(tr.playablePcm);
 
       const graph = this._buildTrackFxGraph(offline, tid, masterLimiter);
-      if (onlyTrackId) {
+      if (onlyTrackId && !respectVolume) {
         graph.trackOutGain.gain.value = 1.0;
       }
 
@@ -2679,7 +2697,19 @@ export class VocalStudio {
       src.connect(graph.input);
 
       if (onlyTrackId) {
-        src.start(0, 0);
+        if (applyStartTrim) {
+          const clipStartSec = (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000;
+          if (clipStartSec < 0) {
+            const trimIn = Math.min(buf.duration - 0.02, Math.abs(clipStartSec));
+            if (trimIn < buf.duration - 0.02) {
+              src.start(0, trimIn);
+            }
+          } else {
+            src.start(0, 0);
+          }
+        } else {
+          src.start(0, 0);
+        }
       } else {
         const clipStartSec = (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000;
         if (clipStartSec >= 0) {
@@ -2811,6 +2841,31 @@ export class VocalStudio {
     });
   }
 
+  async _renderVocalClipPayload(trackId) {
+    const tr = this.tracks[trackId];
+    if (!tr || !tr.rawPcm) return null;
+    const rendered = await this._renderOfflineMixBuffer({
+      includeBeat: false,
+      onlyTrackId: trackId,
+      respectVolume: true,
+      applyStartTrim: true,
+    });
+    if (!rendered) return null;
+    const startSec = Math.max(0, (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000);
+    const baseName = trackId === 'lead' ? 'Vocal Chính · Phòng thu' : 'Hát Bè · Phòng thu';
+    const fxSuffix = tr.autoTune.enabled ? ' (Auto-Tune · FX)' : '';
+    return {
+      name: `${baseName}${fxSuffix}`,
+      sourceType: 'vocal',
+      audioBuffer: rendered,
+      bpm: this.vocalBpm,
+      color: trackId === 'lead' ? '#EC4899' : '#F472B6',
+      suggestedTrackIndex: trackId === 'lead' ? 2 : 3,
+      suggestedStartSec: startSec,
+      autoPlaceIfEmpty: true,
+    };
+  }
+
   async _sendVocalTrackToArrangement(trackId) {
     const tr = this.tracks[trackId];
     if (!tr || !tr.rawPcm) {
@@ -2822,30 +2877,56 @@ export class VocalStudio {
     const btn = this.root ? this.root.querySelector(`#vs-send-arr-${trackId}`) : null;
     if (btn) btn.disabled = true;
     try {
-      const rendered = await this._renderOfflineMixBuffer({
-        includeBeat: false,
-        onlyTrackId: trackId,
-      });
-      if (!rendered) {
+      const payload = await this._renderVocalClipPayload(trackId);
+      if (!payload) {
         this._toast('Không thể kết xuất kênh giọng hát.', true);
         return;
       }
-      const startSec = Math.max(0, (tr.startTimeSec || 0) + (tr.syncOffsetMs || 0) / 1000);
-      const label = `${tr.shortTitle}${tr.autoTune.enabled ? ' (Auto-Tune · FX)' : ' (FX)'}`;
-      this.cb.onSendToArrangement({
-        name: label,
-        sourceType: 'vocal',
-        audioBuffer: rendered,
-        bpm: this.vocalBpm,
-        color: trackId === 'lead' ? '#EC4899' : '#F472B6',
-        suggestedTrackIndex: trackId === 'lead' ? 2 : 3,
-        suggestedStartSec: startSec,
-      });
+      this.cb.onSendToArrangement(payload);
     } catch (err) {
       console.error('[HEVOS Vocal Send Arrangement]', err);
       this._toast('Lỗi khi gửi Vocal sang Dựng bài & Master.', true);
     } finally {
       if (btn) btn.disabled = !Boolean(tr.rawPcm);
+    }
+  }
+
+  async _sendAllVocalsToArrangement() {
+    if (this.recordPhase !== 'idle') {
+      this._toast('Vui lòng dừng thu âm trước khi gửi Vocal sang Dựng bài.', true);
+      return;
+    }
+    const populatedIds = ['lead', 'backing'].filter(
+      (tid) => this.tracks[tid] && this.tracks[tid].rawPcm
+    );
+    if (populatedIds.length === 0) {
+      this._toast('Chưa có dữ liệu Vocal ở Track 1 hoặc Track 2 để gửi sang Dựng bài.', true);
+      return;
+    }
+    if (!this.cb.onSendToArrangement) return;
+
+    const topBtn = this.root ? this.root.querySelector('#vs-btn-send-vocal-arr') : null;
+    const topLabel = this.root ? this.root.querySelector('#vs-send-vocal-arr-label') : null;
+    if (topBtn) topBtn.disabled = true;
+    if (topLabel) topLabel.textContent = 'Đang kết xuất...';
+
+    try {
+      const payloads = [];
+      for (const tid of populatedIds) {
+        const payload = await this._renderVocalClipPayload(tid);
+        if (payload) payloads.push(payload);
+      }
+      if (payloads.length === 0) {
+        this._toast('Không thể kết xuất dữ liệu Vocal.', true);
+        return;
+      }
+      this.cb.onSendToArrangement(payloads);
+    } catch (err) {
+      console.error('[HEVOS Vocal Batch Send Arrangement]', err);
+      this._toast('Lỗi khi gửi Vocal sang Dựng bài & Master.', true);
+    } finally {
+      if (topBtn) topBtn.disabled = false;
+      if (topLabel) topLabel.textContent = 'Gửi Vocal sang Dựng bài →';
     }
   }
 
@@ -3033,8 +3114,19 @@ export class VocalStudio {
       badge.classList.toggle('has-at', has && tr.autoTune.enabled);
     }
     if (dlBtn) dlBtn.disabled = !has;
-    if (sendArrBtn) sendArrBtn.disabled = !has;
+    if (sendArrBtn) {
+      sendArrBtn.disabled = !has;
+      sendArrBtn.classList.toggle('is-ready', has);
+    }
     if (delBtn) delBtn.disabled = !has;
+    const topSendArrBtn = this.root.querySelector('#vs-btn-send-vocal-arr');
+    if (topSendArrBtn) {
+      const anyHas = Boolean(
+        (this.tracks.lead && this.tracks.lead.rawPcm) ||
+        (this.tracks.backing && this.tracks.backing.rawPcm)
+      );
+      topSendArrBtn.classList.toggle('is-ready', anyHas);
+    }
     if (emptyEl) {
       emptyEl.classList.toggle(
         'hidden',

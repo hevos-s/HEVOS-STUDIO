@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // app.js — Điều phối trung tâm HEVOS STUDIO
 // Quản lý trạng thái, đồng bộ Desktop & Mobile, Thu Mic -> MIDI, Lưu & Xuất
 // ============================================================================
@@ -12,26 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=19';
+} from './theory.js?v=20';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=19';
+} from './audioEngine.js?v=20';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=19';
-import { PianoRoll } from './pianoRoll.js?v=19';
-import { downloadMidiFile } from './midiExport.js?v=19';
-import { MusicTrainer } from './musicTrainer.js?v=19';
-import { VocalStudio } from './vocalStudio.js?v=19';
-import { ArrangementStudio } from './arrangementStudio.js?v=19';
-import { createAmbientScene } from './ambientScene.js?v=19';
+} from './pitchToMidi.js?v=20';
+import { PianoRoll } from './pianoRoll.js?v=20';
+import { downloadMidiFile } from './midiExport.js?v=20';
+import { MusicTrainer } from './musicTrainer.js?v=20';
+import { VocalStudio } from './vocalStudio.js?v=20';
+import { ArrangementStudio } from './arrangementStudio.js?v=20';
+import { createAmbientScene } from './ambientScene.js?v=20';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -144,6 +144,12 @@ const el = {
   btnRedo: $('#btn-redo'),
   btnZoomOut: $('#btn-zoom-out'),
   btnZoomIn: $('#btn-zoom-in'),
+  btnPrFullscreen: $('#btn-pr-fullscreen'),
+  btnPrFullscreenLabel: $('#btn-pr-fullscreen-label'),
+  btnPrFsPlay: $('#btn-pr-fs-play'),
+  btnPrFsPlayLabel: $('#btn-pr-fs-play-label'),
+  btnPrFsRecord: $('#btn-pr-fs-record'),
+  btnPrFsRecordLabel: $('#btn-pr-fs-record-label'),
   btnClearMelody: $('#btn-clear-melody'),
   btnClearMelodyLabel: $('#btn-clear-melody-label'),
 
@@ -189,16 +195,36 @@ const el = {
 // ============================================================================
 // Tiện ích UI (Toast, Sync Audio, Voicings)
 // ============================================================================
-function showToast(message, isError = false) {
+function showToast(message, isError = false, options = null) {
   const div = document.createElement('div');
-  div.className = `toast${isError ? ' toast-error' : ''}`;
-  div.textContent = message;
+  const hasAction = Boolean(options && options.actionLabel && typeof options.onAction === 'function');
+  div.className = `toast${isError ? ' toast-error' : ''}${hasAction ? ' has-action' : ''}`;
+
+  if (hasAction) {
+    const msgSpan = document.createElement('span');
+    msgSpan.textContent = message;
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'toast-action-btn';
+    actionBtn.textContent = options.actionLabel;
+    actionBtn.addEventListener('click', () => {
+      options.onAction();
+      div.remove();
+    });
+    div.appendChild(msgSpan);
+    div.appendChild(actionBtn);
+  } else {
+    div.textContent = message;
+  }
+
   el.toastContainer.appendChild(div);
+  const durationMs = hasAction ? 4800 : 3000;
   setTimeout(() => {
+    if (!div.isConnected) return;
     div.style.opacity = '0';
     div.style.transition = 'opacity 0.25s ease';
     setTimeout(() => div.remove(), 260);
-  }, 3000);
+  }, durationMs);
 }
 
 function recomputeVoicings() {
@@ -428,17 +454,29 @@ function updatePlayButtonUI() {
   const playing = audioEngine.isPlaying;
   el.btnPlay.classList.toggle('playing', playing);
   el.btnPlayLabel.textContent = playing ? 'Dừng' : 'Phát';
+  if (el.btnPrFsPlay) {
+    el.btnPrFsPlay.classList.toggle('playing', playing);
+  }
+  if (el.btnPrFsPlayLabel) {
+    el.btnPrFsPlayLabel.textContent = playing ? 'Dừng' : 'Phát';
+  }
 }
 
 function updateRecordButtonUI() {
   const isRec = state.recordPhase !== 'idle';
   el.btnRecord.classList.toggle('recording', isRec);
+  let label = 'Ngân nga MIDI';
   if (state.recordPhase === 'countin') {
-    el.btnRecordLabel.textContent = 'Đếm vào...';
+    label = 'Đếm vào...';
   } else if (state.recordPhase === 'recording') {
-    el.btnRecordLabel.textContent = 'Dừng thu';
-  } else {
-    el.btnRecordLabel.textContent = 'Ngân nga MIDI';
+    label = 'Dừng thu';
+  }
+  el.btnRecordLabel.textContent = label;
+  if (el.btnPrFsRecord) {
+    el.btnPrFsRecord.classList.toggle('recording', isRec);
+  }
+  if (el.btnPrFsRecordLabel) {
+    el.btnPrFsRecordLabel.textContent = label;
   }
 }
 
@@ -1161,6 +1199,40 @@ function deleteProjectById(id) {
 // ============================================================================
 // Điều hướng 5 Phân khu (Tổng quan | Sáng tác Beat | Phòng thu Vocal | Dựng bài & Master | Học nhạc lý)
 // ============================================================================
+let isPianoRollFullscreen = false;
+
+function setPianoRollFullscreen(open) {
+  const next = Boolean(open);
+  if (isPianoRollFullscreen === next && !el.melodyWorkspaceView) return;
+  isPianoRollFullscreen = next;
+
+  if (el.melodyWorkspaceView) {
+    el.melodyWorkspaceView.classList.toggle('piano-roll-fullscreen', next);
+  }
+  document.body.classList.toggle('piano-roll-open', next);
+
+  if (el.btnPrFullscreen) {
+    el.btnPrFullscreen.classList.toggle('active', next);
+    el.btnPrFullscreen.setAttribute('aria-pressed', String(next));
+    el.btnPrFullscreen.title = next
+      ? 'Thu nhỏ về giao diện chuẩn (Esc)'
+      : 'Phóng to Piano Roll toàn màn hình';
+  }
+  if (el.btnPrFullscreenLabel) {
+    el.btnPrFullscreenLabel.textContent = next ? 'Thu nhỏ' : 'Toàn màn hình';
+  }
+
+  if (pianoRoll) {
+    pianoRoll.resize(true);
+    requestAnimationFrame(() => {
+      if (pianoRoll) pianoRoll.resize(true);
+    });
+    setTimeout(() => {
+      if (pianoRoll) pianoRoll.resize(false);
+    }, 60);
+  }
+}
+
 function setAppSection(section) {
   const valid = ['hub', 'studio', 'vocal', 'arrangement', 'trainer'];
   const target = valid.includes(section) ? section : 'hub';
@@ -1182,6 +1254,11 @@ function setAppSection(section) {
     musicTrainer.stopActiveSession();
   }
   audioEngine.stopTrainerAudio();
+
+  if (target !== 'studio' && isPianoRollFullscreen) {
+    setPianoRollFullscreen(false);
+  }
+
   stopPlayheadWatch();
 
   state.activeSection = target;
@@ -1261,6 +1338,10 @@ function setMobileTab(tabName) {
   $$('.nav-tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.tabTarget === target);
   });
+
+  if (target !== 'melody' && isPianoRollFullscreen) {
+    setPianoRollFullscreen(false);
+  }
 
   if (target === 'melody') {
     if (pianoRoll) {
@@ -1527,6 +1608,17 @@ function bindEvents() {
   el.btnRedo.addEventListener('click', performRedo);
   el.btnZoomOut.addEventListener('click', () => pianoRoll.setZoom(pianoRoll.zoom - 0.22));
   el.btnZoomIn.addEventListener('click', () => pianoRoll.setZoom(pianoRoll.zoom + 0.22));
+  if (el.btnPrFullscreen) {
+    el.btnPrFullscreen.addEventListener('click', () => {
+      setPianoRollFullscreen(!isPianoRollFullscreen);
+    });
+  }
+  if (el.btnPrFsPlay) {
+    el.btnPrFsPlay.addEventListener('click', () => el.btnPlay.click());
+  }
+  if (el.btnPrFsRecord) {
+    el.btnPrFsRecord.addEventListener('click', () => el.btnRecord.click());
+  }
 
   el.btnClearMelody.addEventListener('click', () => {
     const count = state.melodyNotes.length;
@@ -1675,6 +1767,11 @@ function bindEvents() {
     if (state.activeSection !== 'studio') return;
 
     if (e.key === 'Escape') {
+      if (isPianoRollFullscreen) {
+        e.preventDefault();
+        setPianoRollFullscreen(false);
+        return;
+      }
       closeChordPicker();
       el.projectsModal.classList.add('hidden');
       return;
@@ -1862,10 +1959,18 @@ function init() {
         }
       },
       onSendToArrangement: (clipPayload) => {
-        if (!arrangementStudio) return;
-        const clip = arrangementStudio.importClip(clipPayload);
-        if (clip) {
-          showToast(`Đã gửi "${clip.name}" sang Kho Clip Dựng bài & Master!`);
+        if (!arrangementStudio || !clipPayload) return;
+        const payloads = Array.isArray(clipPayload) ? clipPayload : [clipPayload];
+        const importedClips = [];
+        for (const item of payloads) {
+          const clip = arrangementStudio.importClip(item);
+          if (clip) importedClips.push(clip);
+        }
+        if (importedClips.length > 0) {
+          showToast('Đã gửi Vocal sang Dựng bài & Master!', false, {
+            actionLabel: 'Mở Dựng bài →',
+            onAction: () => setAppSection('arrangement'),
+          });
         }
       },
       showToast,

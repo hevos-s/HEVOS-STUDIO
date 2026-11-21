@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // pianoRoll.js — Bảng chấm MIDI trực quan 60fps trên HTML5 Canvas
 // Hỗ trợ tô sáng Âm giai & Hợp âm theo từng ô nhịp, Chuột & Cảm ứng (Pointer)
 // ============================================================================
@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=19';
+} from './theory.js?v=20';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6
@@ -136,12 +136,28 @@ export class PianoRoll {
   }
 
   centerOnVocalRange() {
-    // Đưa vùng C4–C5 (MIDI 60–72) vào chính giữa khung nhìn
-    const targetMidMidi = 66; // F#4
+    // Tự động căn giữa quãng nốt hiện có, hoặc C4–C5 (MIDI 66) nếu chưa có nốt
+    let targetMidMidi = 66; // F#4
+    if (Array.isArray(this.notes) && this.notes.length > 0) {
+      let minMidi = Infinity;
+      let maxMidi = -Infinity;
+      for (const note of this.notes) {
+        if (typeof note.midi === 'number') {
+          if (note.midi < minMidi) minMidi = note.midi;
+          if (note.midi > maxMidi) maxMidi = note.midi;
+        }
+      }
+      if (Number.isFinite(minMidi) && Number.isFinite(maxMidi)) {
+        targetMidMidi = (minMidi + maxMidi) / 2;
+      }
+    }
     const rowIdx = MAX_MIDI - targetMidMidi;
     const gridH = Math.max(100, this.height - this.headerHeight);
     this.scrollY = rowIdx * this.rowHeight - gridH * 0.48;
     this._clampScroll();
+    if (this.isActive && !document.hidden && this.width >= 10 && this.height >= 10) {
+      this.draw();
+    }
     this.requestDraw();
   }
 
@@ -253,14 +269,19 @@ export class PianoRoll {
       this.height = Math.floor(rect.height);
       this.dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      this.canvas.width = Math.floor(this.width * this.dpr);
-      this.canvas.height = Math.floor(this.height * this.dpr);
+      const nextCanvasW = Math.floor(this.width * this.dpr);
+      const nextCanvasH = Math.floor(this.height * this.dpr);
+      if (this.canvas.width !== nextCanvasW) this.canvas.width = nextCanvasW;
+      if (this.canvas.height !== nextCanvasH) this.canvas.height = nextCanvasH;
 
       if (!this._initializedScroll) {
         this._initializedScroll = true;
         this.centerOnVocalRange();
       } else {
         this._clampScroll();
+      }
+      if (this.isActive && !document.hidden && this.width >= 10 && this.height >= 10) {
+        this.draw();
       }
       this.requestDraw();
     };
@@ -276,8 +297,11 @@ export class PianoRoll {
     requestAnimationFrame(this._updateSize);
   }
 
-  resize() {
+  resize(recenter = false) {
     if (this._updateSize) this._updateSize();
+    if (recenter && this.height >= 10) {
+      this.centerOnVocalRange();
+    }
     if (this.isActive && !document.hidden && this.width >= 10 && this.height >= 10) {
       this.draw();
     }

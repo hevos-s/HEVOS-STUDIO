@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // midiExport.js — Bộ mã hóa nhị phân chuẩn Standard MIDI File Format 1 (.mid)
 // Xuất trọn bộ beat đa track (tối đa 4 track chuẩn General MIDI, PPQ = 480):
 //   Track 1: Chords (Hop am)    — Channel 0
@@ -13,7 +13,7 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=19';
+} from './audioEngine.js?v=20';
 
 export const MIDI_PPQ = 480;
 

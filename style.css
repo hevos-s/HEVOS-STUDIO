@@ -1285,6 +1285,132 @@ button {
   -webkit-user-select: none;
 }
 
+/* Piano Roll Fullscreen Mode */
+.pr-fs-transport {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.btn-fs-mini {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+#btn-pr-fs-play .icon-stop {
+  display: none;
+}
+
+#btn-pr-fs-play.playing {
+  background: var(--cyan-soft);
+  color: #67E8F9;
+  border: 1px solid rgba(34, 211, 238, 0.5);
+  box-shadow: none;
+}
+
+#btn-pr-fs-play.playing .icon-play {
+  display: none;
+}
+
+#btn-pr-fs-play.playing .icon-stop {
+  display: block;
+}
+
+#btn-pr-fs-record.recording {
+  background: var(--rec-red);
+  color: #FAFAFA;
+  border-color: var(--rec-red);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.55);
+}
+
+#btn-pr-fs-record.recording .rec-dot {
+  background: #FAFAFA;
+  animation: pulseDot 0.9s infinite;
+}
+
+.btn-pr-fs-toggle {
+  height: 28px;
+  padding: 0 10px;
+  gap: 5px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-pr-fs-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.btn-pr-fs-toggle .icon-collapse {
+  display: none;
+}
+
+.btn-pr-fs-toggle.active {
+  background: rgba(34, 211, 238, 0.16);
+  border-color: rgba(34, 211, 238, 0.55);
+  color: #67E8F9;
+}
+
+.btn-pr-fs-toggle.active .icon-expand {
+  display: none;
+}
+
+.btn-pr-fs-toggle.active .icon-collapse {
+  display: block;
+}
+
+body.piano-roll-open {
+  overflow: hidden;
+}
+
+body.piano-roll-open .toast-container {
+  z-index: 10050;
+  bottom: 20px;
+}
+
+#melody-workspace-view.piano-roll-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100dvh;
+  background: #090A10;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+
+#melody-workspace-view.piano-roll-fullscreen .pr-fs-transport {
+  display: inline-flex;
+}
+
+#melody-workspace-view.piano-roll-fullscreen .melody-toolbar {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px 12px 0 0;
+}
+
+#melody-workspace-view.piano-roll-fullscreen .piano-roll-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+}
+
 /* Count-in Overlay */
 .countin-overlay {
   position: absolute;
@@ -1836,6 +1962,36 @@ button {
 .toast.toast-error {
   border-color: var(--rec-red);
   color: #FECACA;
+}
+
+.toast.has-action {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 24px));
+}
+
+.toast-action-btn {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.16);
+  color: #67E8F9;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.toast-action-btn:hover {
+  background: rgba(34, 211, 238, 0.28);
+  color: #FAFAFA;
 }
 
 @keyframes toastIn {
@@ -3322,6 +3478,26 @@ button {
   height: 30px;
   padding: 0 11px;
   font-size: 11.5px;
+}
+
+.vs-export-btn.btn-amber-outline,
+.vs-send-arr-btn {
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.vs-export-btn.btn-amber-outline.is-ready,
+.vs-send-arr-btn.is-ready {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(251, 191, 36, 0.72);
+  color: #FDE68A;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.24);
+}
+
+.vs-export-btn.btn-amber-outline.is-ready:hover,
+.vs-send-arr-btn.is-ready:hover {
+  background: rgba(245, 158, 11, 0.34);
+  border-color: rgba(251, 191, 36, 0.92);
+  color: #FEF3C7;
 }
 
 /* Track 0 — Nguồn Beat Nền */
@@ -5425,7 +5601,9 @@ button {
     flex-shrink: 0;
   }
 
-  .btn-clear-midi {
+  .btn-clear-midi,
+  .btn-pr-fs-toggle,
+  .btn-fs-mini {
     min-height: 36px;
     height: 36px;
     padding: 0 10px;
@@ -5523,6 +5701,23 @@ button {
     width: 100%;
     min-height: 320px;
     height: 48vh;
+  }
+
+  body.piano-roll-open .global-nav,
+  body.piano-roll-open .mobile-bottom-nav {
+    display: none !important;
+  }
+
+  #melody-workspace-view.piano-roll-fullscreen {
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    height: 100dvh;
+  }
+
+  #melody-workspace-view.piano-roll-fullscreen .piano-roll-wrap,
+  #melody-workspace-view.piano-roll-fullscreen #piano-roll-canvas {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
   }
 
   .mixer-channels {
@@ -5777,6 +5972,10 @@ button {
   .vs-export-btn {
     min-height: 44px;
     justify-content: center;
+  }
+
+  .vs-send-vocal-top-btn {
+    grid-column: 1 / -1;
   }
 
   .vs-beat-source-btns {

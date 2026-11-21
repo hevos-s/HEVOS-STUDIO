@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=19" />
+  <link rel="stylesheet" href="./style.css?v=20" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh) & Three.js (Không gian 3D trong ambientScene.js) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
@@ -462,6 +462,21 @@
         <div id="melody-workspace-view" class="workspace-view">
           <!-- Thanh công cụ Piano Roll -->
           <div class="melody-toolbar">
+          <div id="pr-fullscreen-transport" class="pr-fs-transport" aria-label="Điều khiển nhanh toàn màn hình">
+            <button id="btn-pr-fs-play" class="btn btn-cyan-solid btn-xs btn-fs-mini" type="button" title="Phát / Dừng (Space)">
+              <svg class="icon-play" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="6,4 20,12 6,20" />
+              </svg>
+              <svg class="icon-stop" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+              <span id="btn-pr-fs-play-label">Phát</span>
+            </button>
+            <button id="btn-pr-fs-record" class="btn btn-rose-outline btn-xs btn-fs-mini" type="button" title="Thu âm ngân nga thành MIDI">
+              <span class="rec-dot"></span>
+              <span id="btn-pr-fs-record-label">Ngân nga MIDI</span>
+            </button>
+          </div>
           <div class="toolbar-cluster">
             <span class="section-dot dot-cyan desktop-only"></span>
             <div class="seg-group mode-group" id="pr-mode-group" role="group" aria-label="Chế độ tương tác bảng MIDI">
@@ -531,6 +546,21 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
                   <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
+              </button>
+              <button id="btn-pr-fullscreen" class="btn btn-pr-fs-toggle" type="button" aria-pressed="false" title="Phóng to Piano Roll toàn màn hình">
+                <svg class="icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+                <svg class="icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+                <span id="btn-pr-fullscreen-label">Toàn màn hình</span>
               </button>
               <button id="btn-clear-melody" class="btn btn-rose-outline btn-xs btn-clear-midi" type="button" disabled title="Xóa toàn bộ nốt MIDI (có thể Hoàn tác)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -851,6 +881,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=19"></script>
+  <script type="module" src="./js/app.js?v=20"></script>
 </body>
 </html>
