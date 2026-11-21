@@ -12,26 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=16';
+} from './theory.js?v=17';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=16';
+} from './audioEngine.js?v=17';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=16';
-import { PianoRoll } from './pianoRoll.js?v=16';
-import { downloadMidiFile } from './midiExport.js?v=16';
-import { MusicTrainer } from './musicTrainer.js?v=16';
-import { VocalStudio } from './vocalStudio.js?v=16';
-import { ArrangementStudio } from './arrangementStudio.js?v=16';
-import { createAmbientScene } from './ambientScene.js?v=16';
+} from './pitchToMidi.js?v=17';
+import { PianoRoll } from './pianoRoll.js?v=17';
+import { downloadMidiFile } from './midiExport.js?v=17';
+import { MusicTrainer } from './musicTrainer.js?v=17';
+import { VocalStudio } from './vocalStudio.js?v=17';
+import { ArrangementStudio } from './arrangementStudio.js?v=17';
+import { createAmbientScene } from './ambientScene.js?v=17';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -658,7 +658,7 @@ async function updateEditingBarChord(partial) {
   // Nghe thử hợp âm vừa chọn ngay lập tức
   if (state.voicedChords[idx]) {
     try {
-      if (ambientScene) ambientScene.wake(1800);
+      if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
       await audioEngine.auditionChord(state.voicedChords[idx]);
     } catch (_) {}
   }
@@ -758,7 +758,7 @@ async function toggleVocalRecording() {
   el.vocalStatusBadge.textContent = `Đang thu · Ô 1/${state.totalBars}`;
 
   await audioEngine.play(true, { muteVocal: true });
-  if (ambientScene) ambientScene.wake(8000);
+  if (ambientScene && state.activeSection === 'hub') ambientScene.wake(8000);
   vocalCapture.beginCapture();
   updatePlayButtonUI();
   pianoRoll.startAnimationLoop();
@@ -1345,7 +1345,7 @@ function bindEvents() {
         await audioEngine.play(false);
         if (ambientScene) {
           ambientScene.connectTone();
-          ambientScene.wake(8000);
+          if (state.activeSection === 'hub') ambientScene.wake(8000);
         }
         updatePlayButtonUI();
         pianoRoll.startAnimationLoop();
@@ -1489,7 +1489,7 @@ function bindEvents() {
     const idx = state.editingBarIndex;
     if (idx !== null && state.voicedChords[idx]) {
       try {
-        if (ambientScene) ambientScene.wake(1800);
+        if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
         await audioEngine.auditionChord(state.voicedChords[idx]);
       } catch (_) {}
     }
@@ -1797,7 +1797,7 @@ function init() {
       state.selectedNoteId = noteId;
     },
     onAudition: (midi) => {
-      if (ambientScene) ambientScene.wake(1800);
+      if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
       audioEngine.auditionMelodyNote(midi).catch(() => {});
     },
   });
@@ -1815,7 +1815,7 @@ function init() {
     arrangementStudio = new ArrangementStudio(el.arrangementRoot, {
       getStudioBpm: () => state.bpm,
       onPlaybackStateChange: (playing) => {
-        if (playing && ambientScene) {
+        if (playing && ambientScene && state.activeSection === 'hub') {
           ambientScene.wake();
         }
       },
@@ -1857,7 +1857,7 @@ function init() {
         syncMixerUI();
       },
       onPlaybackStateChange: (playing) => {
-        if (playing && ambientScene) {
+        if (playing && ambientScene && state.activeSection === 'hub') {
           ambientScene.wake(8000);
         }
       },

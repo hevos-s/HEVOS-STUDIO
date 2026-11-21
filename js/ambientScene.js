@@ -1,8 +1,8 @@
 // ============================================================================
-// ambientScene.js — Không gian Âm thanh 3D Retina 60fps & Tương tác Nhạc (Three.js)
-// - Kết xuất gốc 60fps mượt mà (tự tạm dừng khi chuyển tab qua visibilitychange)
-// - Độ phân giải cao Retina (pixelRatio <= 2) & khử răng cưa antialias: true
-// - Tự động dịu ánh sáng & lùi nhẹ ra xa khi vào các phòng làm việc
+// ambientScene.js — Không gian Âm thanh 3D Retina 60fps & Tương tác Ngữ cảnh (Three.js)
+// - Tổng quan (Hub): Kết xuất gốc 60fps mượt mà (tạm dừng khi ẩn tab qua visibilitychange)
+// - Các phòng làm việc (Sáng tác / Vocal / Dựng bài / Học nhạc): Đóng băng 0fps (cancelAnimationFrame)
+//   và chỉ giữ 1 khung hình nền tĩnh cân đối dịu nhẹ (chỉ vẽ lại 1 lần khi resize)
 // ============================================================================
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
@@ -87,6 +87,8 @@ export class AmbientAudioScene {
     this._lastFrameMs = 0;
     this._elapsed = 0;
     this._paused = false;
+    this.isFrozen = false;
+    this._staticRenderCount = 0;
     this._dirtyRender = true;
 
     if (!this.canvas || typeof window === 'undefined') return;
@@ -126,6 +128,7 @@ export class AmbientAudioScene {
       this._lastFrameMs = performance.now();
       this._renderOnce();
       this._startLoop();
+      this._syncCanvasDataset();
     } catch (err) {
       console.warn('[HEVOS STUDIO 3D Fallback]', err);
       this.supported = false;
@@ -366,6 +369,7 @@ export class AmbientAudioScene {
     window.addEventListener('resize', this._onResize, { passive: true });
 
     this._onPointerMove = (e) => {
+      if (this.section !== 'hub') return;
       if (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen') return;
       const w = Math.max(1, window.innerWidth);
       const h = Math.max(1, window.innerHeight);
@@ -384,9 +388,11 @@ export class AmbientAudioScene {
       this._paused = Boolean(document.hidden);
       if (this._paused) {
         this._stopLoop();
-      } else {
+      } else if (this.section === 'hub') {
         this._lastFrameMs = performance.now();
         this._startLoop();
+      } else {
+        this._stopLoop();
       }
     };
     document.addEventListener('visibilitychange', this._onVisibility);
@@ -409,8 +415,13 @@ export class AmbientAudioScene {
   resize() {
     if (!this.supported || !this.renderer || !this.camera) return;
     this._applySize();
-    this.setSection(this.section);
-    this._renderOnce();
+    if (this.section === 'hub') {
+      this.targetCamZ = this.isMobile ? 7.8 : 6.2;
+      this._renderOnce();
+      if (!this._paused) this._startLoop();
+    } else {
+      this._renderStaticBackdrop();
+    }
   }
 
   /**
@@ -455,21 +466,93 @@ export class AmbientAudioScene {
     this.externalEnergyProvider = typeof fn === 'function' ? fn : null;
   }
 
+  _syncCanvasDataset() {
+    if (!this.canvas || !this.canvas.dataset) return;
+    this.canvas.dataset.sceneMode = this.section === 'hub' ? 'active-60fps' : 'static-0fps';
+    this.canvas.dataset.rafRunning = String(this._rafId !== null);
+    this.canvas.dataset.staticRenders = String(this._staticRenderCount);
+  }
+
+  _renderStaticBackdrop() {
+    this._stopLoop();
+    if (!this.supported || !this.renderer || !this.scene || !this.camera) return;
+
+    const staticCamZ = this.isMobile ? 10.8 : 9.6;
+    const intensity = 0.30;
+    this.currentIntensity = intensity;
+    this.targetIntensity = intensity;
+    this.currentOrbScale = 0.84;
+    this.targetOrbScale = 0.84;
+    this.currentCamZ = staticCamZ;
+    this.targetCamZ = staticCamZ;
+    this.pointer.tx = 0;
+    this.pointer.ty = 0;
+    this.pointer.x = 0;
+    this.pointer.y = 0;
+    this.scrollTarget = 0;
+    this.scrollCurrent = 0;
+    this.audio.energy = 0;
+    this.audio.bass = 0;
+    this.audio.mid = 0;
+    this.audio.high = 0;
+
+    this.camera.position.set(0, 0, staticCamZ);
+    this.camera.lookAt(0, 0, 0);
+
+    this.orbGroup.position.set(0, 0, 0);
+    this.orbGroup.scale.setScalar(0.84);
+    this.orbGroup.rotation.set(0.18, 0.42, 0.04);
+    this.wireMesh.rotation.y = 0.35;
+
+    this.coreMat.opacity = THREE.MathUtils.clamp(0.42 + intensity * 0.52, 0.25, 0.96);
+    this.wireMat.opacity = THREE.MathUtils.clamp(0.40 * intensity, 0.14, 0.88);
+
+    for (let rIdx = 0; rIdx < this.orbitRings.length; rIdx++) {
+      const ring = this.orbitRings[rIdx];
+      ring.group.rotation.set(ring.cfg.tiltX, ring.cfg.tiltY, ring.cfg.tiltZ);
+      ring.group.scale.setScalar(1);
+      ring.lineMat.opacity = THREE.MathUtils.clamp(ring.cfg.opacity * intensity, 0.12, 0.92);
+      ring.dotMat.opacity = THREE.MathUtils.clamp(ring.cfg.opacity * 1.1 * intensity, 0.15, 0.98);
+    }
+
+    for (let i = 0; i < this.auraSprites.length; i++) {
+      const sp = this.auraSprites[i];
+      sp.material.opacity = sp.userData.baseOpacity * (0.28 + intensity * 0.74);
+      const s = sp.userData.baseScale;
+      sp.scale.set(s, s, 1);
+    }
+
+    if (this.dustPoints && this.dustMat) {
+      this.dustPoints.rotation.set(0, 0.25, 0);
+      this.dustMat.opacity = THREE.MathUtils.clamp(0.35 + intensity * 0.55, 0.18, 0.95);
+    }
+
+    this.renderer.render(this.scene, this.camera);
+    this._staticRenderCount += 1;
+    this._dirtyRender = false;
+    this._syncCanvasDataset();
+  }
+
   setSection(section) {
     this.section = section || 'hub';
     const isHub = this.section === 'hub';
-    this.targetIntensity = isHub ? 1.0 : 0.30;
-    this.targetCamZ = isHub
-      ? (this.isMobile ? 7.8 : 6.2)
-      : (this.isMobile ? 10.8 : 9.6);
-    this.targetOrbScale = isHub ? 1.0 : 0.84;
-    this._updateScrollTarget();
-    this._dirtyRender = true;
-    this._startLoop();
+    this.isFrozen = !isHub;
+    if (isHub) {
+      this.targetIntensity = 1.0;
+      this.targetCamZ = this.isMobile ? 7.8 : 6.2;
+      this.targetOrbScale = 1.0;
+      this._updateScrollTarget();
+      this._dirtyRender = true;
+      this._startLoop();
+      this._syncCanvasDataset();
+    } else {
+      this._stopLoop();
+      this._renderStaticBackdrop();
+    }
   }
 
   wake() {
-    if (!this.supported || this.disposed || this._paused) return;
+    if (!this.supported || this.disposed || this._paused || this.section !== 'hub') return;
     this._startLoop();
   }
 
@@ -642,7 +725,7 @@ export class AmbientAudioScene {
 
   _tick = (now) => {
     this._rafId = null;
-    if (this.disposed || this._paused) return;
+    if (this.disposed || this._paused || this.section !== 'hub') return;
 
     const deltaMs = now - this._lastFrameMs;
     const dt = Math.min(0.05, Math.max(0.001, deltaMs / 1000));
@@ -653,9 +736,10 @@ export class AmbientAudioScene {
   };
 
   _startLoop() {
-    if (!this.supported || this.disposed || this._paused || this._rafId !== null) return;
+    if (!this.supported || this.disposed || this._paused || this.section !== 'hub' || this._rafId !== null) return;
     this._lastFrameMs = performance.now();
     this._rafId = requestAnimationFrame(this._tick);
+    this._syncCanvasDataset();
   }
 
   _stopLoop() {
@@ -663,6 +747,7 @@ export class AmbientAudioScene {
       cancelAnimationFrame(this._rafId);
       this._rafId = null;
     }
+    this._syncCanvasDataset();
   }
 
   dispose() {

@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // autoTune.js — Bộ máy Auto-Tune Khóa Tông TD-PSOLA Động Sample Rate (44.1 / 48 / 96 kHz)
 // - Không hardcode 44100: tự động co giãn cửa sổ, bước nhảy & bán kính Pitch Marks theo sampleRate thực tế
 // - Gộp trung bình sạch Stereo Mic PC khi phân tích & tổng hợp đồng pha L/R chuẩn xác từng sample (1:1)
@@ -8,8 +8,8 @@
 //   (tại phụ âm gió/lặng đặt T1 = T0 & neo 1:1 tránh comb-filter, triệt tiêu 100% rè/click)
 // ============================================================================
 
-import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=16';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=16';
+import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=17';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=17';
 
 const yieldUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
