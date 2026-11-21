@@ -13,18 +13,22 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=20';
+} from './theory.js?v=21';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=20';
-import { applyAutoTunePcm } from './autoTune.js?v=20';
+} from './pitchToMidi.js?v=21';
+import {
+  applyAutoTunePcm,
+  detectKeyFromAudioBuffer,
+  detectKeyFromPcm,
+} from './autoTune.js?v=21';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=20';
+} from './audioEngine.js?v=21';
 
 export const VOCAL_PRESETS = [
   {
@@ -364,8 +368,10 @@ export class VocalStudio {
     this.playCtx = null;
 
     // Cài đặt độc lập của Phòng thu Vocal
-    this.vocalKeyPc = 3; // Eb mặc định
+    this.vocalKeyPc = 3; // Eb mặc định (sẽ tự cập nhật khi Tự dò tông phát hiện giọng hoặc Beat)
     this.vocalScaleType = 'major';
+    this.autoKeyEnabled = true;
+    this.lastDetectedKeyInfo = null;
     this.vocalBpm = 90;
     this.countInEnabled = true;
     this.metronomeEnabled = false;
@@ -565,6 +571,26 @@ export class VocalStudio {
     const keyName = pcToNoteName(this.vocalKeyPc, preferFlats);
     const scaleObj = SCALES[this.vocalScaleType] || SCALES.major;
     return `${keyName} ${scaleObj.shortLabel}`;
+  }
+
+  _getKeyBadgeText() {
+    const base = this._getKeyScaleText();
+    if (!this.autoKeyEnabled) {
+      return `Khóa tông (Thủ công): ${base}`;
+    }
+    const info = this.lastDetectedKeyInfo;
+    if (info && info.source === 'vocal') {
+      const conf = info.confidence ? ` · ~${info.confidence}%` : '';
+      return `Tự dò từ giọng: ${base}${conf}`;
+    }
+    if (info && info.source === 'beat') {
+      const conf = info.confidence ? ` · ~${info.confidence}%` : '';
+      return `Tự dò từ Beat: ${base}${conf}`;
+    }
+    if (info && info.source === 'studio') {
+      return `Khớp Beat Sáng tác: ${base}`;
+    }
+    return `Tự dò tông (Sẵn sàng) · Tạm: ${base}`;
   }
 
   /**
@@ -794,10 +820,14 @@ export class VocalStudio {
             </label>
           </div>
 
-          <!-- Bộ chọn Tông & Âm giai độc lập cho Auto-Tune -->
+          <!-- Bộ chọn Tông & Âm giai (hỗ trợ Tự dò tông thông minh từ Giọng / Beat) -->
           <div class="vs-key-cluster">
+            <button type="button" class="toggle-pill vs-auto-key-btn active" id="vs-btn-auto-key" aria-pressed="true" title="Tự động nhận diện Tông & Âm giai từ file Beat nền hoặc trực tiếp từ giọng hát mộc của bạn">
+              <span class="auto-key-dot" aria-hidden="true"></span>
+              <span>Tự dò tông</span>
+            </button>
             <label class="inline-field">
-              <span class="inline-label">Tông Beat</span>
+              <span class="inline-label">Tông</span>
               <select id="vs-key-select" class="studio-select compact" aria-label="Tông khóa Auto-Tune">${keyOptionsHtml}</select>
             </label>
             <select id="vs-scale-select" class="studio-select compact" aria-label="Âm giai khóa Auto-Tune">
@@ -942,7 +972,7 @@ export class VocalStudio {
             </label>
             <div class="vs-at-titles">
               <span class="vs-at-name">Auto-Tune (Chỉnh phô giọng hát)</span>
-              <span class="vs-at-key-badge" id="vs-at-key-badge">Khóa tông: ${this._getKeyScaleText()}</span>
+              <span class="vs-at-key-badge" id="vs-at-key-badge">${this._getKeyBadgeText()}</span>
             </div>
           </div>
 
@@ -1157,10 +1187,27 @@ export class VocalStudio {
       });
     }
 
+    const btnAutoKey = q('#vs-btn-auto-key');
+    if (btnAutoKey) {
+      btnAutoKey.addEventListener('click', () => {
+        this.autoKeyEnabled = !this.autoKeyEnabled;
+        if (this.autoKeyEnabled) {
+          this._runSmartKeyDetection({ notify: true });
+        } else {
+          this.lastDetectedKeyInfo = null;
+          this._syncAutoKeyUI();
+          this._toast(`Đã chuyển sang Khóa tông thủ công (${this._getKeyScaleText()}).`);
+        }
+      });
+    }
+
     const keySel = q('#vs-key-select');
     if (keySel) {
       keySel.addEventListener('change', (e) => {
         this.vocalKeyPc = Number(e.target.value) || 0;
+        this.autoKeyEnabled = false;
+        this.lastDetectedKeyInfo = null;
+        this._syncAutoKeyUI();
         this._onVocalKeyOrScaleChanged();
       });
     }
@@ -1169,6 +1216,9 @@ export class VocalStudio {
     if (scaleSel) {
       scaleSel.addEventListener('change', (e) => {
         this.vocalScaleType = e.target.value === 'minor' ? 'minor' : 'major';
+        this.autoKeyEnabled = false;
+        this.lastDetectedKeyInfo = null;
+        this._syncAutoKeyUI();
         this._onVocalKeyOrScaleChanged();
       });
     }
@@ -1530,15 +1580,112 @@ export class VocalStudio {
     if (this.cb.showToast) this.cb.showToast(msg, isError);
   }
 
+  _syncAutoKeyUI() {
+    if (!this.root) return;
+    const btnAutoKey = this.root.querySelector('#vs-btn-auto-key');
+    const keySel = this.root.querySelector('#vs-key-select');
+    const scaleSel = this.root.querySelector('#vs-scale-select');
+    const atKey = this.root.querySelector('#vs-at-key-badge');
+
+    if (btnAutoKey) {
+      btnAutoKey.classList.toggle('active', Boolean(this.autoKeyEnabled));
+      btnAutoKey.setAttribute('aria-pressed', String(Boolean(this.autoKeyEnabled)));
+    }
+    if (keySel) keySel.value = String(this.vocalKeyPc);
+    if (scaleSel) scaleSel.value = this.vocalScaleType;
+    if (atKey) atKey.textContent = this._getKeyBadgeText();
+  }
+
   _onVocalKeyOrScaleChanged() {
-    const atKey = this.root && this.root.querySelector('#vs-at-key-badge');
-    if (atKey) atKey.textContent = `Khóa tông: ${this._getKeyScaleText()}`;
+    this._syncAutoKeyUI();
     ['lead', 'backing'].forEach((tid) => {
       const tr = this.tracks[tid];
       if (tr.rawPcm && tr.autoTune.enabled) {
         this._scheduleAutoTuneReprocess(tid, 50);
       }
     });
+  }
+
+  async _runSmartKeyDetection({ notify = false } = {}) {
+    // 1. Nếu đang có Beat ngoài (MP3/WAV) -> phân tích Chromagram Beat nền
+    if (this.beatTrack.audioBuffer && this.beatTrack.sourceType === 'file') {
+      const det = detectKeyFromAudioBuffer(this.beatTrack.audioBuffer);
+      if (det) {
+        this.vocalKeyPc = det.keyPc;
+        this.vocalScaleType = det.scaleType;
+        this.lastDetectedKeyInfo = {
+          source: 'beat',
+          confidence: det.confidence,
+          label: det.label,
+        };
+        this._syncAutoKeyUI();
+        ['lead', 'backing'].forEach((tid) => {
+          if (this.tracks[tid].rawPcm && this.tracks[tid].autoTune.enabled) {
+            this._scheduleAutoTuneReprocess(tid, 30);
+          }
+        });
+        if (notify) {
+          this._toast(`Tự dò từ Beat nền: ${det.label} (~${det.confidence}%).`);
+        }
+        return det;
+      }
+    }
+
+    // 2. Nếu đang dùng Beat từ mục Sáng tác -> đồng bộ tông chính xác từ Sáng tác Beat
+    if (this.beatTrack.audioBuffer && this.beatTrack.sourceType === 'studio' && this.cb.getStudioBeatContext) {
+      const ctxInfo = this.cb.getStudioBeatContext();
+      if (ctxInfo) {
+        this.vocalKeyPc = ctxInfo.keyPc ?? this.vocalKeyPc;
+        this.vocalScaleType = ctxInfo.scaleType === 'minor' ? 'minor' : 'major';
+        this.lastDetectedKeyInfo = {
+          source: 'studio',
+          confidence: 100,
+          label: this._getKeyScaleText(),
+        };
+        this._syncAutoKeyUI();
+        if (notify) {
+          this._toast(`Khớp tông Beat Sáng tác: ${this._getKeyScaleText()}.`);
+        }
+        return { keyPc: this.vocalKeyPc, scaleType: this.vocalScaleType, confidence: 100 };
+      }
+    }
+
+    // 3. Nếu đang Thu mộc -> dò trực tiếp ngay lập tức từ bản thu giọng (ưu tiên Track 1 Chính, fallback Track 2 Bè)
+    const primaryTid = this.tracks.lead.rawPcm ? 'lead' : this.tracks.backing.rawPcm ? 'backing' : null;
+    if (primaryTid) {
+      const tr = this.tracks[primaryTid];
+      const det = detectKeyFromPcm(tr.rawPcm, tr.sampleRate);
+      if (det) {
+        this.vocalKeyPc = det.keyPc;
+        this.vocalScaleType = det.scaleType;
+        this.lastDetectedKeyInfo = {
+          source: 'vocal',
+          confidence: det.confidence,
+          label: det.label,
+        };
+        this._syncAutoKeyUI();
+        if (tr.autoTune.enabled) {
+          await this._processTrackAutoTune(primaryTid, notify);
+          if (primaryTid === 'lead' && this.tracks.backing.rawPcm && this.tracks.backing.autoTune.enabled) {
+            this._processTrackAutoTune('backing', false);
+          }
+        } else if (notify) {
+          this._toast(`Tự dò từ giọng hát: ${det.label} (~${det.confidence}%).`);
+        }
+        return this.lastDetectedKeyInfo;
+      }
+      if (tr.autoTune.enabled) {
+        await this._processTrackAutoTune(primaryTid, notify);
+      }
+      return this.lastDetectedKeyInfo;
+    }
+
+    this.lastDetectedKeyInfo = null;
+    this._syncAutoKeyUI();
+    if (notify) {
+      this._toast('Đã bật Tự dò tông — sẽ tự nhận diện ngay khi bạn thu giọng hoặc nạp Beat!');
+    }
+    return null;
   }
 
   // ============================================================================
@@ -1552,7 +1699,28 @@ export class VocalStudio {
       const arrBuf = await file.arrayBuffer();
       const decoded = await ctx.decodeAudioData(arrBuf);
       this._setBeatAudioBuffer(decoded, file.name, 'file');
-      this._toast(`Đã nạp Beat nền "${file.name}" (${formatTimeClock(decoded.duration)})!`);
+
+      let detectMsg = '';
+      if (this.autoKeyEnabled) {
+        const det = detectKeyFromAudioBuffer(decoded);
+        if (det) {
+          this.vocalKeyPc = det.keyPc;
+          this.vocalScaleType = det.scaleType;
+          this.lastDetectedKeyInfo = {
+            source: 'beat',
+            confidence: det.confidence,
+            label: det.label,
+          };
+          this._syncAutoKeyUI();
+          ['lead', 'backing'].forEach((tid) => {
+            if (this.tracks[tid].rawPcm && this.tracks[tid].autoTune.enabled) {
+              this._scheduleAutoTuneReprocess(tid, 40);
+            }
+          });
+          detectMsg = ` · Tự dò tông: ${det.label} (~${det.confidence}%)`;
+        }
+      }
+      this._toast(`Đã nạp Beat nền "${file.name}" (${formatTimeClock(decoded.duration)})${detectMsg}!`);
     } catch (err) {
       console.error('[HEVOS VocalStudio Beat Decode]', err);
       this._toast('Không thể giải mã file âm thanh này. Hãy thử file .mp3, .wav, .m4a hoặc .ogg.', true);
@@ -1610,10 +1778,21 @@ export class VocalStudio {
     this.beatTrack.muted = false;
     this.beatTrack.solo = false;
     this.currentTimeSec = 0;
+    if (this.autoKeyEnabled) {
+      this.lastDetectedKeyInfo = null;
+    }
     this._syncBeatTrackUI();
+    this._syncAutoKeyUI();
     this._syncMuteSoloButtons();
     this._updateTimelineClockUI();
     this.resizeAndRedraw();
+    if (this.autoKeyEnabled) {
+      ['lead', 'backing'].forEach((tid) => {
+        if (this.tracks[tid].rawPcm && this.tracks[tid].autoTune.enabled) {
+          this._scheduleAutoTuneReprocess(tid, 60);
+        }
+      });
+    }
     if (notify) {
       this._toast('Đã chuyển sang chế độ Thu mộc tự do (không giới hạn thời gian).');
     }
@@ -1796,6 +1975,11 @@ export class VocalStudio {
       const keyLabel = `${pcToNoteName(this.vocalKeyPc, preferFlats)} ${
         this.vocalScaleType === 'minor' ? 'Thứ' : 'Trưởng'
       }`;
+      this.lastDetectedKeyInfo = {
+        source: 'studio',
+        confidence: 100,
+        label: keyLabel,
+      };
       const beatTitle = `Beat Sáng tác (${keyLabel} · ${bpm} BPM · ${totalBars * loops} ô)`;
 
       this._setBeatAudioBuffer(rendered, beatTitle, 'studio');
@@ -2504,7 +2688,24 @@ export class VocalStudio {
     this._rebuildPlayablePcm(trackId);
 
     this.currentTimeSec = tr.startTimeSec;
-    await this._processTrackAutoTune(trackId, false);
+    if (tr.autoTune.enabled) {
+      await this._processTrackAutoTune(trackId, false);
+    } else {
+      await this._processTrackAutoTune(trackId, false);
+      if (this.autoKeyEnabled && !this.beatTrack.audioBuffer && (!this.lastDetectedKeyInfo || trackId === 'lead')) {
+        const det = detectKeyFromPcm(tr.rawPcm, tr.sampleRate);
+        if (det) {
+          this.vocalKeyPc = det.keyPc;
+          this.vocalScaleType = det.scaleType;
+          this.lastDetectedKeyInfo = {
+            source: 'vocal',
+            confidence: det.confidence,
+            label: det.label,
+          };
+          this._syncAutoKeyUI();
+        }
+      }
+    }
     this._updateTimelineClockUI();
     this._redrawAllWaveforms();
     this._toast(
@@ -2543,14 +2744,37 @@ export class VocalStudio {
     tr.isProcessingAt = true;
     this._syncAtStatusUI();
 
+    const hasBeatAudio = Boolean(this.beatTrack.audioBuffer);
+    const shouldDetectFromVocal =
+      this.autoKeyEnabled &&
+      !hasBeatAudio &&
+      (trackId === 'lead' ||
+        !this.tracks.lead.rawPcm ||
+        !this.lastDetectedKeyInfo ||
+        this.lastDetectedKeyInfo.source !== 'vocal');
+
     try {
       const res = await applyAutoTunePcm(tr.rawPcm, tr.sampleRate, {
         keyPc: this.vocalKeyPc,
         scaleType: this.vocalScaleType,
         strength: tr.autoTune.strength / 100,
+        autoDetectKey: shouldDetectFromVocal,
       });
 
       if (tr.atReqId !== reqId) return;
+
+      let didDetectVocalKey = false;
+      if (shouldDetectFromVocal && res.stats && res.stats.detectedKeyConfidence !== null) {
+        this.vocalKeyPc = res.stats.detectedKeyPc;
+        this.vocalScaleType = res.stats.detectedScaleType;
+        this.lastDetectedKeyInfo = {
+          source: 'vocal',
+          confidence: res.stats.detectedKeyConfidence,
+          label: res.stats.detectedKeyLabel,
+        };
+        didDetectVocalKey = true;
+        this._syncAutoKeyUI();
+      }
 
       tr.tunedPcm = res.pcmData;
       tr.isProcessingAt = false;
@@ -2564,7 +2788,8 @@ export class VocalStudio {
       if (notifyAtDone) {
         const cents =
           res.stats && res.stats.avgCorrectionCents ? ` (~${res.stats.avgCorrectionCents} cents)` : '';
-        this._toast(`Đã khóa tông Auto-Tune ${this._getKeyScaleText()}${cents}.`);
+        const prefix = didDetectVocalKey ? 'Đã tự dò giọng & khóa tông Auto-Tune' : 'Đã khóa tông Auto-Tune';
+        this._toast(`${prefix} ${this._getKeyScaleText()}${cents}.`);
       }
     } catch (err) {
       if (tr.atReqId !== reqId) return;
@@ -3176,12 +3401,9 @@ export class VocalStudio {
     const tr = this.tracks[this.activeTrackId];
 
     // Đồng bộ Key/Scale/BPM độc lập của Phòng thu
-    const keySel = q('#vs-key-select');
-    const scaleSel = q('#vs-scale-select');
     const bpmInp = q('#vs-bpm-input');
-    if (keySel) keySel.value = String(this.vocalKeyPc);
-    if (scaleSel) scaleSel.value = this.vocalScaleType;
     if (bpmInp) bpmInp.value = String(this.vocalBpm);
+    this._syncAutoKeyUI();
 
     // Card selection & Track pills
     qq('[data-vs-card]').forEach((card) =>
@@ -3211,7 +3433,7 @@ export class VocalStudio {
     if (atEn) atEn.checked = tr.autoTune.enabled;
     if (atStr) atStr.value = String(tr.autoTune.strength);
     if (atStrVal) atStrVal.textContent = `${tr.autoTune.strength}%`;
-    if (atKey) atKey.textContent = `Khóa tông: ${this._getKeyScaleText()}`;
+    if (atKey) atKey.textContent = this._getKeyBadgeText();
     this._syncAtStatusUI();
 
     // Presets

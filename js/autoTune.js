@@ -8,8 +8,19 @@
 //   (tại phụ âm gió/lặng đặt T1 = T0 & neo 1:1 tránh comb-filter, triệt tiêu 100% rè/click)
 // ============================================================================
 
-import { freqToMidi, midiToFreq, snapMidiToScale } from './theory.js?v=20';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=20';
+import {
+  freqToMidi,
+  getScaleSet,
+  midiToFreq,
+  pcToNoteName,
+  shouldPreferFlats,
+  snapMidiToScale,
+} from './theory.js?v=21';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=21';
+
+// Hồ sơ trọng số 12 bán cung Krumhansl-Schmuckler cho giọng Trưởng & Thứ
+const KS_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const KS_MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 
 const yieldUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -406,6 +417,374 @@ export function detectPitchYIN2048(frame, sampleRate, yinThreshold = 0.16) {
 
 export const detectPitchYIN = detectPitchYIN2048;
 
+function pearsonCorr12(hist, profile, shiftPc) {
+  let meanX = 0;
+  let meanY = 0;
+  for (let i = 0; i < 12; i++) {
+    meanX += hist[(i + shiftPc) % 12];
+    meanY += profile[i];
+  }
+  meanX /= 12;
+  meanY /= 12;
+
+  let num = 0;
+  let denX = 0;
+  let denY = 0;
+  for (let i = 0; i < 12; i++) {
+    const dx = hist[(i + shiftPc) % 12] - meanX;
+    const dy = profile[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  return den > 1e-12 ? num / den : 0;
+}
+
+function formatKeyLabel(keyPc, scaleType) {
+  const preferFlats = shouldPreferFlats(keyPc, scaleType);
+  const name = pcToNoteName(keyPc, preferFlats);
+  return `${name} ${scaleType === 'minor' ? 'Thứ' : 'Trưởng'}`;
+}
+
+/**
+ * Tự động nhận diện Tông & Âm giai từ chuỗi khung cao độ giọng hát (12 Trưởng + 12 Thứ)
+ */
+export function detectKeyFromVocalFrames(frames, cleanMidi = null) {
+  if (!frames || frames.length === 0) return null;
+
+  const samples = [];
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i];
+    const m = cleanMidi ? cleanMidi[i] : f.midi;
+    if (!f || !f.voiced || typeof m !== 'number' || !Number.isFinite(m)) continue;
+    const w = clamp(f.rms || 0.02, 0.008, 0.5) * (0.4 + 0.6 * clamp(f.clarity || 0.7, 0, 1));
+    samples.push({ idx: i, midi: m, w });
+  }
+
+  if (samples.length < 6) return null;
+
+  // Ước lượng độ lệch tông tổng thể của người hát (±0.35 bán cung so với A4=440Hz)
+  let bestOffset = 0;
+  let minOffsetErr = Infinity;
+  for (let off = -0.35; off <= 0.3501; off += 0.05) {
+    let err = 0;
+    let wSum = 0;
+    for (let k = 0; k < samples.length; k++) {
+      const m = samples[k].midi - off;
+      const d = m - Math.round(m);
+      err += d * d * samples[k].w;
+      wSum += samples[k].w;
+    }
+    const avgErr = wSum > 0 ? err / wSum : err;
+    if (avgErr < minOffsetErr) {
+      minOffsetErr = avgErr;
+      bestOffset = off;
+    }
+  }
+
+  const chroma = new Float64Array(12);
+  const cadence = new Float64Array(12);
+  let totalWeight = 0;
+  let totalCadence = 0;
+
+  for (let k = 0; k < samples.length; k++) {
+    const cur = samples[k];
+    const adjMidi = cur.midi - bestOffset;
+    const rounded = Math.round(adjMidi);
+    const diff = adjMidi - rounded;
+
+    // Soft-binning Gaussian vào 12 pitch classes để không gãy tại ranh giới bán cung
+    for (let s = -1; s <= 1; s++) {
+      const d = diff - s;
+      const g = Math.exp(-(d * d) / (2 * 0.28 * 0.28));
+      const pc = (((rounded + s) % 12) + 12) % 12;
+      chroma[pc] += cur.w * g;
+    }
+    totalWeight += cur.w;
+
+    // Trọng số kết câu & độ ổn định nốt ngân dài để phân biệt cặp Song song (Major vs Relative Minor)
+    const prevM = k > 0 ? samples[k - 1].midi : adjMidi;
+    const isStable = Math.abs(cur.midi - prevM) < 0.35;
+    const progress = k / Math.max(1, samples.length - 1);
+    const posBoost = progress > 0.72 ? 2.4 : k < 6 ? 1.5 : 1.0;
+    const stabBoost = isStable ? 1.5 : 0.7;
+    const cadW = cur.w * posBoost * stabBoost;
+    const basePc = ((rounded % 12) + 12) % 12;
+    cadence[basePc] += cadW;
+    totalCadence += cadW;
+  }
+
+  if (totalWeight <= 1e-9) return null;
+
+  let chromaSum = 0;
+  for (let pc = 0; pc < 12; pc++) chromaSum += chroma[pc];
+  if (chromaSum > 0) {
+    for (let pc = 0; pc < 12; pc++) chroma[pc] /= chromaSum;
+  }
+  if (totalCadence > 0) {
+    for (let pc = 0; pc < 12; pc++) cadence[pc] /= totalCadence;
+  }
+
+  const candidates = [];
+  for (let pc = 0; pc < 12; pc++) {
+    for (const scaleType of ['major', 'minor']) {
+      const scaleSet = getScaleSet(pc, scaleType);
+
+      let inScaleEnergy = 0;
+      for (let notePc = 0; notePc < 12; notePc++) {
+        if (scaleSet.has(notePc)) inScaleEnergy += chroma[notePc];
+      }
+
+      let qErr = 0;
+      for (let k = 0; k < samples.length; k++) {
+        const adj = samples[k].midi - bestOffset;
+        const target = snapMidiToScale(adj, pc, scaleType, null, 0);
+        const d = adj - target;
+        qErr += d * d * samples[k].w;
+      }
+      const quantFit = clamp(1 - Math.sqrt(qErr / totalWeight) / 0.85, 0, 1);
+
+      const profile = scaleType === 'minor' ? KS_MINOR_PROFILE : KS_MAJOR_PROFILE;
+      const ksNorm = clamp((pearsonCorr12(chroma, profile, pc) + 1) * 0.5, 0, 1);
+
+      const medPc = (pc + (scaleType === 'minor' ? 3 : 4)) % 12;
+      const domPc = (pc + 7) % 12;
+      const cadMatch = clamp((0.60 * cadence[pc] + 0.24 * cadence[domPc] + 0.16 * cadence[medPc]) * 2.6, 0, 1);
+
+      const score = 0.44 * inScaleEnergy + 0.20 * quantFit + 0.24 * ksNorm + 0.12 * cadMatch;
+      candidates.push({
+        keyPc: pc,
+        scaleType,
+        score,
+        inScaleEnergy,
+        ksNorm,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const top1 = candidates[0];
+  const top2 = candidates[1] || top1;
+  const margin = Math.max(0, top1.score - top2.score);
+  const confidence = Math.round(
+    clamp(52 + top1.inScaleEnergy * 28 + top1.ksNorm * 14 + margin * 120, 45, 99)
+  );
+
+  return {
+    keyPc: top1.keyPc,
+    scaleType: top1.scaleType,
+    confidence,
+    tuningOffsetSemis: Number(bestOffset.toFixed(2)),
+    label: formatKeyLabel(top1.keyPc, top1.scaleType),
+  };
+}
+
+/**
+ * Tự động nhận diện Tông & Âm giai từ File Beat nhạc nền (AudioBuffer MP3/WAV) bằng Chromagram + Krumhansl-Schmuckler
+ */
+export function detectKeyFromAudioBuffer(audioBuffer) {
+  if (!audioBuffer || audioBuffer.length < 4096) return null;
+
+  const sr = Math.max(8000, Math.round(audioBuffer.sampleRate || 44100));
+  const len = audioBuffer.length;
+  const chCount = Math.max(1, audioBuffer.numberOfChannels || 1);
+  const ch0 = audioBuffer.getChannelData(0);
+  const ch1 = chCount > 1 ? audioBuffer.getChannelData(1) : ch0;
+
+  // Dùng fftSize = 8192 khi đủ độ dài (~5.4 Hz/bin ở 44.1kHz) để phân tách rạch ròi từng nốt trầm
+  const fftSize = len >= 8192 ? 8192 : 4096;
+  const numSlices = Math.min(36, Math.max(6, Math.floor(len / (sr * 1.2))));
+  const startPos = Math.floor(len * 0.02);
+  const endPos = Math.max(startPos + fftSize, Math.floor(len * 0.94) - fftSize);
+  const span = Math.max(1, endPos - startPos);
+
+  const hann = new Float64Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)));
+  }
+
+  const re = new Float64Array(fftSize);
+  const im = new Float64Array(fftSize);
+  const mag = new Float64Array(fftSize >> 1);
+  const chroma = new Float64Array(12);
+  const bassChroma = new Float64Array(12);
+  let activeSlices = 0;
+
+  const minBin = Math.max(2, Math.floor((60 * fftSize) / sr));
+  const maxBin = Math.min((fftSize >> 1) - 2, Math.ceil((2200 * fftSize) / sr));
+
+  for (let s = 0; s < numSlices; s++) {
+    const pos = Math.min(
+      len - fftSize,
+      Math.max(0, Math.floor(startPos + (span * s) / Math.max(1, numSlices - 1)))
+    );
+
+    let sliceEnergy = 0;
+    for (let i = 0; i < fftSize; i++) {
+      const m = chCount > 1 ? 0.5 * (ch0[pos + i] + ch1[pos + i]) : ch0[pos + i];
+      const v = Number.isFinite(m) ? m * hann[i] : 0;
+      re[i] = v;
+      im[i] = 0;
+      sliceEnergy += v * v;
+    }
+    if (sliceEnergy / fftSize < 1e-6) continue;
+    activeSlices++;
+
+    fftInPlace(re, im, false);
+    for (let k = minBin - 1; k <= maxBin + 1; k++) {
+      mag[k] = Math.hypot(re[k], im[k]);
+    }
+
+    // Chỉ lấy đỉnh phổ cục bộ + nội suy parabol để triệt tiêu rò rỉ cửa sổ sang bán cung kế bên
+    for (let k = minBin; k <= maxBin; k++) {
+      const m1 = mag[k];
+      if (m1 <= 1e-5 || m1 < mag[k - 1] || m1 < mag[k + 1]) continue;
+
+      const m0 = mag[k - 1];
+      const m2 = mag[k + 1];
+      const denom = 2 * (m0 - 2 * m1 + m2);
+      let kInterp = k;
+      if (Math.abs(denom) > 1e-12) {
+        const delta = clamp((m0 - m2) / denom, -0.5, 0.5);
+        kInterp = k + delta;
+      }
+
+      const freq = (kInterp * sr) / fftSize;
+      const midi = 69 + 12 * Math.log2(freq / 440);
+      const nearest = Math.round(midi);
+      const detune = Math.abs(midi - nearest);
+      if (detune > 0.34) continue;
+
+      const pc = ((nearest % 12) + 12) % 12;
+      const bandWeight = freq < 450 ? 1.35 : freq < 1100 ? 1.0 : 0.55;
+      const toneFocus = 1 - detune * 1.6;
+      const ampW = m1 * bandWeight * Math.max(0.25, toneFocus);
+      chroma[pc] += ampW;
+
+      if (freq < 220) {
+        const anchorPosBoost = s <= 1 || s >= numSlices - 2 ? 1.6 : 1.0;
+        bassChroma[pc] += m1 * anchorPosBoost;
+      }
+    }
+  }
+
+  if (activeSlices === 0) return null;
+
+  let sum = 0;
+  for (let pc = 0; pc < 12; pc++) sum += chroma[pc];
+  if (sum <= 1e-9) return null;
+  for (let pc = 0; pc < 12; pc++) chroma[pc] /= sum;
+
+  let bassSum = 0;
+  for (let pc = 0; pc < 12; pc++) bassSum += bassChroma[pc];
+  if (bassSum > 0) {
+    for (let pc = 0; pc < 12; pc++) bassChroma[pc] /= bassSum;
+  }
+
+  const candidates = [];
+  for (let pc = 0; pc < 12; pc++) {
+    for (const scaleType of ['major', 'minor']) {
+      const profile = scaleType === 'minor' ? KS_MINOR_PROFILE : KS_MAJOR_PROFILE;
+      const corr = pearsonCorr12(chroma, profile, pc);
+      const ksNorm = clamp((corr + 1) * 0.5, 0, 1);
+
+      const scaleSet = getScaleSet(pc, scaleType);
+      let inScale = 0;
+      for (let i = 0; i < 12; i++) {
+        if (scaleSet.has(i)) inScale += chroma[i];
+      }
+
+      const domPc = (pc + 7) % 12;
+      const bassFit = clamp((0.68 * bassChroma[pc] + 0.32 * bassChroma[domPc]) * 2.2, 0, 1);
+      const score = 0.64 * ksNorm + 0.24 * inScale + 0.12 * bassFit;
+      candidates.push({ keyPc: pc, scaleType, score, corr, inScale });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const top1 = candidates[0];
+  const top2 = candidates[1] || top1;
+  const margin = Math.max(0, top1.score - top2.score);
+  const confidence = Math.round(
+    clamp(50 + Math.max(0, top1.corr) * 32 + top1.inScale * 14 + margin * 110, 48, 99)
+  );
+
+  return {
+    keyPc: top1.keyPc,
+    scaleType: top1.scaleType,
+    confidence,
+    label: formatKeyLabel(top1.keyPc, top1.scaleType),
+  };
+}
+
+/**
+ * Dò nhanh Tông & Âm giai trực tiếp từ mảng PCM giọng hát (không tổng hợp PSOLA — rất nhẹ)
+ */
+export function detectKeyFromPcm(pcm, sampleRate = 44100) {
+  if (!pcm || pcm.length < 1024) return null;
+  const sr = Math.max(8000, Math.round(Number(sampleRate) || 44100));
+  const N = pcm.length;
+
+  const windowSize = Math.max(512, Math.round(sr * 0.046));
+  const hopSize = Math.max(128, Math.round(sr * 0.012));
+  if (N < windowSize) return null;
+
+  let dcSum = 0;
+  for (let i = 0; i < N; i++) {
+    const v = pcm[i];
+    if (Number.isFinite(v)) dcSum += v;
+  }
+  const dcMean = dcSum / N;
+  const clean = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = pcm[i];
+    clean[i] = Number.isFinite(v) ? v - dcMean : 0;
+  }
+
+  const bpPcm = zeroPhaseBandpassVocal(clean, sr);
+  const halfWin = windowSize >> 1;
+  const numFrames = Math.max(1, Math.ceil(N / hopSize));
+  const frames = new Array(numFrames);
+  const rmsList = new Float32Array(numFrames);
+
+  for (let i = 0; i < numFrames; i++) {
+    const center = i * hopSize;
+    const winStart = Math.max(0, Math.min(N - windowSize, center - halfWin));
+    const winEnd = Math.min(N, winStart + windowSize);
+    const rms = computeSliceRms(clean, center - hopSize, center + hopSize);
+    const zcrHz = computeZeroCrossingHz(clean, center - hopSize, center + hopSize, sr);
+    rmsList[i] = rms;
+
+    let det = null;
+    if (winEnd - winStart === windowSize && rms >= 0.0028) {
+      det = detectPitchYIN2048(bpPcm.subarray(winStart, winEnd), sr, 0.16);
+    }
+    frames[i] = {
+      rms,
+      zcrHz,
+      rawMidi: det ? freqToMidi(det.freq) : null,
+      clarity: det ? det.clarity : 0,
+      voiced: false,
+      midi: null,
+    };
+  }
+
+  const sortedRms = Array.from(rmsList).sort((a, b) => a - b);
+  const p95Rms = sortedRms[Math.min(sortedRms.length - 1, Math.floor(sortedRms.length * 0.95))] || 0;
+  const voiceGate = Math.max(0.004, p95Rms * 0.045);
+
+  for (let i = 0; i < numFrames; i++) {
+    const f = frames[i];
+    if (f.rms >= voiceGate && f.rawMidi !== null && f.clarity >= 0.70 && f.zcrHz < MAX_VOICED_ZCR_HZ) {
+      f.voiced = true;
+      f.midi = f.rawMidi;
+    }
+  }
+
+  return detectKeyFromVocalFrames(frames);
+}
+
 /**
  * Lõi xử lý Auto-Tune TD-PSOLA chung cho Mono & Stereo (khóa chung đường Pitch Marks toàn bài)
  */
@@ -414,6 +793,7 @@ async function _runAutoTuneChannels(channelArrays, sampleRate, options = {}) {
     keyPc = 0,
     scaleType = 'major',
     strength = 0.65,
+    autoDetectKey = false,
     onProgress = null,
   } = options;
 
@@ -610,6 +990,18 @@ async function _runAutoTuneChannels(channelArrays, sampleRate, options = {}) {
     cleanMidi[i] = win5.length >= 2 ? medianOf(win5) : frames[i].midi;
   }
 
+  // Tự động nhận diện Tông & Âm giai từ chính giọng hát nếu bật chế độ autoDetectKey
+  let activeKeyPc = keyPc;
+  let activeScaleType = scaleType === 'minor' ? 'minor' : 'major';
+  let detectedKey = null;
+  if (autoDetectKey) {
+    detectedKey = detectKeyFromVocalFrames(frames, cleanMidi);
+    if (detectedKey) {
+      activeKeyPc = detectedKey.keyPc;
+      activeScaleType = detectedKey.scaleType;
+    }
+  }
+
   // --- BƯỚC 4: Tách Pitch Trend & Vibrato tự nhiên (4.5–8 Hz) + Trượt Exponential Glide ---
   const trendMidi = new Array(numFrames).fill(null);
   for (let i = 0; i < numFrames; i++) {
@@ -662,7 +1054,7 @@ async function _runAutoTuneChannels(channelArrays, sampleRate, options = {}) {
     f.f0 = clamp(midiToFreq(cur), MIN_F0_HZ, MAX_F0_HZ);
     lastValidF0 = f.f0;
 
-    let chosenScaleMidi = snapMidiToScale(trend, keyPc, scaleType, null, 0);
+    let chosenScaleMidi = snapMidiToScale(trend, activeKeyPc, activeScaleType, null, 0);
     if (prevScaleMidi !== null && chosenScaleMidi !== prevScaleMidi) {
       const dOld = Math.abs(trend - prevScaleMidi);
       const dNew = Math.abs(trend - chosenScaleMidi);
@@ -1038,6 +1430,10 @@ async function _runAutoTuneChannels(channelArrays, sampleRate, options = {}) {
       voicedFrames: voicedCount,
       totalFrames: numFrames,
       avgCorrectionCents: Math.round(correctionSumCents / Math.max(1, voicedCount)),
+      detectedKeyPc: detectedKey ? detectedKey.keyPc : activeKeyPc,
+      detectedScaleType: detectedKey ? detectedKey.scaleType : activeScaleType,
+      detectedKeyConfidence: detectedKey ? detectedKey.confidence : null,
+      detectedKeyLabel: detectedKey ? detectedKey.label : formatKeyLabel(activeKeyPc, activeScaleType),
     },
   };
 }
