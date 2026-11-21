@@ -4,6 +4,8 @@
 // ============================================================================
 
 import {
+  BASIC_MAJOR_CHORDS,
+  BASIC_MINOR_CHORDS,
   CHORD_EXTENSIONS,
   KEY_OPTIONS,
   PROGRESSION_PRESETS,
@@ -12,26 +14,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=22';
+} from './theory.js?v=23';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=22';
+} from './audioEngine.js?v=23';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=22';
-import { PianoRoll } from './pianoRoll.js?v=22';
-import { downloadMidiFile } from './midiExport.js?v=22';
-import { MusicTrainer } from './musicTrainer.js?v=22';
-import { VocalStudio } from './vocalStudio.js?v=22';
-import { ArrangementStudio } from './arrangementStudio.js?v=22';
-import { createAmbientScene } from './ambientScene.js?v=22';
+} from './pitchToMidi.js?v=23';
+import { PianoRoll } from './pianoRoll.js?v=23';
+import { downloadMidiFile } from './midiExport.js?v=23';
+import { MusicTrainer } from './musicTrainer.js?v=23';
+import { VocalStudio } from './vocalStudio.js?v=23';
+import { ArrangementStudio } from './arrangementStudio.js?v=23';
+import { createAmbientScene } from './ambientScene.js?v=23';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -181,6 +183,8 @@ const el = {
   chordModalTitle: $('#chord-modal-title'),
   chordModalPreview: $('#chord-modal-preview'),
   diatonicGrid: $('#diatonic-grid'),
+  basicMajorGrid: $('#basic-major-grid'),
+  basicMinorGrid: $('#basic-minor-grid'),
   extensionPills: $('#extension-pills'),
   btnAuditionModalChord: $('#btn-audition-modal-chord'),
   btnCloseChordModal: $('#btn-close-chord-modal'),
@@ -660,18 +664,46 @@ function renderChordPickerContent() {
   const diatonics = getDiatonicChords(state.keyPc, state.scaleType);
 
   el.chordModalTitle.textContent = `Chọn hợp âm · Ô nhịp ${idx + 1}`;
-  el.chordModalPreview.innerHTML = `Đang chọn: <strong>${currentVoiced.symbol}</strong> (${currentVoiced.roman})`;
+  const notesPreview =
+    currentVoiced && Array.isArray(currentVoiced.rootOrderedLabels)
+      ? ` · [${currentVoiced.rootOrderedLabels.join(' – ')}]`
+      : '';
+  el.chordModalPreview.innerHTML = `Đang chọn: <strong>${currentVoiced.symbol}</strong> (${currentVoiced.roman})${notesPreview}`;
 
   el.diatonicGrid.innerHTML = diatonics
     .map(
       (d) => `
-      <button type="button" class="diatonic-btn${d.degree === currentSpec.degree ? ' selected' : ''}" data-pick-degree="${d.degree}">
+      <button type="button" class="diatonic-btn${!currentSpec.custom && d.degree === currentSpec.degree ? ' selected' : ''}" data-pick-degree="${d.degree}">
         <span class="dia-roman">${d.roman}</span>
         <span class="dia-name">${d.symbol}</span>
       </button>
     `
     )
     .join('');
+
+  if (el.basicMajorGrid) {
+    el.basicMajorGrid.innerHTML = BASIC_MAJOR_CHORDS.map((ch) => {
+      const isSel = currentVoiced && currentVoiced.rootPc === ch.rootPc && currentVoiced.baseQuality === 'maj';
+      return `
+        <button type="button" class="basic-chord-btn${isSel ? ' selected' : ''}" data-pick-basic-root="${ch.rootPc}" data-pick-basic-quality="maj" title="${ch.viName}">
+          <span class="bc-name">${ch.name}</span>
+          <span class="bc-sub">${ch.viName}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  if (el.basicMinorGrid) {
+    el.basicMinorGrid.innerHTML = BASIC_MINOR_CHORDS.map((ch) => {
+      const isSel = currentVoiced && currentVoiced.rootPc === ch.rootPc && currentVoiced.baseQuality === 'min';
+      return `
+        <button type="button" class="basic-chord-btn${isSel ? ' selected' : ''}" data-pick-basic-root="${ch.rootPc}" data-pick-basic-quality="min" title="${ch.viName}">
+          <span class="bc-name">${ch.name}</span>
+          <span class="bc-sub">${ch.viName}</span>
+        </button>
+      `;
+    }).join('');
+  }
 
   el.extensionPills.innerHTML = CHORD_EXTENSIONS.map(
     (ext) => `
@@ -1557,8 +1589,33 @@ function bindEvents() {
   el.diatonicGrid.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-pick-degree]');
     if (!btn) return;
-    updateEditingBarChord({ degree: Number(btn.dataset.pickDegree) });
+    updateEditingBarChord({
+      degree: Number(btn.dataset.pickDegree),
+      custom: false,
+      rootPc: undefined,
+      quality: undefined,
+    });
   });
+
+  const handleBasicChordClick = (e) => {
+    const btn = e.target.closest('[data-pick-basic-root]');
+    if (!btn) return;
+    const rootPc = Number(btn.dataset.pickBasicRoot);
+    const quality = btn.dataset.pickBasicQuality === 'min' ? 'min' : 'maj';
+    const idx = state.editingBarIndex;
+    const curExt = idx !== null && state.chords[idx] ? state.chords[idx].extension : 'triad';
+    let nextExt = curExt || 'triad';
+    if (quality === 'maj' && nextExt === 'm7') nextExt = 'triad';
+    if (quality === 'min' && (nextExt === 'maj7' || nextExt === '7')) nextExt = 'm7';
+    updateEditingBarChord({
+      custom: true,
+      rootPc,
+      quality,
+      extension: nextExt,
+    });
+  };
+  if (el.basicMajorGrid) el.basicMajorGrid.addEventListener('click', handleBasicChordClick);
+  if (el.basicMinorGrid) el.basicMinorGrid.addEventListener('click', handleBasicChordClick);
 
   el.extensionPills.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-pick-ext]');

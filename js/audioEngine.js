@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=22';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=23';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -26,12 +26,16 @@ export const CHORD_TIMBRES = [
 ];
 
 export const CHORD_STYLES = [
-  { id: 'rnb',        label: 'Lơi nhịp R&B / Neo-Soul' },
-  { id: 'pop_groove', label: 'Pop Trầm Ấm / Pulse' },
-  { id: 'pop',        label: 'Đệm Pop Hiện Đại' },
-  { id: 'ballad',     label: 'Rải Ballad' },
-  { id: 'lofi',       label: 'Chill / Lo-Fi Rải Chậm' },
-  { id: 'strum',      label: 'Quạt chả Acoustic' },
+  { id: 'rnb',         label: 'Lơi nhịp R&B / Neo-Soul' },
+  { id: 'pop_groove',  label: 'Pop Trầm Ấm / Pulse' },
+  { id: 'block',       label: 'Block Chord (Bấm cùng lúc · Chắc nhịp)' },
+  { id: 'broken_1357', label: 'Broken Chord / Arpeggio (1-3-5 · 1-3-5-7)' },
+  { id: 'pattern_158', label: 'Rải 1-5-8 (Tay trái rộng · Ballad/Pop)' },
+  { id: 'bass_chord',  label: 'Bass + Chord (Đệm hát Piano chuẩn)' },
+  { id: 'pop',         label: 'Đệm Pop Hiện Đại' },
+  { id: 'ballad',      label: 'Rải Ballad' },
+  { id: 'lofi',        label: 'Chill / Lo-Fi Rải Chậm' },
+  { id: 'strum',       label: 'Quạt chả Acoustic' },
 ];
 
 export const DRUM_PATTERNS = [

@@ -40,13 +40,34 @@ export const SCALES = {
 };
 
 export const CHORD_EXTENSIONS = [
-  { id: 'triad', label: 'Màu gốc', suffix: '' },
-  { id: 'maj7',  label: 'maj7',    suffix: 'maj7' },
-  { id: 'm7',    label: 'm7',      suffix: 'm7' },
-  { id: '7',     label: '7',       suffix: '7' },
-  { id: 'add9',  label: 'add9',    suffix: 'add9' },
-  { id: 'sus2',  label: 'sus2',    suffix: 'sus2' },
-  { id: 'sus4',  label: 'sus4',    suffix: 'sus4' },
+  { id: 'triad', label: '1-3-5 (Gốc)', suffix: '' },
+  { id: 'maj7',  label: 'maj7 (1-3-5-7)', suffix: 'maj7' },
+  { id: 'm7',    label: 'm7 (1-b3-5-b7)', suffix: 'm7' },
+  { id: '7',     label: '7 (1-3-5-b7)', suffix: '7' },
+  { id: 'add9',  label: 'add9', suffix: 'add9' },
+  { id: 'sus2',  label: 'sus2', suffix: 'sus2' },
+  { id: 'sus4',  label: 'sus4', suffix: 'sus4' },
+];
+
+// Đầy đủ 7 hợp âm Trưởng cơ bản (C D E F G A B) và 7 hợp âm Thứ cơ bản (Cm Dm Em Fm Gm Am Bm)
+export const BASIC_MAJOR_CHORDS = [
+  { rootPc: 0,  quality: 'maj', name: 'C',  viName: 'Đô Trưởng' },
+  { rootPc: 2,  quality: 'maj', name: 'D',  viName: 'Rê Trưởng' },
+  { rootPc: 4,  quality: 'maj', name: 'E',  viName: 'Mi Trưởng' },
+  { rootPc: 5,  quality: 'maj', name: 'F',  viName: 'Fa Trưởng' },
+  { rootPc: 7,  quality: 'maj', name: 'G',  viName: 'Sol Trưởng' },
+  { rootPc: 9,  quality: 'maj', name: 'A',  viName: 'La Trưởng' },
+  { rootPc: 11, quality: 'maj', name: 'B',  viName: 'Si Trưởng' },
+];
+
+export const BASIC_MINOR_CHORDS = [
+  { rootPc: 0,  quality: 'min', name: 'Cm', viName: 'Đô Thứ' },
+  { rootPc: 2,  quality: 'min', name: 'Dm', viName: 'Rê Thứ' },
+  { rootPc: 4,  quality: 'min', name: 'Em', viName: 'Mi Thứ' },
+  { rootPc: 5,  quality: 'min', name: 'Fm', viName: 'Fa Thứ' },
+  { rootPc: 7,  quality: 'min', name: 'Gm', viName: 'Sol Thứ' },
+  { rootPc: 9,  quality: 'min', name: 'Am', viName: 'La Thứ' },
+  { rootPc: 11, quality: 'min', name: 'Bm', viName: 'Si Thứ' },
 ];
 
 export function shouldPreferFlats(keyPc, scaleType) {
@@ -153,18 +174,44 @@ export function getDiatonicChords(keyPc, scaleType) {
 }
 
 /**
- * Tính các khoảng bán cung (intervals) và tên hiển thị cho một hợp âm (degree + extension)
+ * Tính các khoảng bán cung (intervals) và tên hiển thị cho một hợp âm (hỗ trợ cả bậc Diatonic lẫn hợp âm Trưởng/Thứ tự do)
  */
 export function resolveChord(chordSpec, keyPc, scaleType) {
   const scale = SCALES[scaleType] || SCALES.major;
   const preferFlats = shouldPreferFlats(keyPc, scaleType);
-  const degree = Math.max(0, Math.min(6, chordSpec.degree ?? 0));
   const ext = chordSpec.extension || 'triad';
+  const isCustom = Boolean(chordSpec && chordSpec.custom && typeof chordSpec.rootPc === 'number');
 
-  const rootPc = (keyPc + scale.intervals[degree]) % 12;
-  const baseQuality = scale.diatonicQualities[degree];
-  const rootName = pcToNoteName(rootPc, preferFlats);
-  const baseRoman = scale.romans[degree];
+  let degree = Math.max(0, Math.min(6, chordSpec.degree ?? 0));
+  let rootPc;
+  let baseQuality;
+  let baseRoman;
+
+  if (isCustom) {
+    rootPc = ((chordSpec.rootPc % 12) + 12) % 12;
+    baseQuality =
+      chordSpec.quality === 'min' ? 'min' : chordSpec.quality === 'dim' ? 'dim' : 'maj';
+    const scaleIdx = scale.intervals.findIndex((iv) => (keyPc + iv) % 12 === rootPc);
+    if (scaleIdx >= 0) {
+      degree = scaleIdx;
+      const rawRom = scale.romans[scaleIdx].replace('°', '');
+      baseRoman = baseQuality === 'min' ? rawRom.toLowerCase() : rawRom.toUpperCase();
+    } else {
+      const semiFromKey = ((rootPc - keyPc) % 12 + 12) % 12;
+      const chromaticMaj = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
+      const r = chromaticMaj[semiFromKey] || 'I';
+      baseRoman = baseQuality === 'min' ? r.toLowerCase() : r;
+    }
+  } else {
+    rootPc = (keyPc + scale.intervals[degree]) % 12;
+    baseQuality = scale.diatonicQualities[degree];
+    baseRoman = scale.romans[degree];
+  }
+
+  const naturalNames = { 0: 'C', 2: 'D', 4: 'E', 5: 'F', 7: 'G', 9: 'A', 11: 'B' };
+  const rootName = isCustom && naturalNames[rootPc]
+    ? naturalNames[rootPc]
+    : pcToNoteName(rootPc, preferFlats);
 
   let intervals;
   let symbol;
@@ -244,6 +291,7 @@ export function resolveChord(chordSpec, keyPc, scaleType) {
 
   return {
     degree,
+    custom: isCustom,
     extension: ext,
     rootPc,
     rootName,
@@ -420,6 +468,11 @@ export function generateVoicedProgression(chords, keyPc, scaleType) {
     }
 
     const bassMidi = computeBassMidi(resolved.rootPc);
+    // Công thức thế gốc 1-3-5 / 1-3-5-7 và công thức 1-5-8 chuẩn nhạc lý
+    const rootBaseMidi = (resolved.rootPc >= 7 ? 48 : 60) + resolved.rootPc;
+    const rootOrderedMidis = resolved.intervals.map((iv) => rootBaseMidi + iv);
+    const fifthInterval = resolved.intervals[2] ?? 7;
+    const bass158Midis = [bassMidi, bassMidi + fifthInterval, bassMidi + 12];
     prevVoicing = bestVoicing;
 
     result.push({
@@ -427,8 +480,11 @@ export function generateVoicedProgression(chords, keyPc, scaleType) {
       barIndex: i,
       bassMidi,
       upperMidis: bestVoicing,
+      rootOrderedMidis,
+      bass158Midis,
       allMidis: [bassMidi, ...bestVoicing],
       voicingLabels: bestVoicing.map((m) => midiToNoteName(m, preferFlats)),
+      rootOrderedLabels: rootOrderedMidis.map((m) => midiToNoteName(m, preferFlats)),
     });
   }
 
@@ -775,7 +831,146 @@ export function buildBarChordEvents(
   const tagUpper = (list) => list.map((midi) => ({ midi, role: 'chord' }));
   const tagWithBass = (list) => [{ midi: bass, role: 'bass' }, ...tagUpper(list)];
 
-  if (style === 'ballad') {
+  // Chuẩn hóa công thức nốt gốc 1-3-5 / 1-3-5-7 và 1-5-8
+  const rootSeq =
+    Array.isArray(voicedChord.rootOrderedMidis) && voicedChord.rootOrderedMidis.length > 0
+      ? voicedChord.rootOrderedMidis
+      : upper;
+  const r1 = rootSeq[0];
+  const r3 = rootSeq[Math.min(1, rootSeq.length - 1)];
+  const r5 = rootSeq[Math.min(2, rootSeq.length - 1)];
+  const r7 = rootSeq.length >= 4 ? rootSeq[3] : r1 + 12;
+
+  const arp158 =
+    Array.isArray(voicedChord.bass158Midis) && voicedChord.bass158Midis.length === 3
+      ? voicedChord.bass158Midis
+      : [bass, bass + 7, bass + 12];
+  const b1 = arp158[0];
+  const b5 = arp158[1];
+  const b8 = arp158[2];
+
+  if (style === 'block') {
+    // Block Chord: Bấm các nốt hợp âm cùng lúc — chắc nhịp, cao trào hoặc đệm hát đơn giản
+    if (isTurnaround) {
+      pushTaggedChord(0.0, tagWithBass(upper), 0.90, 0.80, 0, false);
+      pushTaggedChord(1.0, tagWithBass(upper), 0.88, 0.72, 0, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.88, 0.78, 0, false);
+      pushEvent(passingBass, 3.0, 0.48, 0.68, 'bass');
+      pushTaggedChord(3.0, tagUpper(upper), 0.46, 0.72, 0, false);
+      pushEvent(passingBass, 3.5, 0.45, 0.70, 'bass');
+      pushTaggedChord(3.5, tagUpper([...upper, vOct]), 0.45, 0.76, 0, false);
+    } else if (isOddBar) {
+      pushTaggedChord(0.0, tagWithBass(upper), 1.35, 0.78, 0, false);
+      pushTaggedChord(1.5, tagWithBass(upper), 0.46, 0.64, 0, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.90, 0.76, 0, false);
+      pushTaggedChord(3.0, tagWithBass(upper), 0.88, 0.70, 0, false);
+    } else if (isLiftBar) {
+      const liftChord = [...upper, vOct];
+      pushTaggedChord(0.0, tagWithBass(liftChord), 0.90, 0.82, 0, false);
+      pushTaggedChord(1.0, tagWithBass(liftChord), 0.90, 0.74, 0, false);
+      pushTaggedChord(2.0, tagWithBass(liftChord), 0.90, 0.80, 0, false);
+      pushTaggedChord(3.0, tagWithBass(liftChord), 0.90, 0.76, 0, false);
+    } else {
+      pushTaggedChord(0.0, tagWithBass(upper), 0.92, 0.80, 0, false);
+      pushTaggedChord(1.0, tagWithBass(upper), 0.90, 0.70, 0, false);
+      pushTaggedChord(2.0, tagWithBass(upper), 0.90, 0.76, 0, false);
+      pushTaggedChord(3.0, tagWithBass(upper), 0.90, 0.70, 0, false);
+    }
+  } else if (style === 'broken_1357') {
+    // Broken Chord / Arpeggio: Chơi lần lượt đúng thứ tự 1-3-5 (hợp âm 3) & 1-3-5-7 (hợp âm 7)
+    if (isTurnaround) {
+      pushEvent(b1,  0.0, 2.80, 0.72, 'bass');
+      pushEvent(r1,  0.0, 0.85, 0.66, 'chord');
+      pushEvent(r3,  0.5, 0.75, 0.62, 'chord');
+      pushEvent(r5,  1.0, 0.70, 0.66, 'chord');
+      pushEvent(r7,  1.5, 0.68, 0.64, 'chord');
+      pushEvent(r1 + 12 <= 82 ? r1 + 12 : r7, 2.0, 0.60, 0.64, 'chord');
+      pushEvent(r5,  2.5, 0.55, 0.56, 'chord');
+      pushEvent(passingBass, 3.0, 0.92, 0.64, 'bass');
+      pushEvent(r3,  3.0, 0.50, 0.58, 'chord');
+      pushEvent(r7,  3.5, 0.45, 0.54, 'chord');
+    } else if (isOddBar) {
+      // Ô lẻ: rải 1-3-5-7 đi lên rồi xuống êm mượt
+      pushEvent(b1,  0.0, 3.70, 0.72, 'bass');
+      pushEvent(r1,  0.0, 0.85, 0.65, 'chord');
+      pushEvent(r3,  0.5, 0.80, 0.60, 'chord');
+      pushEvent(r5,  1.0, 0.78, 0.64, 'chord');
+      pushEvent(r7,  1.5, 0.75, 0.62, 'chord');
+      pushEvent(warmHighBass, 2.0, 1.75, 0.54, 'bass');
+      pushEvent(r5,  2.0, 0.70, 0.60, 'chord');
+      pushEvent(r3,  2.5, 0.65, 0.56, 'chord');
+      pushEvent(r5,  3.0, 0.55, 0.58, 'chord');
+      pushEvent(r7,  3.5, 0.46, 0.52, 'chord');
+    } else {
+      // Ô chẵn: mẫu rải lặp 1-3-5-7 / 1-3-5-8 rõ ràng cho Ballad & Pop
+      pushEvent(b1,  0.0, 2.20, 0.74, 'bass');
+      pushEvent(r1,  0.0, 0.90, 0.66, 'chord');
+      pushEvent(r3,  0.5, 0.85, 0.60, 'chord');
+      pushEvent(r5,  1.0, 0.80, 0.64, 'chord');
+      pushEvent(r7,  1.5, 0.75, 0.60, 'chord');
+      pushEvent(b1,  2.0, 1.80, 0.68, 'bass');
+      pushEvent(r1,  2.0, 0.82, 0.64, 'chord');
+      pushEvent(r3,  2.5, 0.75, 0.58, 'chord');
+      pushEvent(r5,  3.0, 0.65, 0.62, 'chord');
+      pushEvent(r7,  3.5, 0.46, 0.54, 'chord');
+    }
+  } else if (style === 'pattern_158') {
+    // Kiểu đệm 1-5-8 kinh điển (tay trái rải rộng 1 -> 5 -> 8, tay phải thả hòa âm)
+    if (isTurnaround) {
+      pushEvent(b1,  0.0, 1.45, 0.78, 'bass');
+      pushEvent(b5,  0.5, 1.15, 0.68, 'bass');
+      pushEvent(b8,  1.0, 1.10, 0.72, 'bass');
+      pushTaggedChord(1.5, tagUpper([v1, vTop]), 0.65, 0.58, 0.02, false);
+      pushEvent(b1,  2.0, 1.00, 0.74, 'bass');
+      pushEvent(b5,  2.5, 0.70, 0.64, 'bass');
+      pushEvent(passingBass, 3.0, 0.92, 0.68, 'bass');
+      pushTaggedChord(3.0, tagUpper([v0, v2, vTop]), 0.85, 0.62, 0.02, false);
+    } else if (isOddBar) {
+      pushEvent(b1,  0.0, 1.80, 0.76, 'bass');
+      pushEvent(b5,  0.5, 1.30, 0.66, 'bass');
+      pushEvent(b8,  1.0, 1.15, 0.70, 'bass');
+      pushTaggedChord(1.5, tagUpper(upper), 0.75, 0.60, 0.02, true);
+      pushEvent(b5,  2.0, 1.45, 0.64, 'bass');
+      pushEvent(b8,  2.5, 1.10, 0.66, 'bass');
+      pushTaggedChord(3.0, tagUpper([v1, vOct]), 0.82, 0.58, 0.02, false);
+    } else {
+      pushEvent(b1,  0.0, 1.90, 0.78, 'bass');
+      pushEvent(b5,  0.5, 1.40, 0.68, 'bass');
+      pushEvent(b8,  1.0, 1.25, 0.72, 'bass');
+      pushEvent(b5,  1.5, 0.80, 0.60, 'bass');
+      pushEvent(b1,  2.0, 1.70, 0.74, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 1.45, 0.66, 0.024, false);
+      pushEvent(b5,  2.5, 1.10, 0.62, 'bass');
+      pushEvent(b8,  3.0, 0.85, 0.66, 'bass');
+      pushEvent(vOct, 3.5, 0.45, 0.52, 'chord');
+    }
+  } else if (style === 'bass_chord') {
+    // Bass + Chord: Tay trái chơi nốt trầm, tay phải đánh hợp âm đệm hát nền tảng
+    if (isTurnaround) {
+      pushEvent(b1, 0.0, 1.85, 0.78, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.85, 0.70, 0.008, false);
+      pushTaggedChord(1.0, tagUpper(upper), 0.72, 0.62, 0.006, false);
+      pushEvent(b5 <= 56 ? b5 : b1, 2.0, 0.90, 0.70, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.80, 0.68, 0.008, false);
+      pushEvent(passingBass, 3.0, 0.92, 0.70, 'bass');
+      pushTaggedChord(3.0, tagUpper(upper), 0.45, 0.64, 0.006, false);
+      pushTaggedChord(3.5, tagUpper([v1, vTop]), 0.45, 0.62, 0.008, false);
+    } else if (isOddBar) {
+      pushEvent(b1, 0.0, 1.90, 0.78, 'bass');
+      pushTaggedChord(0.5, tagUpper(upper), 0.48, 0.62, 0.008, false);
+      pushTaggedChord(1.5, tagUpper(upper), 0.48, 0.64, 0.008, false);
+      pushEvent(b1, 2.0, 1.75, 0.74, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.82, 0.68, 0.008, false);
+      pushTaggedChord(3.0, tagUpper(upper), 0.75, 0.64, 0.006, false);
+    } else {
+      pushEvent(b1, 0.0, 1.90, 0.80, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.88, 0.72, 0.008, false);
+      pushTaggedChord(1.0, tagUpper(upper), 0.78, 0.62, 0.006, false);
+      pushEvent(b5 <= 56 ? b5 : b1, 2.0, 1.75, 0.72, 'bass');
+      pushTaggedChord(2.0, tagUpper(upper), 0.86, 0.70, 0.008, false);
+      pushTaggedChord(3.0, tagUpper(upper), 0.78, 0.64, 0.006, false);
+    }
+  } else if (style === 'ballad') {
     // Rải Ballad biến thể A / A' / B / Turnaround có nốt luyến & passing bass cuối câu
     if (isTurnaround) {
       pushEvent(bass, 0.0, 2.75, 0.74, 'bass');

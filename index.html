@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=22" />
+  <link rel="stylesheet" href="./style.css?v=23" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh) & Three.js (Không gian 3D trong ambientScene.js) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
 </head>
@@ -843,12 +843,22 @@
 
       <div class="modal-body">
         <div class="picker-section">
-          <span class="picker-label">1. Chọn bậc hợp âm trong tông</span>
+          <span class="picker-label">1. Hợp âm theo Tông hiện tại (7 bậc Diatonic)</span>
           <div id="diatonic-grid" class="diatonic-grid"></div>
         </div>
 
         <div class="picker-section">
-          <span class="picker-label">2. Chọn màu sắc hợp âm (Extension)</span>
+          <span class="picker-label">2. 7 Hợp âm Trưởng cơ bản (C D E F G A B)</span>
+          <div id="basic-major-grid" class="basic-chords-grid"></div>
+        </div>
+
+        <div class="picker-section">
+          <span class="picker-label">3. 7 Hợp âm Thứ cơ bản (Cm Dm Em Fm Gm Am Bm)</span>
+          <div id="basic-minor-grid" class="basic-chords-grid"></div>
+        </div>
+
+        <div class="picker-section">
+          <span class="picker-label">4. Màu sắc hợp âm (1-3-5 · 1-3-5-7 · Extension)</span>
           <div id="extension-pills" class="extension-pills"></div>
         </div>
       </div>
@@ -881,6 +891,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=22"></script>
+  <script type="module" src="./js/app.js?v=23"></script>
 </body>
 </html>

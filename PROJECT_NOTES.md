@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=22`, `./js/app.js?v=22`, `./theory.js?v=22`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=23`, `./js/app.js?v=23`, `./theory.js?v=23`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=22`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=23`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -67,3 +67,4 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 - **Gửi Vocal sang Dựng bài từ Phòng thu (`vocalStudio.js`, `arrangementStudio.js`, `app.js`)**: `#vs-btn-send-vocal-arr` kết xuất `OfflineAudioContext` cho Track 1 (`Vocal Chính · Phòng thu`, `suggestedTrackIndex: 2`) và Track 2 (`Hát Bè · Phòng thu`, `suggestedTrackIndex: 3`) giữ nguyên Auto-Tune, FX, Volume/Pan/Sync Offset, tự đặt lên track trống qua `autoPlaceIfEmpty` kèm toast có nút `Mở Dựng bài →`.
 - **Tự động Nhận diện Tông Auto-Tune (`autoTune.js`, `vocalStudio.js`)**: `#vs-btn-auto-key` (bật mặc định) sử dụng `detectKeyFromAudioBuffer` (Radix-2 FFT Chromagram + Krumhansl-Schmuckler 24 tông) khi nạp Beat ngoài MP3/WAV, và `detectKeyFromVocalFrames` / `detectKeyFromPcm` (bù độ lệch tổng thể + soft-binning + trọng số kết câu) khi thu mộc không Beat để tự động khóa đúng tông giọng thật của người dùng.
 - **Đệm Hợp âm Biến thể & Piano Pop Trầm Ấm (`theory.js`, `audioEngine.js`)**: `buildBarChordEvents` tạo biến thể câu nhạc 4 giai đoạn (`A`, `A'`, `B`, `Turnaround`) kèm bước dẫn `passingBass` sang hợp âm tiếp theo và đa dạng độ cao voicing theo ô nhịp; bổ sung kiểu đệm `pop_groove` (`Pop Trầm Ấm / Pulse`) & `lofi`, chất tiếng `modern_piano` (`Piano Pop Trầm Ấm` EQ ấm `230Hz` + LPF `1650Hz`), và tách riêng `_getBassSynth()` cho các nốt `role === 'bass'` khi phát Live.
+- **Đầy đủ 7 Hợp âm Trưởng/Thứ Cơ bản & Công thức Đệm Kinh điển (`theory.js`, `audioEngine.js`, `index.html`, `app.js`)**: `BASIC_MAJOR_CHORDS` (`C D E F G A B`), `BASIC_MINOR_CHORDS` (`Cm Dm Em Fm Gm Am Bm`) trong `#chord-modal` + `resolveChord` hỗ trợ hợp âm tự do; `rootOrderedMidis` (`1-3-5` / `1-3-5-7`) & `bass158Midis` (`1-5-8`) phục vụ 4 phong cách mới: `block` (`Block Chord`), `broken_1357` (`Broken Chord / Arpeggio 1-3-5 · 1-3-5-7`), `pattern_158` (`Rải 1-5-8`), và `bass_chord` (`Bass + Chord`).

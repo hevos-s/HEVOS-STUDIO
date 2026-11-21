@@ -1688,6 +1688,10 @@ body.piano-roll-open .toast-container {
   animation: modalIn 0.2s var(--ease-out);
 }
 
+.chord-sheet {
+  max-width: 600px;
+}
+
 @keyframes modalIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1754,6 +1758,55 @@ body.piano-roll-open .toast-container {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
+}
+
+.basic-chords-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.basic-chord-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+
+.basic-chord-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.basic-chord-btn.selected {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.72);
+  color: #ECFEFF;
+}
+
+.basic-chord-btn .bc-name {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.basic-chord-btn .bc-sub {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.basic-chord-btn.selected .bc-sub {
+  color: #A5F3FC;
 }
 
 .diatonic-btn {
@@ -5927,6 +5980,10 @@ body.piano-roll-open .toast-container {
   }
 
   .diatonic-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .basic-chords-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
