@@ -12,26 +12,26 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=17';
+} from './theory.js?v=19';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=17';
+} from './audioEngine.js?v=19';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=17';
-import { PianoRoll } from './pianoRoll.js?v=17';
-import { downloadMidiFile } from './midiExport.js?v=17';
-import { MusicTrainer } from './musicTrainer.js?v=17';
-import { VocalStudio } from './vocalStudio.js?v=17';
-import { ArrangementStudio } from './arrangementStudio.js?v=17';
-import { createAmbientScene } from './ambientScene.js?v=17';
+} from './pitchToMidi.js?v=19';
+import { PianoRoll } from './pianoRoll.js?v=19';
+import { downloadMidiFile } from './midiExport.js?v=19';
+import { MusicTrainer } from './musicTrainer.js?v=19';
+import { VocalStudio } from './vocalStudio.js?v=19';
+import { ArrangementStudio } from './arrangementStudio.js?v=19';
+import { createAmbientScene } from './ambientScene.js?v=19';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 

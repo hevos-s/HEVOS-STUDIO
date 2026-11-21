@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=17';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=19';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -80,16 +80,16 @@ function deterministicUnit(seed) {
 export function applySwingBeat(beat, totalBeats, chordStyle = 'rnb', drumPattern = 'lofi', humanize = 55) {
   const humanAmt = Math.max(0, Math.min(100, Number(humanize) || 0)) / 100;
   const swingAmountBeats =
-    (chordStyle === 'rnb' || drumPattern === 'lofi' ? 0.055 : 0.025) * humanAmt;
+    (chordStyle === 'rnb' || drumPattern === 'lofi' ? 0.045 : 0.020) * humanAmt;
 
   const frac = beat - Math.floor(beat);
   let b = beat;
   if (Math.abs(frac - 0.5) < 0.04) {
     b += swingAmountBeats;
   } else if (Math.abs(frac - 0.75) < 0.04) {
-    b += swingAmountBeats * 0.65;
+    b += swingAmountBeats * 0.60;
   } else if (Math.abs(frac - 0.25) < 0.04) {
-    b += swingAmountBeats * 0.28;
+    b += swingAmountBeats * 0.25;
   }
   return Math.max(0, Math.min(totalBeats - 0.03, b));
 }
@@ -127,16 +127,16 @@ export function generateAccompanimentEvents({
         humanize
       );
 
-      // Humanize vi thời gian (±8..14ms) và lực nhấn (velocity) theo từng nốt
+      // Humanize tinh tế bám chắc nhịp chính (Bass giữ chắc grid, Chord lơi nhẹ ±2.5ms)
       const seed = (barIdx + 1) * 131 + (evIdx + 1) * 37 + ev.midi * 7;
       const timeNoise = deterministicUnit(seed);
       const velNoise = deterministicUnit(seed + 503);
 
-      // Giữ độ lệch Bass gọn hơn nhẹ nhàng so với tay phải để nền vững nhịp
-      const maxJitterSec = (ev.role === 'bass' ? 0.008 : 0.013) * humanAmt;
+      const beatFrac = ev.startBeat - Math.floor(ev.startBeat);
+      const isDownbeat = beatFrac < 0.01 || beatFrac > 0.99;
+      const maxJitterSec = (ev.role === 'bass' ? (isDownbeat ? 0 : 0.0015) : 0.004) * humanAmt;
       let jitterBeats = timeNoise * maxJitterSec * beatsPerSec;
-      // Nốt mở đầu tại phách 0 chỉ dịch >= 0 để không âm tick
-      if (swungBeat + jitterBeats < 0) jitterBeats = Math.abs(jitterBeats) * 0.5;
+      if (swungBeat + jitterBeats < 0) jitterBeats = 0;
 
       const startBeat = Math.max(0, Math.min(totalBeats - 0.04, swungBeat + jitterBeats));
       const rawDur = ev.durationBeat ?? ev.durationBeats ?? 0.5;
@@ -192,21 +192,27 @@ export function generateDrumEvents({
     const absBeat = bar * 4 + beat;
     let b = applySwingBeat(absBeat, totalBeats, chordStyle, drumPattern, humanize);
 
-    // R&B / Lo-Fi kéo Snare/Rim hơi lùi nhịp tạo độ chill (pocket)
+    // R&B / Lo-Fi lùi nhẹ Snare/Rim đồng bộ cùng 1 seed theo (bar, beat) để không bị flam 2 tiếng lệch nhau
     if (drumPattern === 'lofi' && (drumType === 'rim' || drumType === 'snare')) {
-      b += 0.009 * humanAmt * beatsPerSec;
+      b += 0.007 * humanAmt * beatsPerSec;
     }
 
-    // Humanize nhẹ cho trống (trừ metronome cần chính xác tuyệt đối)
+    // Humanize tinh tế giữ chặt trục nhịp (Kick phách đầu bám khít grid, Snare/Rim dùng chung pocket seed)
     const isMetronome = drumType === 'clickAccent' || drumType === 'click';
-    const seed = (bar + 1) * 197 + seqIdx * 41;
+    const beatBucket = Math.round(beat * 100);
+    const seed =
+      drumType === 'rim' || drumType === 'snare'
+        ? (bar + 1) * 197 + beatBucket * 17
+        : (bar + 1) * 197 + seqIdx * 41;
     let jitterBeats = 0;
     let velDelta = 0;
     if (!isMetronome && humanAmt > 0) {
-      const maxDrumJitterSec = (drumType === 'hat' ? 0.009 : 0.006) * humanAmt;
+      const maxDrumJitterSec =
+        (drumType === 'hat' ? 0.004 : drumType === 'kick' ? (beat === 0 ? 0 : 0.0015) : 0.002) *
+        humanAmt;
       jitterBeats = deterministicUnit(seed) * maxDrumJitterSec * beatsPerSec;
       if (b + jitterBeats < 0) jitterBeats = 0;
-      velDelta = deterministicUnit(seed + 701) * 0.075 * humanAmt;
+      velDelta = deterministicUnit((bar + 1) * 197 + seqIdx * 41 + 701) * 0.075 * humanAmt;
     }
 
     const startBeat = Math.max(0, Math.min(totalBeats - 0.04, b + jitterBeats));
@@ -390,6 +396,7 @@ class AudioEngine {
     this._playStartPromise = null;
     this._readyPromise = null;
     this._contextConfigured = false;
+    this._lastScheduledBpm = null;
     this._countInTimers = [];
     this._countInCancelled = false;
     this._loopEndCallbackId = null;
@@ -449,6 +456,12 @@ class AudioEngine {
 
   _initGraph() {
     const Tone = window.Tone;
+    const transport = getToneTransport(Tone);
+    if (transport) {
+      try {
+        transport.PPQ = 480;
+      } catch (_) {}
+    }
 
     // Mạch bảo vệ Master Bus: Compressor nhẹ -> Limiter (-1 dBFS) -> Destination
     this.masterLimiter = new Tone.Limiter(-1.0).toDestination();
@@ -1166,14 +1179,22 @@ class AudioEngine {
 
   _nextSafeTime(key, rawTime) {
     const Tone = window.Tone;
-    const now = getToneNow(Tone);
-    const floorNow = Number.isFinite(now) ? now + 0.005 : 0.005;
-    const baseTime = Number.isFinite(rawTime) ? rawTime : floorNow;
+    const ctx = getToneContext(Tone);
+    // Dùng ctx.immediate() (thời gian phần cứng thực) thay vì ctx.now() (= currentTime + lookAhead),
+    // tránh ép mọi sự kiện Transport dồn vào chu kỳ wake-up thô 75–125ms của worker gây lệch nhịp lúc nhanh lúc chậm
+    const immediateNow =
+      ctx && typeof ctx.immediate === 'function'
+        ? ctx.immediate()
+        : ctx && ctx.rawContext && Number.isFinite(ctx.rawContext.currentTime)
+          ? ctx.rawContext.currentTime
+          : 0;
+    const floorImmediate = Number.isFinite(immediateNow) ? immediateNow + 0.002 : 0.002;
+    const baseTime = Number.isFinite(rawTime) ? rawTime : floorImmediate;
     let prev = this._lastTriggerTime[key];
-    if (!Number.isFinite(prev) || prev > floorNow + 2.5) {
-      prev = floorNow - 0.001;
+    if (!Number.isFinite(prev) || prev > floorImmediate + 4.0) {
+      prev = floorImmediate - 0.001;
     }
-    const safeTime = Math.max(baseTime, floorNow, prev + 0.0005);
+    const safeTime = Math.max(baseTime, floorImmediate, prev + 0.0005);
     this._lastTriggerTime[key] = safeTime;
     return safeTime;
   }
@@ -1226,12 +1247,13 @@ class AudioEngine {
   }
 
   /**
-   * Hủy sự kiện cũ và lập lịch lại toàn bộ: Hợp âm, Giai điệu, Trống, Giọng thu nháp
-   * Chống trùng lặp timestamp, kiểm tra hữu hạn NaN & tạo khoảng giãn vi mô +0.0005s
+   * Hủy sự kiện cũ và lập lịch lại toàn bộ bằng Ticks chuẩn PPQ = 480:
+   * Giữ nhịp chính xác tuyệt đối theo đồng hồ phần cứng AudioContext, chống trùng timestamp & bảo vệ NaN
    */
   rebuildSchedule() {
     if (!this.initialized) return;
     const Tone = window.Tone;
+    const ctx = getToneContext(Tone);
     const transport = getToneTransport(Tone);
 
     // Nếu có vocal source chờ từ trước lúc init
@@ -1240,8 +1262,6 @@ class AudioEngine {
       this._pendingVocalSource = null;
       this.setRawVocalBuffer(pending).catch(() => {});
     }
-
-    this._clearParts();
 
     const rawBpm = Number(this.state.bpm);
     const bpm = Number.isFinite(rawBpm) ? Math.max(40, Math.min(240, rawBpm)) : 84;
@@ -1256,39 +1276,58 @@ class AudioEngine {
     const loopDurationSec = totalBeats * beatSec;
     if (!Number.isFinite(loopDurationSec) || loopDurationSec <= 0) return;
 
-    transport.bpm.value = bpm;
+    const ppq = Math.max(192, Number(transport.PPQ) || 480);
+    const totalTicks = Math.round(totalBeats * ppq);
+    const wasStarted = transport.state === 'started';
+
+    this._clearParts();
+
+    // Đặt BPM ngay tại tick 0 khi dừng (tránh sót đoạn 120 BPM ở 0..lookAhead), hoặc cập nhật mượt tại immediate() khi đang phát
+    if (!wasStarted) {
+      try {
+        transport.bpm.cancelScheduledValues(0);
+        transport.bpm.setValueAtTime(bpm, 0);
+      } catch (_) {
+        transport.bpm.value = bpm;
+      }
+    } else if (this._lastScheduledBpm !== bpm) {
+      const immediateSec =
+        ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : getToneNow(Tone);
+      try {
+        transport.bpm.setValueAtTime(bpm, Math.max(0, immediateSec));
+      } catch (_) {
+        transport.bpm.value = bpm;
+      }
+    }
+    this._lastScheduledBpm = bpm;
+
     transport.loop = true;
     transport.loopStart = 0;
-    transport.loopEnd = loopDurationSec;
+    transport.loopEnd = `${totalTicks}i`;
 
     this._syncVocalDelayTimes();
 
-    // Hàm giãn mốc thời gian tăng dần tuyệt đối để không bao giờ 2 event của cùng synth bị trùng timestamp
-    const normalizePartEvents = (items) => {
-      items.sort((a, b) => a[0] - b[0]);
-      const maxEnd = Math.max(0.01, loopDurationSec - 0.005);
-      let prevT = -1;
-      for (let i = 0; i < items.length; i++) {
-        let t = Number.isFinite(items[i][0]) ? items[i][0] : 0;
-        t = Math.max(0, t);
-        if (t <= prevT + 0.0005) {
-          t = prevT + 0.0005;
-        }
-        items[i][0] = t;
-        prevT = t;
-      }
-      if (items.length > 0 && items[items.length - 1][0] > maxEnd) {
-        let cap = maxEnd;
-        for (let i = items.length - 1; i >= 0; i--) {
-          if (items[i][0] > cap) {
-            items[i][0] = Math.max(0, cap);
-          } else {
-            break;
+    // Chuẩn hóa danh sách sự kiện theo Ticks (giữ nguyên mốc phách chuẩn, chỉ tách +1 tick cho nốt trùng trên cùng synth)
+    const toTickEvents = (rawEvents, singleKeyFn = null) => {
+      rawEvents.sort((a, b) => a.tick - b.tick);
+      if (singleKeyFn) {
+        const lastTickByKey = new Map();
+        return rawEvents.map((item) => {
+          const k = singleKeyFn(item.val);
+          let tk = Math.max(0, Math.min(totalTicks - 4, item.tick));
+          const prev = lastTickByKey.get(k);
+          if (prev !== undefined && tk <= prev) {
+            tk = Math.min(totalTicks - 2, prev + 1);
           }
-          cap = items[i][0] - 0.0005;
-        }
+          lastTickByKey.set(k, tk);
+          return [`${tk}i`, item.val];
+        });
       }
-      return items;
+      // Đối với PolySynth: giữ nhiều nốt cùng hợp âm bắn đúng tick beat, _nextSafeTime sẽ tự rải +0.5ms ở AudioContext
+      return rawEvents.map((item) => [
+        `${Math.max(0, Math.min(totalTicks - 2, item.tick))}i`,
+        item.val,
+      ]);
     };
 
     // --- 1. Lập lịch Hợp âm & Bass (dùng chung nguồn sinh thuần với bộ xuất MIDI) ---
@@ -1302,12 +1341,12 @@ class AudioEngine {
       humanize,
     });
 
-    const chordPartEvents = normalizePartEvents(
+    const chordPartEvents = toTickEvents(
       accEvents
         .filter((ev) => Number.isFinite(ev.startBeat) && Number.isFinite(ev.midi))
-        .map((ev) => [
-          Math.max(0, Math.min(loopDurationSec - 0.04, ev.startBeat * beatSec)),
-          {
+        .map((ev) => ({
+          tick: Math.round(Math.max(0, Math.min(totalBeats - 0.02, ev.startBeat)) * ppq),
+          val: {
             midi: Math.max(24, Math.min(108, Math.round(ev.midi))),
             durSec: Number.isFinite(ev.durationBeat)
               ? Math.max(0.05, Math.min(4.0, ev.durationBeat * beatSec))
@@ -1316,7 +1355,7 @@ class AudioEngine {
               ? Math.max(0.08, Math.min(0.92, ev.velocity))
               : 0.65,
           },
-        ])
+        }))
     );
 
     this.chordPart = new Tone.Part((time, val) => {
@@ -1338,12 +1377,12 @@ class AudioEngine {
       bpm,
       humanize,
     });
-    const melodyPartEvents = normalizePartEvents(
+    const melodyPartEvents = toTickEvents(
       melEvents
         .filter((ev) => Number.isFinite(ev.startBeat) && Number.isFinite(ev.midi))
-        .map((ev) => [
-          Math.max(0, Math.min(loopDurationSec - 0.04, ev.startBeat * beatSec)),
-          {
+        .map((ev) => ({
+          tick: Math.round(Math.max(0, Math.min(totalBeats - 0.02, ev.startBeat)) * ppq),
+          val: {
             midi: Math.max(24, Math.min(108, Math.round(ev.midi))),
             durSec: Number.isFinite(ev.durationBeat)
               ? Math.max(0.05, Math.min(4.0, ev.durationBeat * beatSec))
@@ -1352,7 +1391,7 @@ class AudioEngine {
               ? Math.max(0.08, Math.min(0.92, ev.velocity))
               : 0.72,
           },
-        ])
+        }))
     );
 
     this.melodyPart = new Tone.Part((time, val) => {
@@ -1375,19 +1414,20 @@ class AudioEngine {
         chordStyle,
         humanize,
       });
-      const drumPartEvents = normalizePartEvents(
+      const drumPartEvents = toTickEvents(
         drumEvents
           .filter((ev) => Number.isFinite(ev.startBeat))
-          .map((ev) => [
-            Math.max(0, Math.min(loopDurationSec - 0.04, ev.startBeat * beatSec)),
-            {
+          .map((ev) => ({
+            tick: Math.round(Math.max(0, Math.min(totalBeats - 0.02, ev.startBeat)) * ppq),
+            val: {
               type: ev.drumType,
               vel: Number.isFinite(ev.velocity)
                 ? Math.max(0.08, Math.min(0.92, ev.velocity))
                 : 0.7,
               openHat: Boolean(ev.openHat),
             },
-          ])
+          })),
+        (v) => v.type
       );
       this.drumPart = new Tone.Part((time, ev) => {
         if (!Number.isFinite(time) || !ev) return;
@@ -1556,18 +1596,22 @@ class AudioEngine {
       try {
         await this.ensureReady();
         const Tone = window.Tone;
+        const ctx = getToneContext(Tone);
         const transport = getToneTransport(Tone);
         const dest = getToneDestination(Tone);
         if (dest) dest.mute = false;
         this._muteVocalDuringRecord = Boolean(muteVocal);
         this._recordingTrackMask = recordingTrack;
         if (fromStart || !this.isPlaying) {
-          transport.stop();
+          const imm = ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : undefined;
+          try { transport.stop(imm); } catch (_) { transport.stop(); }
+          transport.cancel(0);
           transport.seconds = 0;
         }
         this.rebuildSchedule();
         const startPos = fromStart || !this.isPlaying ? 0 : transport.seconds;
-        transport.start('+0.06', Number.isFinite(startPos) ? startPos : 0);
+        const leadIn = fromStart || !this.isPlaying ? '+0.10' : '+0.06';
+        transport.start(leadIn, Number.isFinite(startPos) ? startPos : 0);
         this.isPlaying = true;
       } finally {
         this._playStartPromise = null;
@@ -1578,10 +1622,13 @@ class AudioEngine {
 
   stop() {
     if (!this.initialized) return;
-    const transport = getToneTransport(window.Tone);
+    const Tone = window.Tone;
+    const ctx = getToneContext(Tone);
+    const transport = getToneTransport(Tone);
     this.cancelCountIn();
     try {
-      transport.stop();
+      const imm = ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : undefined;
+      transport.stop(imm);
       transport.seconds = 0;
       transport.cancel(0);
     } catch (_) {}
@@ -1603,16 +1650,26 @@ class AudioEngine {
   }
 
   /**
-   * Trả về vị trí playhead hiện tại theo đơn vị beat (0 .. totalBars*4) cho 60fps Canvas
+   * Trả về vị trí playhead hiện tại theo đơn vị beat (0 .. totalBars*4) khớp đồng hồ phần cứng
    */
   getCurrentBeat() {
     if (!this.initialized || !this.isPlaying) return 0;
-    const transport = getToneTransport(window.Tone);
+    const Tone = window.Tone;
+    const ctx = getToneContext(Tone);
+    const transport = getToneTransport(Tone);
     const totalBeats = this.state.totalBars * 4;
-    const loopSec = totalBeats * (60 / this.state.bpm);
-    if (loopSec <= 0) return 0;
-    const sec = ((transport.seconds % loopSec) + loopSec) % loopSec;
-    return (sec / loopSec) * totalBeats;
+    const ppq = Math.max(192, Number(transport.PPQ) || 480);
+    const totalTicks = totalBeats * ppq;
+    if (totalTicks <= 0) return 0;
+
+    const immediateSec = ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : undefined;
+    const rawTicks =
+      immediateSec !== undefined && typeof transport.getTicksAtTime === 'function'
+        ? transport.getTicksAtTime(immediateSec)
+        : transport.ticks;
+    if (!Number.isFinite(rawTicks) || rawTicks < 0) return 0;
+    const curTicks = ((rawTicks % totalTicks) + totalTicks) % totalTicks;
+    return (curTicks / totalTicks) * totalBeats;
   }
 
   /**
