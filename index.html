@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=28" />
+  <link rel="stylesheet" href="./style.css?v=29" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" defer></script>
@@ -242,8 +242,12 @@
         </aside>
 
         <footer class="hub-footer-roadmap reveal-item">
-          <span class="coming-badge">ROADMAP</span>
-          <span class="coming-desc">Đang tiếp tục phát triển: Luyện cảm âm hợp âm (Ear Training) · Bộ gõ Step Sequencer · Tách Stems &amp; Phân tích hợp âm tự động.</span>
+          <span class="coming-badge is-live">MỚI RA MẮT</span>
+          <div class="roadmap-pills">
+            <button type="button" class="roadmap-pill-btn" data-goto-feature="ear-training">🎧 Luyện cảm âm hợp âm</button>
+            <button type="button" class="roadmap-pill-btn" data-goto-feature="step-sequencer">🥁 Bộ gõ Step Sequencer</button>
+            <button type="button" class="roadmap-pill-btn" data-goto-feature="stems">🎛️ Tách Stems &amp; Phân tích hợp âm</button>
+          </div>
         </footer>
       </div>
     </section>
@@ -454,6 +458,7 @@
               <span class="inline-label accent-amber">Trống</span>
               <select id="drum-pattern-select" class="studio-select" aria-label="Chọn nhịp trống"></select>
             </label>
+            <button type="button" id="btn-open-sequencer" class="btn btn-cyan-outline btn-xs btn-open-seq" title="Mở Bộ gõ 16 bước (Step Sequencer)">🥁 16 bước</button>
           </div>
         </div>
 
@@ -471,7 +476,17 @@
       </section>
 
       <!-- ==================== TAB 2: GIAI ĐIỆU PIANO ROLL & NGÂN NGA MIDI ==================== -->
-      <section class="panel panel-melody" data-panel="melody" aria-label="Bảng chấm MIDI và Thu âm ngân nga">
+      <section class="panel panel-melody" data-panel="melody" aria-label="Bảng chấm MIDI, Step Sequencer và Thu âm ngân nga">
+        <div class="studio-center-tabs" id="studio-center-tabs" role="tablist" aria-label="Chuyển giữa Piano Roll và Bộ gõ 16 bước">
+          <button type="button" class="studio-center-tab active" data-center-view="melody" role="tab" aria-selected="true">
+            <span>🎹 Piano Roll MIDI</span>
+          </button>
+          <button type="button" class="studio-center-tab" data-center-view="sequencer" role="tab" aria-selected="false">
+            <span>🥁 Bộ gõ Step Sequencer</span>
+            <span class="badge-new">16 BƯỚC</span>
+          </button>
+        </div>
+
         <div id="melody-workspace-view" class="workspace-view">
           <!-- Thanh công cụ Piano Roll -->
           <div class="melody-toolbar">
@@ -665,6 +680,8 @@
             </div>
           </div>
         </div>
+
+        <div id="sequencer-workspace-view" class="workspace-view hidden" aria-label="Bộ gõ 16 bước Step Sequencer"></div>
       </section>
 
       <!-- ==================== TAB 3: MIXER 4 KÊNH & XUẤT FILE ==================== -->
@@ -915,6 +932,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=28"></script>
+  <script type="module" src="./js/app.js?v=29"></script>
 </body>
 </html>

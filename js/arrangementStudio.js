@@ -5,7 +5,10 @@
 // - Chuỗi Mastering đồng nhất Live + OfflineAudioContext:
 //   3-Band Master EQ -> Stereo Width (Mid/Side) -> Glue Compressor ->
 //   Master Limiter / Maximizer (-0.3 dBFS Ceiling) -> Xuất Stereo .WAV 16/24-bit
+// - Tích hợp StemAnalyzerStudio: Tách 4 Stems & Phân tích hợp âm/BPM tự động
 // ============================================================================
+
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=29';
 
 export const MASTERING_PRESETS = [
   {
@@ -370,6 +373,8 @@ export class ArrangementStudio {
     this.cb = callbacks; // { getStudioBpm, onPlaybackStateChange, onClipsChanged, showToast }
 
     this.isSectionActive = false;
+    this.activeSubView = 'playlist'; // 'playlist' | 'stems'
+    this.stemStudio = null;
     this.bpm = clamp(Number(callbacks.getStudioBpm ? callbacks.getStudioBpm() : 84) || 84, 40, 220);
     this.snapMode = 'quarter'; // 'bar' | 'quarter' | 'off'
     this.toolMode = 'move';    // 'move' | 'split' | 'duplicate'
@@ -510,15 +515,50 @@ export class ArrangementStudio {
     this.isSectionActive = Boolean(active);
     if (!this.isSectionActive) {
       this._stopRafLoop();
+      if (this.stemStudio) this.stemStudio.pausePlayback();
     } else {
       requestAnimationFrame(() => {
-        this.resizeAndRedraw();
-        requestAnimationFrame(() => this.resizeAndRedraw());
+        if (this.activeSubView === 'playlist') {
+          this.resizeAndRedraw();
+          requestAnimationFrame(() => this.resizeAndRedraw());
+        }
       });
       if (this.isPlaying && !document.hidden) {
         this._startRafLoop();
       }
     }
+  }
+
+  setSubView(viewName) {
+    const next = viewName === 'stems' ? 'stems' : 'playlist';
+    if (this.activeSubView === next) {
+      if (next === 'playlist') {
+        requestAnimationFrame(() => this.resizeAndRedraw());
+      }
+      return;
+    }
+    if (next === 'stems' && this.isPlaying) {
+      this.pause();
+    } else if (next === 'playlist' && this.stemStudio) {
+      this.stemStudio.pausePlayback();
+    }
+    this.activeSubView = next;
+    if (this.root) {
+      this.root.querySelectorAll('[data-arr-view]').forEach((btn) => {
+        const active = btn.dataset.arrView === next;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', String(active));
+      });
+      this.root.querySelector('#arr-playlist-view')?.classList.toggle('hidden', next !== 'playlist');
+      this.root.querySelector('#arr-stems-panel')?.classList.toggle('hidden', next !== 'stems');
+    }
+    if (next === 'playlist') {
+      requestAnimationFrame(() => this.resizeAndRedraw());
+    }
+  }
+
+  openStemsAnalyzer() {
+    this.setSubView('stems');
   }
 
   _snapSec(sec) {
@@ -552,8 +592,19 @@ export class ArrangementStudio {
 
     this.root.innerHTML = `
       <div class="arr-shell">
-        <!-- 1. Thanh Transport & Công cụ Playlist -->
-        <div class="arr-transport">
+        <div class="arr-top-mode-bar" role="tablist" aria-label="Chế độ Dựng bài và Tách Stems">
+          <button type="button" class="arr-mode-tab${this.activeSubView === 'playlist' ? ' active' : ''}" data-arr-view="playlist" role="tab" aria-selected="${this.activeSubView === 'playlist'}">
+            <span>🎚️ Playlist &amp; Mastering</span>
+          </button>
+          <button type="button" class="arr-mode-tab${this.activeSubView === 'stems' ? ' active' : ''}" data-arr-view="stems" role="tab" aria-selected="${this.activeSubView === 'stems'}">
+            <span>🎛️ Tách Stems &amp; Phân Tích Hợp Âm</span>
+            <span class="badge-new">NEW</span>
+          </button>
+        </div>
+
+        <div id="arr-playlist-view" class="arr-playlist-view${this.activeSubView !== 'playlist' ? ' hidden' : ''}">
+          <!-- 1. Thanh Transport & Công cụ Playlist -->
+          <div class="arr-transport">
           <div class="arr-tp-left">
             <button type="button" class="btn arr-tp-rewind" id="arr-btn-rewind" title="Về đầu bài (00:00.0)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -794,12 +845,52 @@ export class ArrangementStudio {
             </div>
           </aside>
         </div>
+        </div>
+
+        <!-- Phân khu Tách Stems & Phân Tích Hợp Âm Tự Động -->
+        <div id="arr-stems-panel" class="arr-stems-panel${this.activeSubView !== 'stems' ? ' hidden' : ''}"></div>
       </div>
     `;
 
     this._renderTrackHeaders();
     this._renderClipsLibrary();
     this._syncMasterSlidersUI();
+
+    const stemsPanel = this.root.querySelector('#arr-stems-panel');
+    if (stemsPanel) {
+      this.stemStudio = new StemAnalyzerStudio(stemsPanel, {
+        renderStudioBeat: this.cb.renderStudioBeat,
+        onSendStemsToPlaylist: (items) => {
+          if (!Array.isArray(items) || items.length === 0) return;
+          const imported = [];
+          items.forEach((item, idx) => {
+            const clip = this.importClip({
+              name: item.name,
+              sourceType: item.sourceType || 'studio',
+              audioBuffer: item.audioBuffer,
+              bpm: item.bpm || this.bpm,
+              color: item.color,
+              suggestedTrackIndex: item.suggestedTrackIndex ?? (idx % this.tracks.length),
+              autoPlace: false,
+            });
+            if (clip) {
+              this.placeClipOnTimeline(clip.id, {
+                trackIndex: Math.min(this.tracks.length - 1, item.suggestedTrackIndex ?? idx),
+                startSec: 0,
+              });
+              imported.push(clip);
+            }
+          });
+          if (imported.length > 0) {
+            this.setSubView('playlist');
+            this._toast(`Đã đưa ${imported.length} Stems tách rời lên lưới Playlist & Master!`);
+          }
+        },
+        onApplyChordsToStudio: this.cb.onApplyChordsToStudio,
+        onPracticeChordsInTrainer: this.cb.onPracticeChordsInTrainer,
+        showToast: this.cb.showToast,
+      });
+    }
   }
 
   _renderTrackHeaders() {
@@ -881,6 +972,10 @@ export class ArrangementStudio {
     if (!this.root) return;
     const q = (sel) => this.root.querySelector(sel);
     const qq = (sel) => Array.from(this.root.querySelectorAll(sel));
+
+    qq('[data-arr-view]').forEach((btn) => {
+      btn.addEventListener('click', () => this.setSubView(btn.dataset.arrView));
+    });
 
     // Transport buttons
     q('#arr-btn-rewind')?.addEventListener('click', () => {
@@ -1758,6 +1853,13 @@ export class ArrangementStudio {
 
   handleKeyDown(e) {
     if (!this.isSectionActive) return;
+    if (this.activeSubView === 'stems') {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (this.stemStudio) this.stemStudio.togglePlay();
+      }
+      return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       if (this.isPlaying) this.pause();
@@ -2174,6 +2276,7 @@ export class ArrangementStudio {
     this._updateClockUI();
     this._drawRuler();
     this._drawTimeline();
+    if (this.stemStudio) this.stemStudio.stopPlayback();
     if (this.cb.onPlaybackStateChange) this.cb.onPlaybackStateChange(false);
   }
 

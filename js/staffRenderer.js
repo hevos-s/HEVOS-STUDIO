@@ -1,9 +1,9 @@
-﻿// ============================================================================
+// ============================================================================
 // staffRenderer.js — Bộ vẽ Khuông nhạc Vector SVG chuẩn xác (100% Path/Shape,
 // KHÔNG dùng ký tự Unicode nhạc để đảm bảo nét căng trên Windows/iOS/Android)
 // ============================================================================
 
-import { CLEF_META, KEY_SIGNATURES, LETTERS, createNoteObj, diatonicIndex, diatonicToLetterOctave } from './trainerData.js?v=28';
+import { CLEF_META, KEY_SIGNATURES, LETTERS, createNoteObj, diatonicIndex, diatonicToLetterOctave } from './trainerData.js?v=29';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 

@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // app.js — Điều phối trung tâm HEVOS STUDIO
 // Quản lý trạng thái, đồng bộ Desktop & Mobile, Thu Mic -> MIDI, Lưu & Xuất
 // ============================================================================
@@ -15,28 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=28';
+} from './theory.js?v=29';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=28';
+} from './audioEngine.js?v=29';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=28';
-import { PianoRoll } from './pianoRoll.js?v=28';
-import { downloadMidiFile } from './midiExport.js?v=28';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=28';
-import { MusicTrainer } from './musicTrainer.js?v=28';
-import { VocalStudio } from './vocalStudio.js?v=28';
-import { ArrangementStudio } from './arrangementStudio.js?v=28';
-import { createAmbientScene } from './ambientScene.js?v=28';
-import { midiController } from './midiController.js?v=28';
+} from './pitchToMidi.js?v=29';
+import { PianoRoll } from './pianoRoll.js?v=29';
+import { downloadMidiFile } from './midiExport.js?v=29';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=29';
+import { MusicTrainer } from './musicTrainer.js?v=29';
+import { VocalStudio } from './vocalStudio.js?v=29';
+import { ArrangementStudio } from './arrangementStudio.js?v=29';
+import { createAmbientScene } from './ambientScene.js?v=29';
+import { midiController } from './midiController.js?v=29';
+import {
+  StepSequencerUI,
+  createDefaultDrumGrid,
+  cloneDrumGrid,
+} from './stepSequencer.js?v=29';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -55,6 +60,7 @@ const state = {
   chordStyle: defaultPreset.style,
   chordTimbre: defaultPreset.timbre,
   drumPattern: defaultPreset.drums,
+  customDrumGrid: createDefaultDrumGrid('kpop_trap'),
   melodyTimbre: 'bell',
   beatExportFormat: 'wav',
 
@@ -92,11 +98,13 @@ const state = {
   rawVocalBuffer: null,
   editingBarIndex: null,
   activeMobileTab: 'chords', // 'chords' | 'melody' | 'mixer'
+  studioCenterView: 'melody', // 'melody' | 'sequencer'
   activeSection: 'hub',      // 'hub' | 'studio' | 'vocal' | 'trainer'
 };
 
 const vocalCapture = new VocalCapture();
 let pianoRoll = null;
+let stepSequencer = null;
 let musicTrainer = null;
 let vocalStudio = null;
 let arrangementStudio = null;
@@ -178,7 +186,10 @@ const el = {
   vocal2TakeTag: $('#vocal2-take-tag'),
 
   workspaceSubtabs: $('#workspace-subtabs'),
+  studioCenterTabs: $('#studio-center-tabs'),
   melodyWorkspaceView: $('#melody-workspace-view'),
+  sequencerWorkspaceView: $('#sequencer-workspace-view'),
+  btnOpenSequencer: $('#btn-open-sequencer'),
   vocalStudioView: $('#vocal-studio-view'),
   vocalStudioPanel: $('#vocal-studio-panel'),
   vocalPresenceDot: $('#vocal-presence-dot'),
@@ -256,6 +267,7 @@ function syncAudioEngine() {
     chordStyle: state.chordStyle,
     chordTimbre: state.chordTimbre,
     drumPattern: state.drumPattern,
+    customDrumGrid: state.customDrumGrid,
     melodyTimbre: state.melodyTimbre,
     voicedChords: state.voicedChords,
     melodyNotes: state.melodyNotes,
@@ -414,6 +426,7 @@ function syncGlobalControlsUI() {
   }
   el.chordTimbreSelect.value = state.chordTimbre;
   el.drumPatternSelect.value = state.drumPattern;
+  if (stepSequencer) stepSequencer.syncPatternBadge(state.drumPattern === 'custom_seq');
   el.melodyTimbreSelect.value = state.melodyTimbre;
   syncBeatExportFormatUI();
   if (state.activePresetId) {
@@ -546,6 +559,7 @@ function stopPlayheadWatch() {
     lastHighlightedBar = -1;
   }
   if (el.lcdPos) el.lcdPos.textContent = '1.1.1';
+  if (stepSequencer) stepSequencer.setActiveStep(-1);
   resetChannelMeters();
 }
 
@@ -581,6 +595,9 @@ function startPlayheadWatch() {
         const beatInBar = Math.floor(beat % 4) + 1;
         const step16 = Math.floor((beat % 1) * 4) + 1;
         el.lcdPos.textContent = `${curBar + 1}.${beatInBar}.${step16}`;
+      }
+      if (stepSequencer) {
+        stepSequencer.setActiveStep(Math.floor((beat % 4) * 4));
       }
 
       const levels = audioEngine.getChannelLevels();
@@ -995,6 +1012,7 @@ function handleExportMidi() {
       chordStyle: state.chordStyle,
       chordTimbre: state.chordTimbre,
       drumPattern: state.drumPattern,
+      customDrumGrid: state.customDrumGrid,
       melodyNotes: state.melodyNotes,
       melodyTimbre: state.melodyTimbre,
       mixer: state.mixer,
@@ -1052,6 +1070,7 @@ async function handleExportAudio() {
       chordStyle: state.chordStyle,
       chordTimbre: state.chordTimbre,
       drumPattern: state.drumPattern,
+      customDrumGrid: state.customDrumGrid,
       melodyTimbre: state.melodyTimbre,
       voicedChords: state.voicedChords,
       melodyNotes: state.melodyNotes,
@@ -1108,6 +1127,7 @@ async function handleSendBeatToArrangement() {
       chordStyle: state.chordStyle,
       chordTimbre: state.chordTimbre,
       drumPattern: state.drumPattern,
+      customDrumGrid: state.customDrumGrid,
       melodyTimbre: state.melodyTimbre,
       voicedChords: state.voicedChords,
       melodyNotes: state.melodyNotes,
@@ -1230,6 +1250,7 @@ function saveCurrentProject(customName) {
     chordStyle: state.chordStyle,
     chordTimbre: state.chordTimbre,
     drumPattern: state.drumPattern,
+    customDrumGrid: cloneDrumGrid(state.customDrumGrid),
     melodyTimbre: state.melodyTimbre,
     chords: state.chords.map((c) => ({ ...c })),
     melodyNotes: state.melodyNotes.map((n) => ({ ...n })),
@@ -1262,6 +1283,7 @@ function loadProjectById(id) {
   state.chordStyle = item.chordStyle || 'rnb';
   state.chordTimbre = item.chordTimbre || 'rhodes';
   state.drumPattern = item.drumPattern || 'lofi';
+  state.customDrumGrid = item.customDrumGrid ? cloneDrumGrid(item.customDrumGrid) : createDefaultDrumGrid('kpop_trap');
   state.melodyTimbre = item.melodyTimbre || 'bell';
   state.chords = Array.isArray(item.chords) ? item.chords.map((c) => ({ ...c })) : defaultPreset.chords.map((c) => ({ ...c }));
   state.melodyNotes = Array.isArray(item.melodyNotes) ? item.melodyNotes.map((n) => ({ ...n })) : [];
@@ -1281,6 +1303,10 @@ function loadProjectById(id) {
   syncMixerUI();
   updateUndoButtons();
   syncPianoRoll();
+  if (stepSequencer) {
+    stepSequencer.renderGridValues(state.customDrumGrid);
+    stepSequencer.syncPatternBadge(state.drumPattern === 'custom_seq');
+  }
   syncAudioEngine();
   audioEngine.applyMixer(state.mixer);
   if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
@@ -1431,6 +1457,35 @@ function setAppSection(section) {
   }
 }
 
+function setStudioCenterView(viewName) {
+  const next = viewName === 'sequencer' ? 'sequencer' : 'melody';
+  state.studioCenterView = next;
+
+  if (next !== 'melody' && isPianoRollFullscreen) {
+    setPianoRollFullscreen(false);
+  }
+
+  if (el.studioCenterTabs) {
+    $$('[data-center-view]', el.studioCenterTabs).forEach((btn) => {
+      const act = btn.dataset.centerView === next;
+      btn.classList.toggle('active', act);
+      btn.setAttribute('aria-selected', String(act));
+    });
+  }
+  if (el.btnOpenSequencer) {
+    el.btnOpenSequencer.classList.toggle('active', next === 'sequencer');
+  }
+  if (el.melodyWorkspaceView) {
+    el.melodyWorkspaceView.classList.toggle('hidden', next !== 'melody');
+  }
+  if (el.sequencerWorkspaceView) {
+    el.sequencerWorkspaceView.classList.toggle('hidden', next !== 'sequencer');
+  }
+  if (next === 'melody' && pianoRoll) {
+    requestAnimationFrame(() => pianoRoll.resize());
+  }
+}
+
 function setMobileTab(tabName) {
   const target = ['chords', 'melody', 'mixer'].includes(tabName) ? tabName : 'chords';
   state.activeMobileTab = target;
@@ -1444,7 +1499,7 @@ function setMobileTab(tabName) {
     setPianoRollFullscreen(false);
   }
 
-  if (target === 'melody') {
+  if (target === 'melody' && state.studioCenterView === 'melody') {
     if (pianoRoll) {
       pianoRoll.setActive(state.activeSection === 'studio');
       pianoRoll.resize();
@@ -1513,6 +1568,22 @@ function bindEvents() {
         const anchor = sel ? $(sel, el.hubRoot) : null;
         if (anchor) {
           anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
+      const featBtn = e.target.closest('[data-goto-feature]');
+      if (featBtn) {
+        const feat = featBtn.dataset.gotoFeature;
+        if (feat === 'ear-training') {
+          setAppSection('trainer');
+          if (musicTrainer) musicTrainer.openEarTraining();
+        } else if (feat === 'step-sequencer') {
+          setAppSection('studio');
+          setStudioCenterView('sequencer');
+          if (window.innerWidth <= 768) setMobileTab('melody');
+        } else if (feat === 'stems') {
+          setAppSection('arrangement');
+          if (arrangementStudio) arrangementStudio.openStemsAnalyzer();
         }
         return;
       }
@@ -1670,8 +1741,24 @@ function bindEvents() {
 
   el.drumPatternSelect.addEventListener('change', (e) => {
     state.drumPattern = e.target.value;
+    if (stepSequencer) stepSequencer.syncPatternBadge(state.drumPattern === 'custom_seq');
     syncAudioEngine();
   });
+
+  if (el.studioCenterTabs) {
+    el.studioCenterTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-center-view]');
+      if (!btn) return;
+      setStudioCenterView(btn.dataset.centerView);
+    });
+  }
+
+  if (el.btnOpenSequencer) {
+    el.btnOpenSequencer.addEventListener('click', () => {
+      setStudioCenterView('sequencer');
+      if (window.innerWidth <= 768) setMobileTab('melody');
+    });
+  }
 
   el.melodyTimbreSelect.addEventListener('change', (e) => {
     state.melodyTimbre = e.target.value;
@@ -2100,6 +2187,30 @@ function init() {
     },
   });
 
+  if (el.sequencerWorkspaceView) {
+    stepSequencer = new StepSequencerUI(el.sequencerWorkspaceView, {
+      getGrid: () => state.customDrumGrid,
+      getDrumPattern: () => state.drumPattern,
+      onGridChange: (grid, activateCustom) => {
+        state.customDrumGrid = cloneDrumGrid(grid);
+        if (activateCustom && state.drumPattern !== 'custom_seq') {
+          state.drumPattern = 'custom_seq';
+          syncGlobalControlsUI();
+        }
+        syncAudioEngine();
+      },
+      onAuditionDrum: (drumType, openHat, velocity) => {
+        audioEngine.auditionDrumHit(drumType, openHat, velocity).catch(() => {});
+      },
+      onSelectCustomDrum: () => {
+        state.drumPattern = 'custom_seq';
+        syncGlobalControlsUI();
+        syncAudioEngine();
+        showToast('Đã kích hoạt Bộ gõ 16 bước (Step Sequencer)!');
+      },
+    });
+  }
+
   // Khởi tạo phân khu Học nhạc & Phòng Luyện Đàn Piano Tương Tác (Web MIDI + On-Screen)
   midiController.setQwertyActiveCheck(
     () => state.activeSection === 'trainer' && Boolean(musicTrainer) && musicTrainer.view === 'piano-room'
@@ -2200,10 +2311,59 @@ function init() {
 
   midiController.initWebMidi();
 
-  // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist & Mastering)
+  // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist, Mastering & Tách Stems)
   if (el.arrangementRoot) {
     arrangementStudio = new ArrangementStudio(el.arrangementRoot, {
       getStudioBpm: () => state.bpm,
+      renderStudioBeat: async () => {
+        const buffer = await audioEngine.renderBeatOffline({
+          bpm: state.bpm,
+          totalBars: state.totalBars,
+          humanize: state.humanize,
+          chordStyle: state.chordStyle,
+          chordTimbre: state.chordTimbre,
+          drumPattern: state.drumPattern,
+          melodyTimbre: state.melodyTimbre,
+          voicedChords: state.voicedChords,
+          melodyNotes: state.melodyNotes,
+          mixer: state.mixer,
+          customDrumGrid: state.customDrumGrid,
+        });
+        const preferFlats = shouldPreferFlats(state.keyPc, state.scaleType);
+        const keyName = pcToNoteName(state.keyPc, preferFlats);
+        return {
+          audioBuffer: buffer,
+          name: `Beat ${keyName} ${state.scaleType === 'minor' ? 'Thứ' : 'Trưởng'} · ${state.bpm} BPM`,
+        };
+      },
+      onApplyChordsToStudio: ({ keyPc, scaleType, bpm, chords }) => {
+        audioEngine.stop();
+        updatePlayButtonUI();
+        state.keyPc = ((Number(keyPc) || 0) + 12) % 12;
+        state.scaleType = scaleType === 'minor' ? 'minor' : 'major';
+        state.bpm = Math.max(50, Math.min(200, Math.round(Number(bpm) || 100)));
+        const src = Array.isArray(chords) && chords.length > 0 ? chords : state.chords;
+        state.totalBars = src.length >= 8 ? 8 : 4;
+        const nextChords = [];
+        for (let i = 0; i < state.totalBars; i++) {
+          nextChords.push({ ...src[i % src.length] });
+        }
+        state.chords = nextChords;
+        recomputeVoicings();
+        syncGlobalControlsUI();
+        renderChordStrip();
+        syncPianoRoll();
+        syncAudioEngine();
+        if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
+        setAppSection('studio');
+        showToast(`Đã nạp ${state.totalBars} ô hợp âm phân tích vào Sáng tác Beat!`);
+      },
+      onPracticeChordsInTrainer: ({ keyPc, scaleType, bpm, chords }) => {
+        setAppSection('trainer');
+        if (musicTrainer) {
+          musicTrainer.openChordPracticeCustom({ keyPc, scaleType, bpm, chords });
+        }
+      },
       onPlaybackStateChange: (playing) => {
         if (playing && ambientScene && state.activeSection === 'hub') {
           ambientScene.wake();
@@ -2230,6 +2390,7 @@ function init() {
         chordStyle: state.chordStyle,
         chordTimbre: state.chordTimbre,
         drumPattern: state.drumPattern,
+        customDrumGrid: state.customDrumGrid,
         voicedChords: state.voicedChords,
         melodyNotes: state.melodyNotes,
       }),

@@ -1,4 +1,4 @@
-﻿# PROJECT_NOTES — HEVOS STUDIO
+# PROJECT_NOTES — HEVOS STUDIO
 
 Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc **HEVOS STUDIO**.
 
@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=28`, `./js/app.js?v=28`, `./theory.js?v=28`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=29`, `./js/app.js?v=29`, `./theory.js?v=29`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=28`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=29`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -47,11 +47,14 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | `js/autoTune.js` | Bộ máy Auto-Tune khóa tông TD-PSOLA liên tục & đồng cực: Khử lệch DC -> Zero-Phase Butterworth `75–850Hz` -> FFT-YIN (`2048/256`) + Parabol -> Tách Pitch Trend & Vibrato + Exponential Glide (`±2.5` bán cung) -> Pitch Marks đồng cực toàn cục -> Overlap-Add chuẩn hóa `weightSum[i]` trên cửa sổ Hann `max(2*T0, 2*T1)` (khớp 1:1 cho cả nguyên âm & phụ âm) -> Warm Comp & Soft Limiter `0.92` |
 | `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 (`.mid`, PPQ = 480, tối đa 4 track) |
 | `js/midiController.js` | Bộ điều khiển nhập liệu hợp nhất: Web MIDI Plug & Play (`requestMIDIAccess`, Velocity, CC 64 Sustain Pedal), bàn phím PC 2 quãng tám QWERTY (`Z–M`, `Q–U`), cảm ứng đa điểm và nút `Giữ phím ghép hợp âm` (Chord Latch) |
+| `js/earTraining.js` | Ngân hàng câu hỏi & quản lý thống kê Luyện cảm âm (Hợp âm 3 cấp độ + Đảo bass, Quãng nhạc M2–P8, Bậc hòa âm I–vi theo tông mẫu) |
 | `js/musicTheory.js` | Bộ nhận diện hợp âm thời gian thực (`detectChordFromMidis`), gợi ý âm giai Scale Guide, vòng hợp âm Wait Mode & kho giai điệu Nốt Rơi |
-| `js/musicTrainer.js` | Giao diện & logic Phòng Luyện Đàn Piano Tương Tác (Tự do/Dò hợp âm, Luyện Đệm Hợp Âm Wait Mode, Nốt Rơi Synthesia) cùng 4 chế độ Đọc khuông nhạc & Cảm âm |
+| `js/musicTrainer.js` | Giao diện & logic Phòng Luyện Đàn Piano Tương Tác (Tự do/Dò hợp âm, Luyện Đệm Hợp Âm Wait Mode, Nốt Rơi Synthesia), 4 chế độ Đọc khuông nhạc & phân khu **Luyện Cảm Âm Hợp Âm** |
 | `js/pianoRoll.js` | Bảng vẽ & chỉnh sửa giai điệu MIDI 60fps trên HTML5 Canvas |
 | `js/pitchToMidi.js` | Thu âm Micro qua Native `AudioContext` + Preamp di động + YIN chuyển giọng ngân nga thành MIDI + đóng gói WAV 16-bit |
 | `js/staffRenderer.js` | Bộ vẽ khuông nhạc Vector SVG sắc nét (Khóa Sol, Fa, Đô, hóa biểu, nốt nhạc) |
+| `js/stepSequencer.js` | Bộ gõ lưới 16 bước (6 hàng nhạc cụ K-Pop Trap / US-UK Stage / EDM / Boombap / House / Alt-Rock, Accent velocity, Audition pad, Randomize/Clear) đồng bộ Live Tone.Part, Offline WAV/MP3 & xuất MIDI |
+| `js/stemAnalyzer.js` | Bộ tách 4 Stems cục bộ (Spectral Mid/Side + Transient Flux DSP: Vocals / Instrumental / Bass / Drums), bộ dò BPM & dòng thời gian Hợp âm tự động kèm Mixer M/S/Vol 4 kênh |
 | `js/theory.js` | Bộ máy nhạc lý thuần JS (âm giai, hợp âm, Smart Voice Leading, bảng Preset vòng hợp âm) |
 | `js/trainerData.js` | Giáo trình luyện đọc nốt, ký âm, bộ sinh bài tập & lưu thống kê `localStorage` |
 | `js/vocalStudio.js` | Phòng thu Vocal độc lập chạy Native `AudioContext` riêng, 2 kênh giọng, FX rack, xuất mixdown `.wav` và xuất tín hiệu `getAudioLevel()` cho 3D Scene |
@@ -74,3 +77,7 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 - **Âm thanh Sân Khấu US-UK & K-Pop / G-Dragon (`theory.js`, `audioEngine.js`, `midiExport.js`, `vocalStudio.js`)**: Bổ sung 2 nhạc cụ Synth sân khấu (`dark_brass` Dark Brass K-Pop, `stage_pluck` Stage Pluck / Lead), 3 kiểu đệm cá tính (`yg_bounce` YG Stage Bounce, `usuk_stage` US-UK Stage Pop, `alt_punk` GD Alt-Pop Bounce), 3 bộ trống hiện đại có **Clap 2 lớp + Crash Cymbal + Hi-hat roll 1/16–1/32 + Fill chuyển ô** (`kpop_trap`, `stage_pop`, `alt_hiphop`) và 5 Preset thuộc 2 nhóm Vibe mới (**K-Pop / G-Dragon** & **US-UK Stage Pop**).
 - **Khắc phục Lỗi & Tối ưu Mobile Toàn Diện (`audioEngine.js`, `app.js`, `ambientScene.js`, `vocalStudio.js`, `arrangementStudio.js`, `style.css`, `index.html`)**: Mở khóa Web Audio đồng bộ qua `unlockSync()` + `touchend`/`click`/`keydown` có timeout 900ms chống treo deadlock `ensureReady()`, tự gắn lại listener khi `visibilitychange` phục hồi trạng thái `interrupted` trên iOS; tải Three.js lazy không chặn khởi chạy app; chờ `ctx.resume()` trước khi lên lịch phát ở Phòng thu Vocal & Dựng bài kèm `webkitOfflineAudioContext`; đặt `touch-action: none` cho Canvas và loại bỏ bẫy cuộn kép trong Studio Mobile.
 - **Phòng Luyện Đàn Piano Tương Tác Đa Chế Độ & Web MIDI (`midiController.js`, `musicTheory.js`, `musicTrainer.js`, `audioEngine.js`, `app.js`, `index.html`, `style.css`)**: Hỗ trợ hoàn hảo 100% không cần phần cứng (chuột + `Giữ phím ghép hợp âm` Chord Latch, cảm ứng đa điểm trên Mobile có thanh chuyển quãng, bàn phím máy tính 2 quãng tám `Z–M`/`Q–U`) và tự động Plug & Play khi cắm đàn Piano/MIDI USB (`Velocity`, `CC 64 Sustain Pedal`), tích hợp nhận diện hợp âm sống thời gian thực, **Luyện Đệm Hợp Âm (`Wait Mode` / Metronome)**, **Nốt Rơi Synthesia `<canvas>`** nạp trực tiếp được dữ liệu từ `Sáng tác Beat`, và cho phép chơi/ghi nốt MIDI trực tiếp vào Piano Roll (`#btn-midi-record-arm`).
+- **Bộ 3 Tính năng Roadmap Hoàn thiện (`earTraining.js`, `stepSequencer.js`, `stemAnalyzer.js`)**:
+  - **Luyện Cảm Âm Hợp Âm (`Học nhạc lý`)**: Nhận diện chất hợp âm (`maj`, `min`, `sus4`, `7`, `maj7`, `m7`, `dim`, hợp âm đảo 3 cấp độ), Quãng nhạc (`M2–P8`) & Bậc hòa âm (`I–vi`), phát Block/Rải, thống kê chuỗi đúng & kỷ lục.
+  - **Bộ gõ Step Sequencer 16 bước (`Sáng tác Beat`)**: Lưới 6×16 tương tác trực tiếp (`Kick 808`, `Snare`, `Clap`, `Hi-Hat`, `Open Hat`, `Rim / Crash`) với chế độ Accent, 6 preset nhịp, Audition chạm từng ô & tô sáng cột nhịp theo thời gian thực; đồng bộ 1:1 qua `custom_seq` cho Phát Live, Offline WAV/MP3 & xuất MIDI `.mid`.
+  - **Tách Stems & Phân tích Hợp âm Tự động (`Dựng bài & Master`)**: Nạp MP3/WAV hoặc lấy Beat từ Studio, tự động dò Tông (`detectKeyFromAudioBuffer`), dò BPM (`detectBpmFromAudioBuffer`), vẽ Dòng thời gian Hợp âm (`analyzeChordsFromAudioBuffer`) và tách 4 Stems DSP cục bộ (`vocals`, `instrumental`, `bass`, `drums`) kèm Mixer nghe thử & chuyển thẳng 4 lớp lên Playlist hoặc nạp hợp âm sang Beat / Phòng Đàn.

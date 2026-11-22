@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // vocalStudio.js — Phòng Thu Vocal Độc Lập Hoàn Toàn (Standalone Vocal Booth)
 // - Tách biệt 100% khỏi Tone.Transport của mục Sáng tác Beat
 // - Track 0: Nhập Beat MP3/WAV/M4A/OGG từ máy, Thu mộc tự do, hoặc Render Beat từ Sáng tác
@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=28';
+} from './theory.js?v=29';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=28';
+} from './pitchToMidi.js?v=29';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=28';
+} from './autoTune.js?v=29';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=28';
+} from './audioEngine.js?v=29';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=28';
+} from './audioEncode.js?v=29';
 
 export { encodeAudioBufferToWavBlob };
 
@@ -1819,6 +1819,7 @@ export class VocalStudio {
         drumPattern: studioCtx.drumPattern || 'lofi',
         chordStyle: studioCtx.chordStyle || 'rnb',
         humanize: studioCtx.humanize ?? 50,
+        customDrumGrid: studioCtx.customDrumGrid || null,
       });
 
       const melEvents = generateMelodyEvents({

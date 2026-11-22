@@ -1,9 +1,9 @@
-﻿// ============================================================================
+// ============================================================================
 // audioEngine.js — Bộ máy Âm thanh Tone.js: Đệm hợp âm có hồn, 4 chất tiếng,
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=28';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=29';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -123,6 +123,7 @@ export const CHORD_STYLES = [
 
 export const DRUM_PATTERNS = [
   { id: 'off',        label: 'Tắt trống' },
+  { id: 'custom_seq', label: 'Tự soạn Step Sequencer (16 bước)' },
   { id: 'kpop_trap',  label: 'K-Pop / YG Trap Stage' },
   { id: 'stage_pop',  label: 'US-UK Stage Pop' },
   { id: 'alt_hiphop', label: 'G-Dragon / Alt Bounce' },
@@ -285,6 +286,7 @@ export function generateDrumEvents({
   drumPattern = 'lofi',
   chordStyle = 'rnb',
   humanize = 55,
+  customDrumGrid = null,
 }) {
   if (!drumPattern || drumPattern === 'off') return [];
 
@@ -479,6 +481,28 @@ export function generateDrumEvents({
         add(bar, 3.8333, 'snare', 0.88);
         add(bar, 3.8333, 'clap', 0.80);
       }
+    } else if (drumPattern === 'custom_seq' && customDrumGrid) {
+      // Lưới 16 bước (Step Sequencer) do người dùng tự soạn
+      const laneDefs = [
+        { key: 'kick', drumType: 'kick', openHat: false },
+        { key: 'snare', drumType: 'snare', openHat: false },
+        { key: 'clap', drumType: 'clap', openHat: false },
+        { key: 'hat', drumType: 'hat', openHat: false },
+        { key: 'openHat', drumType: 'hat', openHat: true },
+        { key: 'perc', drumType: 'rim', openHat: false },
+      ];
+      for (let step = 0; step < 16; step++) {
+        const beat = step * 0.25;
+        laneDefs.forEach(({ key, drumType, openHat }) => {
+          const arr = customDrumGrid[key];
+          if (!Array.isArray(arr)) return;
+          const val = arr[step] || 0;
+          if (val <= 0) return;
+          const vel = val >= 2 ? 0.94 : 0.72;
+          const type = key === 'perc' && step === 0 && val >= 2 && bar % 4 === 0 ? 'crash' : drumType;
+          add(bar, beat, type, vel, openHat);
+        });
+      }
     }
   }
 
@@ -534,6 +558,7 @@ class AudioEngine {
       melodyTimbre: 'bell',
       voicedChords: [],
       melodyNotes: [],
+      customDrumGrid: null,
       mixer: {
         chords: { volume: 78, muted: false, solo: false },
         melody: { volume: 82, muted: false, solo: false },
@@ -1893,6 +1918,7 @@ class AudioEngine {
         drumPattern,
         chordStyle,
         humanize,
+        customDrumGrid: this.state.customDrumGrid,
       });
       const drumPartEvents = toTickEvents(
         drumEvents
@@ -2477,6 +2503,15 @@ class AudioEngine {
     } catch (_) {}
   }
 
+  async auditionDrumHit(drumType, openHat = false, velocity = 0.85) {
+    if (!drumType) return;
+    this.unlockSync();
+    await this.ensureReady();
+    const safeVel = Number.isFinite(velocity) ? Math.max(0.1, Math.min(0.95, velocity)) : 0.85;
+    const t = getToneNow(window.Tone) + 0.008;
+    this._triggerDrum(drumType, t, safeVel, Boolean(openHat));
+  }
+
   /**
    * Kết xuất siêu tốc 1 vòng lặp Beat (Hợp âm + Giai điệu MIDI + Trống + Mixer + Timbre)
    * sang AudioBuffer Stereo 44.1kHz bằng OfflineAudioContext (hoạt động ngay cả trước khi bấm Phát)
@@ -2522,6 +2557,7 @@ class AudioEngine {
             drumPattern: cfg.drumPattern,
             chordStyle: cfg.chordStyle || 'rnb',
             humanize: cfg.humanize ?? 55,
+            customDrumGrid: cfg.customDrumGrid ?? this.state.customDrumGrid,
           })
         : [];
 

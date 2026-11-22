@@ -1,10 +1,10 @@
-﻿// ============================================================================
+// ============================================================================
 // musicTrainer.js — Phân khu Học nhạc (Luyện Đọc Nốt & Phản Xạ Nhạc Lý)
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, midiToFreq, midiToNoteName } from './theory.js?v=28';
-import { getQwertyLabelForMidi } from './midiController.js?v=28';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=29';
+import { getQwertyLabelForMidi } from './midiController.js?v=29';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,7 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=28';
+} from './musicTheory.js?v=29';
+import {
+  generateEarQuestion,
+  loadEarStats,
+  saveEarOutcome,
+} from './earTraining.js?v=29';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -30,12 +35,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=28';
+} from './trainerData.js?v=29';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=28';
+} from './staffRenderer.js?v=29';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -106,6 +111,16 @@ export class MusicTrainer {
     this._keyGeometry = new Map();
     this._keyElByMidi = new Map();
     this._signalLedTimer = null;
+
+    this.earState = {
+      mode: 'chord', // 'chord' | 'interval' | 'degree'
+      difficulty: 'medium',
+      question: null,
+      answered: false,
+      selectedId: null,
+      stats: loadEarStats(),
+    };
+    this._earTimers = [];
 
     // Cấu hình người dùng (Đọc Khuông Nhạc)
     this.config = {
@@ -178,9 +193,40 @@ export class MusicTrainer {
     this.isSectionActive = Boolean(active);
     if (!active) {
       this.stopActiveSession();
-    } else if (this.view === 'home' || this.view === 'piano-room') {
+    } else if (this.view === 'home' || this.view === 'piano-room' || this.view === 'ear-training') {
       this.render();
     }
+  }
+
+  openEarTraining() {
+    this.stopActiveSession();
+    this.view = 'ear-training';
+    if (!this.earState.question) {
+      this.earState.question = generateEarQuestion({
+        mode: this.earState.mode,
+        difficulty: this.earState.difficulty,
+      });
+    }
+    this.render();
+  }
+
+  openChordPracticeCustom({ keyPc = 0, scaleType = 'major', bpm = 80, chords = [] } = {}) {
+    this.stopActiveSession();
+    this.view = 'piano-room';
+    this.pianoSubMode = 'chord-wait';
+    if (Array.isArray(chords) && chords.length > 0) {
+      const voiced = generateVoicedProgression(chords, keyPc, scaleType);
+      const custom = buildPracticeChordsFromStudio(voiced, keyPc, scaleType);
+      if (custom) {
+        custom.bpm = bpm || 80;
+        custom.name = `Hợp âm phân tích (${custom.desc})`;
+        this.chordPractice.customProgression = custom;
+        this.chordPractice.progression = custom;
+        this.chordPractice.barIndex = 0;
+        this.chordPractice.bpm = custom.bpm;
+      }
+    }
+    this.render();
   }
 
   stopActiveSession() {
@@ -196,6 +242,7 @@ export class MusicTrainer {
       clearTimeout(this._nextNoteTimer);
       this._nextNoteTimer = null;
     }
+    this._clearEarTimers();
     this._stopChordWaitTimers();
     this._stopFallingLoop();
     this.falling.playing = false;
@@ -213,7 +260,7 @@ export class MusicTrainer {
   // ==========================================================================
   _bindKeyboardShortcuts() {
     this._onKeyDown = (e) => {
-      if (!this.isSectionActive || this.view === 'piano-room') return;
+      if (!this.isSectionActive || this.view === 'piano-room' || this.view === 'ear-training') return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -241,9 +288,14 @@ export class MusicTrainer {
       this._stopChordWaitTimers();
       this._stopFallingLoop();
     }
+    if (this.view !== 'ear-training') {
+      this._clearEarTimers();
+    }
 
     if (this.view === 'piano-room') {
       this._renderPianoRoom();
+    } else if (this.view === 'ear-training') {
+      this._renderEarTraining();
     } else if (this.view === 'home') {
       this._renderHome();
     } else if (this.view === 'setup-single') {
@@ -1652,13 +1704,18 @@ export class MusicTrainer {
 
   _renderTopSectionTabsHtml() {
     const isPiano = this.view === 'piano-room';
+    const isEar = this.view === 'ear-training';
+    const isStaff = !isPiano && !isEar;
     return `
-      <div class="trainer-top-tabs" role="tablist" aria-label="Phân mục Học nhạc lý">
+      <div class="trainer-top-tabs trainer-tabs-3" role="tablist" aria-label="Phân mục Học nhạc lý">
         <button type="button" class="seg-btn${isPiano ? ' active' : ''}" data-trainer-top="piano-room" role="tab" aria-selected="${isPiano}">
           🎹 Phòng Đàn Piano
         </button>
-        <button type="button" class="seg-btn${!isPiano ? ' active' : ''}" data-trainer-top="home" role="tab" aria-selected="${!isPiano}">
-          🎼 Đọc Khuông Nhạc &amp; Cảm Âm
+        <button type="button" class="seg-btn${isEar ? ' active' : ''}" data-trainer-top="ear-training" role="tab" aria-selected="${isEar}">
+          🎧 Cảm Âm Hợp Âm
+        </button>
+        <button type="button" class="seg-btn${isStaff ? ' active' : ''}" data-trainer-top="home" role="tab" aria-selected="${isStaff}">
+          🎼 Đọc Khuông Nhạc
         </button>
       </div>
     `;
@@ -1670,7 +1727,17 @@ export class MusicTrainer {
         const next = btn.dataset.trainerTop;
         if (next === this.view) return;
         this.stopActiveSession();
-        this.view = next === 'home' ? 'home' : 'piano-room';
+        if (next === 'ear-training') {
+          this.view = 'ear-training';
+          if (!this.earState.question) {
+            this.earState.question = generateEarQuestion({
+              mode: this.earState.mode,
+              difficulty: this.earState.difficulty,
+            });
+          }
+        } else {
+          this.view = next === 'home' ? 'home' : 'piano-room';
+        }
         this.render();
       });
     });
@@ -2901,6 +2968,231 @@ export class MusicTrainer {
         ctx.textBaseline = 'middle';
         ctx.fillText(midiToNoteName(n.midi, false), x + w / 2, topY + barH / 2);
       }
+    });
+  }
+
+  // ==========================================================================
+  // 11. LUYỆN CẢM ÂM HỢP ÂM, QUÃNG NHẠC & BẬC HÒA ÂM (EAR TRAINING)
+  // ==========================================================================
+  _clearEarTimers() {
+    (this._earTimers || []).forEach((id) => clearTimeout(id));
+    this._earTimers = [];
+  }
+
+  _playEarQuestionAudio(style = 'block') {
+    const q = this.earState.question;
+    if (!q || !Array.isArray(q.midis) || q.midis.length === 0) return;
+    this._clearEarTimers();
+    this.audio.unlockSync();
+
+    const timbre = this.pianoConfig.timbre || 'grand';
+    const playTarget = () => {
+      if (q.mode === 'interval') {
+        if (style === 'block') {
+          this.audio.playTrainerChordPreview(q.midis, 0.95, 0.78, timbre).catch(() => {});
+        } else {
+          this.audio.playTrainerPiano(q.midis[0], 0.55, 0.80).catch(() => {});
+          const tid = setTimeout(() => {
+            this.audio.playTrainerPiano(q.midis[1], 0.75, 0.82).catch(() => {});
+          }, 420);
+          this._earTimers.push(tid);
+        }
+        return;
+      }
+
+      if (style === 'arp') {
+        q.midis.forEach((m, idx) => {
+          const tid = setTimeout(() => {
+            this.audio.playTrainerChordPreview([m], 0.85, 0.76, timbre).catch(() => {});
+          }, idx * 210);
+          this._earTimers.push(tid);
+        });
+      } else {
+        this.audio.playTrainerChordPreview(q.midis, 1.0, 0.75, timbre).catch(() => {});
+      }
+    };
+
+    if (q.mode === 'degree' && q.anchorMidis && q.anchorMidis.length > 0) {
+      this.audio.playTrainerChordPreview(q.anchorMidis, 0.52, 0.66, timbre).catch(() => {});
+      const tid = setTimeout(playTarget, 680);
+      this._earTimers.push(tid);
+    } else {
+      playTarget();
+    }
+  }
+
+  _nextEarQuestion(autoPlay = true) {
+    const prevId = this.earState.question ? this.earState.question.answerId : null;
+    this.earState.question = generateEarQuestion({
+      mode: this.earState.mode,
+      difficulty: this.earState.difficulty,
+      prevAnswerId: prevId,
+    });
+    this.earState.answered = false;
+    this.earState.selectedId = null;
+    this._renderEarTraining();
+    if (autoPlay) {
+      this._playEarQuestionAudio(this.earState.mode === 'interval' ? 'arp' : 'block');
+    }
+  }
+
+  _renderEarTraining() {
+    if (!this.earState.question) {
+      this.earState.question = generateEarQuestion({
+        mode: this.earState.mode,
+        difficulty: this.earState.difficulty,
+      });
+    }
+    const es = this.earState;
+    const q = es.question;
+    const st = es.stats;
+    const accPct = st.total > 0 ? Math.round((st.correct / st.total) * 100) : 0;
+
+    const optionsHtml = q.options
+      .map((opt) => {
+        let stateCls = '';
+        if (es.answered) {
+          if (opt.id === q.answerId) stateCls = ' is-correct';
+          else if (opt.id === es.selectedId) stateCls = ' is-wrong';
+        }
+        return `
+          <button type="button" class="ear-opt-btn${stateCls}" data-ear-opt="${escapeHtml(opt.id)}" ${es.answered ? 'disabled' : ''}>
+            <strong class="ear-opt-title">${escapeHtml(opt.label)}</strong>
+            <span class="ear-opt-hint">${escapeHtml(opt.hint)}</span>
+          </button>
+        `;
+      })
+      .join('');
+
+    const feedbackHtml = es.answered
+      ? `
+        <div class="ear-feedback-banner${es.selectedId === q.answerId ? ' ok' : ' err'}">
+          <strong>${es.selectedId === q.answerId ? '✓ Chính xác!' : '✗ Chưa đúng — Đáp án:'}</strong>
+          <span>${escapeHtml(q.explanation)}</span>
+        </div>
+      `
+      : `
+        <div class="ear-feedback-banner idle">
+          Bấm <strong>Nghe lại</strong> hoặc <strong>Nghe rải chậm</strong> rồi chọn tính chất bạn nghe được bên dưới.
+        </div>
+      `;
+
+    this.root.innerHTML = `
+      <div class="trainer-shell">
+        ${this._renderDeviceBarHtml()}
+        ${this._renderTopSectionTabsHtml()}
+
+        <div class="ear-training-wrap">
+          <div class="ear-top-controls">
+            <div class="seg-group ear-mode-tabs" role="tablist" aria-label="Chế độ cảm âm">
+              <button type="button" class="seg-btn${es.mode === 'chord' ? ' active' : ''}" data-ear-mode="chord">Loại Hợp Âm</button>
+              <button type="button" class="seg-btn${es.mode === 'interval' ? ' active' : ''}" data-ear-mode="interval">Quãng Nhạc</button>
+              <button type="button" class="seg-btn${es.mode === 'degree' ? ' active' : ''}" data-ear-mode="degree">Bậc Hợp Âm (I–vi)</button>
+            </div>
+
+            ${
+              es.mode === 'chord'
+                ? `
+              <label class="inline-field">
+                <span class="inline-label">Độ khó</span>
+                <select id="ear-diff-select" class="studio-select compact" aria-label="Độ khó cảm âm hợp âm">
+                  <option value="basic"${es.difficulty === 'basic' ? ' selected' : ''}>Cơ bản (Trưởng · Thứ · sus4)</option>
+                  <option value="medium"${es.difficulty === 'medium' ? ' selected' : ''}>Trung cấp (+ 7 · maj7 · m7)</option>
+                  <option value="advanced"${es.difficulty === 'advanced' ? ' selected' : ''}>Nâng cao (+ dim &amp; Thế đảo)</option>
+                </select>
+              </label>
+            `
+                : ''
+            }
+
+            <div class="ear-stats-bar">
+              <span class="ear-stat-pill">Chuỗi đúng: <strong id="ear-streak-val" class="mono-val accent-green">${st.streak}</strong></span>
+              <span class="ear-stat-pill">Kỷ lục: <strong class="mono-val">${st.bestStreak}</strong></span>
+              <span class="ear-stat-pill">Độ chuẩn: <strong id="ear-acc-val" class="mono-val accent-cyan">${accPct}%</strong></span>
+            </div>
+          </div>
+
+          <div class="ear-prompt-card">
+            <div class="ear-prompt-head">
+              <div>
+                <span class="ear-kicker">${
+                  es.mode === 'interval'
+                    ? 'NGHE &amp; ĐOÁN QUÃNG 2 NỐT'
+                    : es.mode === 'degree'
+                      ? 'NGHE CHỦ ÂM (I) RỒI ĐOÁN BẬC KẾ TIẾP'
+                      : 'NGHE &amp; PHÂN BIỆT MÀU SẮC HỢP ÂM'
+                }</span>
+                <h2 class="ear-prompt-title">${
+                  es.mode === 'degree'
+                    ? 'Lắng nghe hợp âm Chủ âm (I), sau đó nhận diện Bậc hợp âm thứ hai'
+                    : es.mode === 'interval'
+                      ? 'Nghe cao độ 2 nốt vang lên và gọi tên quãng chính xác'
+                      : 'Nghe màu sắc hòa âm (Sáng · Buồn · Jazz/Lo-Fi · Treo · Giảm)'
+                }</h2>
+              </div>
+
+              <div class="ear-play-actions">
+                <button type="button" id="btn-ear-play-block" class="btn btn-cyan-solid btn-xs">
+                  🔊 ${es.mode === 'interval' ? 'Nghe đồng thanh' : 'Nghe lại (Hợp âm)'}
+                </button>
+                <button type="button" id="btn-ear-play-arp" class="btn btn-indigo-outline btn-xs">
+                  🎹 ${es.mode === 'interval' ? 'Nghe từng nốt' : 'Nghe rải chậm'}
+                </button>
+                <button type="button" id="btn-ear-next" class="btn btn-ghost btn-xs">
+                  Câu tiếp theo →
+                </button>
+              </div>
+            </div>
+
+            ${feedbackHtml}
+          </div>
+
+          <div class="ear-options-grid">${optionsHtml}</div>
+        </div>
+      </div>
+    `;
+
+    this._bindDeviceBarEvents();
+    this._bindTopSectionTabsEvents();
+    this._bindEarTrainingEvents();
+  }
+
+  _bindEarTrainingEvents() {
+    const qEl = (sel) => this.root.querySelector(sel);
+
+    this.root.querySelectorAll('[data-ear-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nextMode = btn.dataset.earMode;
+        if (!nextMode || nextMode === this.earState.mode) return;
+        this.earState.mode = nextMode;
+        this._nextEarQuestion(true);
+      });
+    });
+
+    qEl('#ear-diff-select')?.addEventListener('change', (e) => {
+      this.earState.difficulty = e.target.value;
+      this._nextEarQuestion(true);
+    });
+
+    qEl('#btn-ear-play-block')?.addEventListener('click', () => this._playEarQuestionAudio('block'));
+    qEl('#btn-ear-play-arp')?.addEventListener('click', () => this._playEarQuestionAudio('arp'));
+    qEl('#btn-ear-next')?.addEventListener('click', () => this._nextEarQuestion(true));
+
+    this.root.querySelectorAll('[data-ear-opt]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (this.earState.answered) return;
+        const picked = btn.dataset.earOpt;
+        const ok = picked === this.earState.question.answerId;
+        this.earState.answered = true;
+        this.earState.selectedId = picked;
+        this.earState.stats = saveEarOutcome(ok);
+        if (!ok) {
+          this.audio.playTrainerWrong().catch(() => {});
+        } else {
+          this._playEarQuestionAudio('block');
+        }
+        this._renderEarTraining();
+      });
     });
   }
 }
