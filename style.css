@@ -6576,6 +6576,7 @@ body.piano-roll-open .toast-container {
 .stem-chord-pill:hover {
   border-color: rgba(255, 255, 255, 0.30);
 }
+.stem-chord-pill.active,
 .stem-chord-pill.is-current {
   background: rgba(34, 211, 238, 0.18);
   border-color: #22D3EE;
@@ -6606,6 +6607,39 @@ body.piano-roll-open .toast-container {
 .stem-time-clock {
   font-size: 12px;
   color: #E4E4E7;
+}
+
+.stem-quick-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stem-preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #E4E4E7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.stem-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #FFFFFF;
+}
+.stem-preset-btn.active {
+  background: #FAFAFA;
+  border-color: #FFFFFF;
+  color: #09090B;
 }
 
 .stem-mixer-grid {
@@ -8078,6 +8112,21 @@ body.piano-roll-open .toast-container {
 
   .stem-scrubber {
     flex: 1 1 100%;
+  }
+
+  .stem-quick-presets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .stem-preset-btn {
+    min-height: 40px;
+    height: auto;
+    padding: 6px 8px;
+    justify-content: center;
+    text-align: center;
+    font-size: 11.5px;
   }
 
   .toast-container {

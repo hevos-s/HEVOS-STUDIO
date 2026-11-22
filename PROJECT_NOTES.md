@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=29`, `./js/app.js?v=29`, `./theory.js?v=29`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=30`, `./js/app.js?v=30`, `./theory.js?v=30`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=29`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=30`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -54,7 +54,7 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | `js/pitchToMidi.js` | Thu âm Micro qua Native `AudioContext` + Preamp di động + YIN chuyển giọng ngân nga thành MIDI + đóng gói WAV 16-bit |
 | `js/staffRenderer.js` | Bộ vẽ khuông nhạc Vector SVG sắc nét (Khóa Sol, Fa, Đô, hóa biểu, nốt nhạc) |
 | `js/stepSequencer.js` | Bộ gõ lưới 16 bước (6 hàng nhạc cụ K-Pop Trap / US-UK Stage / EDM / Boombap / House / Alt-Rock, Accent velocity, Audition pad, Randomize/Clear) đồng bộ Live Tone.Part, Offline WAV/MP3 & xuất MIDI |
-| `js/stemAnalyzer.js` | Bộ tách 4 Stems cục bộ (Spectral Mid/Side + Transient Flux DSP: Vocals / Instrumental / Bass / Drums), bộ dò BPM & dòng thời gian Hợp âm tự động kèm Mixer M/S/Vol 4 kênh |
+| `js/stemAnalyzer.js` | Bộ tách 4 Stems cục bộ theo phân hoạch 100% loại trừ lẫn nhau (2D Median-Filter HPSS + Mid/Side Spectral Subtraction: Vocals / Nhạc cụ & Hòa âm / Bass / Trống), bộ dò BPM & dòng thời gian Hợp âm tự động kèm Mixer M/S/Vol, chế độ nghe nhanh Karaoke/Acapella & tải bản Mix hiện tại |
 | `js/theory.js` | Bộ máy nhạc lý thuần JS (âm giai, hợp âm, Smart Voice Leading, bảng Preset vòng hợp âm) |
 | `js/trainerData.js` | Giáo trình luyện đọc nốt, ký âm, bộ sinh bài tập & lưu thống kê `localStorage` |
 | `js/vocalStudio.js` | Phòng thu Vocal độc lập chạy Native `AudioContext` riêng, 2 kênh giọng, FX rack, xuất mixdown `.wav` và xuất tín hiệu `getAudioLevel()` cho 3D Scene |
@@ -80,4 +80,4 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 - **Bộ 3 Tính năng Roadmap Hoàn thiện (`earTraining.js`, `stepSequencer.js`, `stemAnalyzer.js`)**:
   - **Luyện Cảm Âm Hợp Âm (`Học nhạc lý`)**: Nhận diện chất hợp âm (`maj`, `min`, `sus4`, `7`, `maj7`, `m7`, `dim`, hợp âm đảo 3 cấp độ), Quãng nhạc (`M2–P8`) & Bậc hòa âm (`I–vi`), phát Block/Rải, thống kê chuỗi đúng & kỷ lục.
   - **Bộ gõ Step Sequencer 16 bước (`Sáng tác Beat`)**: Lưới 6×16 tương tác trực tiếp (`Kick 808`, `Snare`, `Clap`, `Hi-Hat`, `Open Hat`, `Rim / Crash`) với chế độ Accent, 6 preset nhịp, Audition chạm từng ô & tô sáng cột nhịp theo thời gian thực; đồng bộ 1:1 qua `custom_seq` cho Phát Live, Offline WAV/MP3 & xuất MIDI `.mid`.
-  - **Tách Stems & Phân tích Hợp âm Tự động (`Dựng bài & Master`)**: Nạp MP3/WAV hoặc lấy Beat từ Studio, tự động dò Tông (`detectKeyFromAudioBuffer`), dò BPM (`detectBpmFromAudioBuffer`), vẽ Dòng thời gian Hợp âm (`analyzeChordsFromAudioBuffer`) và tách 4 Stems DSP cục bộ (`vocals`, `instrumental`, `bass`, `drums`) kèm Mixer nghe thử & chuyển thẳng 4 lớp lên Playlist hoặc nạp hợp âm sang Beat / Phòng Đàn.
+  - **Tách Stems & Phân tích Hợp âm Tự động (`Dựng bài & Master`)**: Nạp MP3/WAV hoặc lấy Beat từ Studio, tự động dò Tông (`detectKeyFromAudioBuffer`), dò BPM (`detectBpmFromAudioBuffer`), vẽ Dòng thời gian Hợp âm (`analyzeChordsFromAudioBuffer`) và tách 4 Stems DSP cục bộ theo phân hoạch 2D-HPSS + Mid/Side không dẫm tiếng (`vocals`, `instrumental`, `bass`, `drums`) kèm Mixer nghe thử (`Volume 0%` triệt để, preset nhanh `Xóa Vocal (Karaoke)` / `Chỉ Giọng hát`), tải từng Stem hoặc tải bản Mix, chuyển thẳng 4 lớp lên Playlist hoặc nạp hợp âm sang Beat / Phòng Đàn.

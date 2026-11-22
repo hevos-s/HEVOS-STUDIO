@@ -8,7 +8,7 @@
 // - Tích hợp StemAnalyzerStudio: Tách 4 Stems & Phân tích hợp âm/BPM tự động
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=29';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=30';
 
 export const MASTERING_PRESETS = [
   {
@@ -1419,9 +1419,15 @@ export class ArrangementStudio {
       const nodes = this.trackNodes[idx];
       if (!nodes) return;
       const audible = this._isTrackAudible(idx);
-      const norm = clamp(tr.volume, 0, 100) / 100;
-      const val = audible ? Math.pow(norm, 1.55) * 1.15 : 0;
-      nodes.gain.gain.setTargetAtTime(val, now, 0.015);
+      const norm = clamp(Number(tr.volume) || 0, 0, 100) / 100;
+      const val = audible && norm > 0 ? Math.pow(norm, 1.55) * 1.15 : 0;
+      try {
+        nodes.gain.gain.cancelScheduledValues(now);
+        nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
+        nodes.gain.gain.linearRampToValueAtTime(val, now + 0.015);
+      } catch (_) {
+        nodes.gain.gain.value = val;
+      }
       nodes.pan.pan.setTargetAtTime(clamp(tr.pan, -100, 100) / 100, now, 0.015);
     });
   }

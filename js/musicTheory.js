@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=29';
+} from './theory.js?v=30';
 
 // Ưu tiên giáng chuẩn khi gốc hợp âm là các giọng giáng phổ biến trong nhạc nhẹ (Eb, Bb, Ab, Db, Gb, F, Fm, Cm, Gm)
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);

@@ -3,9 +3,9 @@
 // + Phân tích Tự động Tông, BPM & Vòng Hợp Âm theo dòng thời gian ngay trên trình duyệt
 // ============================================================================
 
-import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=29';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=29';
-import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=29';
+import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=30';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=30';
+import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=30';
 
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
 
@@ -358,8 +358,22 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
   };
 }
 
+function insertionSortWindow(arr, len) {
+  for (let i = 1; i < len; i++) {
+    const key = arr[i];
+    let j = i - 1;
+    while (j >= 0 && arr[j] > key) {
+      arr[j + 1] = arr[j];
+      j--;
+    }
+    arr[j + 1] = key;
+  }
+  return arr[len >> 1];
+}
+
 /**
- * Tách 4 Stems Stereo (Giọng hát, Nhạc nền, Bass, Trống) trực tiếp bằng STFT Mid/Side & Transient Flux DSP
+ * Tách 4 Stems Stereo (Giọng hát, Nhạc cụ & Hòa âm, Bass, Trống) theo phân hoạch 100% loại trừ lẫn nhau
+ * dùng 2D Median-Filter HPSS (11 khung thời gian × 11 dải tần) + Mid/Side Spectral Subtraction
  */
 export async function separateAudioStems(audioBuffer, { onProgress = null } = {}) {
   if (!audioBuffer || audioBuffer.length < 2048) {
@@ -371,7 +385,7 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
   const ch0 = audioBuffer.getChannelData(0);
   const ch1 = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : ch0;
 
-  // Kiểm tra file có trường Stereo thực tế hay Mono
+  // Kiểm tra file có trường Stereo thực tế hay Mono (L === R)
   let midEnergy = 0;
   let sideEnergy = 0;
   const stepProbe = Math.max(1, Math.floor(len / 8000));
@@ -387,42 +401,50 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
   const hop = 1024;
   const halfBins = fftSize >> 1;
 
-  // Cửa sổ sqrt-Hann cho Analysis & Synthesis đảm bảo Weighted-Overlap-Add (WOLA) khớp biên độ 1.0
+  // Periodic Hann đảm bảo win[i]^2 + win[i+hop]^2 === 1.00000 tuyệt đối ở mọi mẫu
   const win = new Float32Array(fftSize);
   for (let i = 0; i < fftSize; i++) {
-    win[i] = Math.sqrt(0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1))));
+    win[i] = Math.sqrt(0.5 * (1 - Math.cos((2 * Math.PI * i) / fftSize)));
   }
 
-  // Tạo sẵn mặt nạ dải tần (Vocals 130Hz–7.8kHz, Bass < 235Hz)
-  const vocBand = new Float32Array(halfBins + 1);
+  // Phân dải chéo mượt: Bass (<215Hz), Vocal Stereo (150Hz–9.6kHz), Vocal Mono (150Hz–6.5kHz)
   const bassBand = new Float32Array(halfBins + 1);
-  const drumAirBand = new Float32Array(halfBins + 1);
+  const vocBand = new Float32Array(halfBins + 1);
+  const monoVocBand = new Float32Array(halfBins + 1);
 
   for (let k = 0; k <= halfBins; k++) {
     const freq = (k * sr) / fftSize;
 
-    // Dải giọng hát sạch: cắt ù trầm < 130Hz & lọc chói > 7800Hz
-    if (freq < 130 || freq > 8200) {
-      vocBand[k] = 0;
-    } else if (freq < 240) {
-      vocBand[k] = 0.5 * (1 - Math.cos((Math.PI * (freq - 130)) / 110));
-    } else if (freq > 5200) {
-      vocBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 5200)) / 3000));
-    } else {
-      vocBand[k] = 1;
-    }
-
-    // Dải Sub & Bass (< 235Hz)
-    if (freq <= 145) {
+    // 1. Dải Sub & Bass: 1.0 <= 135Hz, tắt hẳn >= 215Hz
+    if (freq <= 135) {
       bassBand[k] = 1;
-    } else if (freq < 235) {
-      bassBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 145)) / 90));
+    } else if (freq < 215) {
+      bassBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 135)) / 80));
     } else {
       bassBand[k] = 0;
     }
 
-    // Độ thoáng Hi-Hat / Rim / Snap > 4800Hz
-    drumAirBand[k] = freq > 4800 ? clamp((freq - 4800) / 2400, 0, 1) : 0;
+    // 2. Dải Vocal Stereo: tắt < 150Hz, 1.0 trong 235..6800Hz, tắt > 9600Hz
+    if (freq < 150 || freq > 9600) {
+      vocBand[k] = 0;
+    } else if (freq < 235) {
+      vocBand[k] = 0.5 * (1 - Math.cos((Math.PI * (freq - 150)) / 85));
+    } else if (freq > 6800) {
+      vocBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 6800)) / 2800));
+    } else {
+      vocBand[k] = 1;
+    }
+
+    // 3. Dải Vocal formant cho file Mono (khi không có thông tin Stereo L-R)
+    if (freq < 150 || freq > 6500) {
+      monoVocBand[k] = 0;
+    } else if (freq < 220) {
+      monoVocBand[k] = 0.5 * (1 - Math.cos((Math.PI * (freq - 150)) / 70));
+    } else if (freq > 4400) {
+      monoVocBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 4400)) / 2100));
+    } else {
+      monoVocBand[k] = 1;
+    }
   }
 
   const outLen = len;
@@ -435,22 +457,38 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
   const drumL = new Float32Array(outLen);
   const drumR = new Float32Array(outLen);
 
-  const mRe = new Float64Array(fftSize);
-  const mIm = new Float64Array(fftSize);
-  const sRe = new Float64Array(fftSize);
-  const sIm = new Float64Array(fftSize);
+  // Ring buffer 11 khung cho 2D-HPSS (halfT = 5 -> cửa sổ +-5 khung thời gian & +-5 bin tần số)
+  const T = 11;
+  const halfT = 5;
+  const halfF = 5;
+
+  const ringMRe = Array.from({ length: T }, () => new Float64Array(fftSize));
+  const ringMIm = Array.from({ length: T }, () => new Float64Array(fftSize));
+  const ringMagM = Array.from({ length: T }, () => new Float32Array(halfBins + 1));
+
+  const ringSRe = isStereo ? Array.from({ length: T }, () => new Float64Array(fftSize)) : null;
+  const ringSIm = isStereo ? Array.from({ length: T }, () => new Float64Array(fftSize)) : null;
+  const ringMagS = isStereo ? Array.from({ length: T }, () => new Float32Array(halfBins + 1)) : null;
 
   const wRe = new Float64Array(fftSize);
   const wIm = new Float64Array(fftSize);
-  const emaTotal = new Float32Array(halfBins + 1);
+  const sideTmpRe = new Float64Array(fftSize);
+  const sideTmpIm = new Float64Array(fftSize);
 
-  const mVocArr = new Float32Array(halfBins + 1);
-  const mInstMidArr = new Float32Array(halfBins + 1);
-  const mDrumArr = new Float32Array(halfBins + 1);
+  const gVocM = new Float32Array(halfBins + 1);
+  const gInstM = new Float32Array(halfBins + 1);
+  const gBassM = new Float32Array(halfBins + 1);
+  const gDrumM = new Float32Array(halfBins + 1);
 
-  const applyComplexGainSym = (srcRe, srcIm, dstRe, dstIm, gainFn) => {
+  const gInstS = isStereo ? new Float32Array(halfBins + 1) : null;
+  const gBassS = isStereo ? new Float32Array(halfBins + 1) : null;
+  const gDrumS = isStereo ? new Float32Array(halfBins + 1) : null;
+
+  const medBuf = new Float32Array(T);
+
+  const applyComplexMaskAndIfft = (srcRe, srcIm, gainArr, dstRe, dstIm) => {
     for (let k = 0; k <= halfBins; k++) {
-      const g = gainFn(k);
+      const g = gainArr[k];
       dstRe[k] = srcRe[k] * g;
       dstIm[k] = srcIm[k] * g;
       if (k > 0 && k < halfBins) {
@@ -459,108 +497,237 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
         dstIm[conj] = srcIm[conj] * g;
       }
     }
+    fftRadix2(dstRe, dstIm, true);
   };
 
-  const numFrames = Math.max(1, Math.floor((len - fftSize) / hop) + 1);
-  const totalOutFrames = numFrames;
+  // Bắt đầu từ -hop để WOLA phủ đủ 1.00000 từ mẫu 0 tới len-1
+  const totalFrames = Math.ceil(len / hop) + 1;
+  const totalSteps = totalFrames + halfT;
 
-  for (let frameIdx = 0; frameIdx < numFrames; frameIdx++) {
-    const start = frameIdx * hop;
-    for (let i = 0; i < fftSize; i++) {
-      const idx = start + i;
-      const w = win[i];
-      const l = idx < len ? ch0[idx] : 0;
-      const r = idx < len ? ch1[idx] : 0;
-      mRe[i] = 0.5 * (l + r) * w;
-      mIm[i] = 0;
-      sRe[i] = 0.5 * (l - r) * w;
-      sIm[i] = 0;
-    }
+  for (let pushIdx = 0; pushIdx < totalSteps; pushIdx++) {
+    if (pushIdx < totalFrames) {
+      const slot = pushIdx % T;
+      const start = (pushIdx - 1) * hop;
+      const mRe = ringMRe[slot];
+      const mIm = ringMIm[slot];
+      const magM = ringMagM[slot];
 
-    fftRadix2(mRe, mIm, false);
-    fftRadix2(sRe, sIm, false);
-
-    for (let k = 0; k <= halfBins; k++) {
-      const magM = Math.hypot(mRe[k], mIm[k]);
-      const magS = Math.hypot(sRe[k], sIm[k]);
-      const m2 = magM * magM + 1e-12;
-      const s2 = magS * magS + 1e-12;
-
-      const centerRatio = isStereo ? m2 / (m2 + 2.35 * s2) : 0.82;
-      const vb = vocBand[k];
-
-      const mv = clamp(centerRatio * vb * (isStereo ? 1.12 : 0.85), 0, 1);
-      mVocArr[k] = mv;
-
-      // Nhạc nền giữ dải Side + phần Mid ngoài vocal
-      mInstMidArr[k] = clamp(1 - 0.90 * centerRatio * vb, 0.08, 1);
-
-      // Transient Flux cho Trống / Bộ gõ
-      const totMag = magM + 0.5 * magS;
-      const flux = Math.max(0, totMag - 0.86 * emaTotal[k]);
-      emaTotal[k] = 0.65 * emaTotal[k] + 0.35 * totMag;
-      const fluxRatio = clamp(flux / (totMag + 1e-8), 0, 1);
-      const kickPulse = bassBand[k] * fluxRatio * 1.45;
-      const hitBody = (1 - bassBand[k]) * Math.pow(fluxRatio, 1.15) * 1.35 + drumAirBand[k] * 0.45;
-      mDrumArr[k] = clamp(kickPulse + hitBody, 0, 1);
-    }
-
-    // 1. Giọng hát (Vocals: Center Mid + chút không gian Stereo dịu nhẹ)
-    applyComplexGainSym(mRe, mIm, wRe, wIm, (k) => mVocArr[k]);
-    fftRadix2(wRe, wIm, true);
-    for (let i = 0; i < fftSize && start + i < outLen; i++) {
-      const val = wRe[i] * win[i];
-      vocL[start + i] += val;
-      vocR[start + i] += val;
-    }
-
-    // 2. Nhạc nền (Instrumental: InstMid +- Side)
-    applyComplexGainSym(mRe, mIm, wRe, wIm, (k) => mInstMidArr[k]);
-    fftRadix2(wRe, wIm, true);
-    fftRadix2(sRe, sIm, true); // Dùng trực tiếp sRe để tiết kiệm cấp phát mảng cho Side
-    for (let i = 0; i < fftSize && start + i < outLen; i++) {
-      const midPart = wRe[i] * win[i];
-      const sidePart = sRe[i] * win[i];
-      const vSideBleed = 0.22 * midPart; // giữ không gian ấm vừa phải
-      instL[start + i] += midPart + sidePart;
-      instR[start + i] += midPart - sidePart;
       if (isStereo) {
-        vocL[start + i] += 0.14 * sidePart;
-        vocR[start + i] -= 0.14 * sidePart;
-        void vSideBleed;
+        const sRe = ringSRe[slot];
+        const sIm = ringSIm[slot];
+        const magS = ringMagS[slot];
+        for (let i = 0; i < fftSize; i++) {
+          const idx = start + i;
+          const w = win[i];
+          const l = idx >= 0 && idx < len ? ch0[idx] : 0;
+          const r = idx >= 0 && idx < len ? ch1[idx] : 0;
+          mRe[i] = 0.5 * (l + r) * w;
+          mIm[i] = 0;
+          sRe[i] = 0.5 * (l - r) * w;
+          sIm[i] = 0;
+        }
+        fftRadix2(mRe, mIm, false);
+        fftRadix2(sRe, sIm, false);
+        for (let k = 0; k <= halfBins; k++) {
+          magM[k] = Math.hypot(mRe[k], mIm[k]);
+          magS[k] = Math.hypot(sRe[k], sIm[k]);
+        }
+      } else {
+        for (let i = 0; i < fftSize; i++) {
+          const idx = start + i;
+          const w = win[i];
+          const l = idx >= 0 && idx < len ? ch0[idx] : 0;
+          mRe[i] = l * w;
+          mIm[i] = 0;
+        }
+        fftRadix2(mRe, mIm, false);
+        for (let k = 0; k <= halfBins; k++) {
+          magM[k] = Math.hypot(mRe[k], mIm[k]);
+        }
       }
     }
 
-    // Phục hồi lại sRe bằng FFT? Không cần vì Bass & Drums chỉ dùng Mid+Side đã tổng hợp!
-    // Hoặc lấy bass từ Mid * bassBand (vì Sub Bass 99% nằm ở Center/Mono!):
-    applyComplexGainSym(mRe, mIm, wRe, wIm, (k) => bassBand[k]);
-    fftRadix2(wRe, wIm, true);
-    for (let i = 0; i < fftSize && start + i < outLen; i++) {
-      const bVal = wRe[i] * win[i];
-      bassL[start + i] += bVal;
-      bassR[start + i] += bVal;
-    }
+    const centerFrame = pushIdx - halfT;
+    if (centerFrame >= 0 && centerFrame < totalFrames) {
+      const cSlot = centerFrame % T;
+      const cStart = (centerFrame - 1) * hop;
+      const cMagM = ringMagM[cSlot];
+      const cMagS = isStereo ? ringMagS[cSlot] : null;
+      const tMin = Math.max(0, centerFrame - halfT);
+      const tMax = Math.min(totalFrames - 1, centerFrame + halfT);
+      const tCount = tMax - tMin + 1;
 
-    // 4. Trống (Drums Transient Flux từ Mid)
-    applyComplexGainSym(mRe, mIm, wRe, wIm, (k) => mDrumArr[k]);
-    fftRadix2(wRe, wIm, true);
-    for (let i = 0; i < fftSize && start + i < outLen; i++) {
-      const dVal = wRe[i] * win[i];
-      drumL[start + i] += dVal;
-      drumR[start + i] += dVal;
-    }
+      for (let k = 0; k <= halfBins; k++) {
+        // 1. 2D-HPSS trên Mid
+        for (let ti = 0, f = tMin; f <= tMax; f++, ti++) {
+          medBuf[ti] = ringMagM[f % T][k];
+        }
+        const hM = insertionSortWindow(medBuf, tCount);
 
-    if (frameIdx % 140 === 0) {
-      if (onProgress) {
-        onProgress(Math.min(98, Math.round((frameIdx / totalOutFrames) * 100)));
+        const kMin = Math.max(0, k - halfF);
+        const kMax = Math.min(halfBins, k + halfF);
+        let fCount = 0;
+        for (let kp = kMin; kp <= kMax; kp++) {
+          medBuf[fCount++] = cMagM[kp];
+        }
+        const pM = insertionSortWindow(medBuf, fCount);
+
+        const hm2 = hM * hM;
+        const pm2 = pM * pM;
+        const pMid = pm2 / (hm2 + pm2 + 1e-12);
+        const hMid = 1 - pMid;
+
+        // 2. 2D-HPSS trên Side (nếu Stereo)
+        let hS = 0;
+        let pSide = 0;
+        let hSide = 0;
+        if (isStereo) {
+          for (let ti = 0, f = tMin; f <= tMax; f++, ti++) {
+            medBuf[ti] = ringMagS[f % T][k];
+          }
+          hS = insertionSortWindow(medBuf, tCount);
+
+          let sCount = 0;
+          for (let kp = kMin; kp <= kMax; kp++) {
+            medBuf[sCount++] = cMagS[kp];
+          }
+          const pS = insertionSortWindow(medBuf, sCount);
+
+          const hs2 = hS * hS;
+          const ps2 = pS * pS;
+          pSide = ps2 / (hs2 + ps2 + 1e-12);
+          hSide = 1 - pSide;
+        }
+
+        // 3. Phân hoạch 4 mặt nạ loại trừ 100% (tổng các Stem === 1.0 trên cả Mid và Side)
+        const bb = bassBand[k];
+        const oneMinusBb = 1 - bb;
+
+        let vocMask;
+        if (isStereo) {
+          const centerShare = hM / (hM + hS + 1e-9);
+          const ct = clamp((centerShare - 0.44) / 0.22, 0, 1);
+          const centerMask = ct * ct * (3 - 2 * ct);
+          vocMask = vocBand[k] * centerMask;
+        } else {
+          vocMask = monoVocBand[k];
+        }
+
+        gDrumM[k] = pMid;
+        gBassM[k] = hMid * bb;
+        gVocM[k] = hMid * oneMinusBb * vocMask;
+        gInstM[k] = hMid * oneMinusBb * (1 - vocMask);
+
+        if (isStereo) {
+          gDrumS[k] = pSide;
+          gBassS[k] = hSide * bb;
+          gInstS[k] = hSide * oneMinusBb;
+        }
       }
-      await new Promise((r) => setTimeout(r, 0));
+
+      const cMRe = ringMRe[cSlot];
+      const cMIm = ringMIm[cSlot];
+      const cSRe = isStereo ? ringSRe[cSlot] : null;
+      const cSIm = isStereo ? ringSIm[cSlot] : null;
+
+      // Stem 1: Giọng hát (Center Harmonic Vocal)
+      applyComplexMaskAndIfft(cMRe, cMIm, gVocM, wRe, wIm);
+      for (let i = 0; i < fftSize; i++) {
+        const idx = cStart + i;
+        if (idx >= 0 && idx < outLen) {
+          const val = wRe[i] * win[i];
+          vocL[idx] += val;
+          vocR[idx] += val;
+        }
+      }
+
+      // Stem 2: Nhạc cụ & Hòa âm (Other)
+      applyComplexMaskAndIfft(cMRe, cMIm, gInstM, wRe, wIm);
+      if (isStereo) {
+        applyComplexMaskAndIfft(cSRe, cSIm, gInstS, sideTmpRe, sideTmpIm);
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const w = win[i];
+            const midV = wRe[i] * w;
+            const sideV = sideTmpRe[i] * w;
+            instL[idx] += midV + sideV;
+            instR[idx] += midV - sideV;
+          }
+        }
+      } else {
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const midV = wRe[i] * win[i];
+            instL[idx] += midV;
+            instR[idx] += midV;
+          }
+        }
+      }
+
+      // Stem 3: Bass & Sub
+      applyComplexMaskAndIfft(cMRe, cMIm, gBassM, wRe, wIm);
+      if (isStereo) {
+        applyComplexMaskAndIfft(cSRe, cSIm, gBassS, sideTmpRe, sideTmpIm);
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const w = win[i];
+            const midV = wRe[i] * w;
+            const sideV = sideTmpRe[i] * w;
+            bassL[idx] += midV + sideV;
+            bassR[idx] += midV - sideV;
+          }
+        }
+      } else {
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const midV = wRe[i] * win[i];
+            bassL[idx] += midV;
+            bassR[idx] += midV;
+          }
+        }
+      }
+
+      // Stem 4: Trống & Bộ gõ
+      applyComplexMaskAndIfft(cMRe, cMIm, gDrumM, wRe, wIm);
+      if (isStereo) {
+        applyComplexMaskAndIfft(cSRe, cSIm, gDrumS, sideTmpRe, sideTmpIm);
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const w = win[i];
+            const midV = wRe[i] * w;
+            const sideV = sideTmpRe[i] * w;
+            drumL[idx] += midV + sideV;
+            drumR[idx] += midV - sideV;
+          }
+        }
+      } else {
+        for (let i = 0; i < fftSize; i++) {
+          const idx = cStart + i;
+          if (idx >= 0 && idx < outLen) {
+            const midV = wRe[i] * win[i];
+            drumL[idx] += midV;
+            drumR[idx] += midV;
+          }
+        }
+      }
+
+      if (centerFrame % 80 === 0) {
+        if (onProgress) {
+          onProgress(Math.min(98, Math.round((centerFrame / totalFrames) * 100)));
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
   }
 
   const buildBuf = (lArr, rArr) => {
-    softLimitPcm(lArr, 0.94);
-    softLimitPcm(rArr, 0.94);
+    softLimitPcm(lArr, 0.985);
+    softLimitPcm(rArr, 0.985);
     const buf = new AudioBuffer({ numberOfChannels: 2, length: outLen, sampleRate: sr });
     buf.getChannelData(0).set(lArr);
     buf.getChannelData(1).set(rArr);
@@ -595,17 +762,19 @@ export class StemAnalyzerStudio {
     this.exportFormat = 'wav';
 
     this.stemMixer = {
-      vocals:       { label: 'Giọng hát (Vocal)',    color: '#EC4899', volume: 90, muted: false, solo: false },
-      instrumental: { label: 'Nhạc nền (Karaoke)',   color: '#67E8F9', volume: 85, muted: false, solo: false },
-      bass:         { label: 'Bass & Sub',           color: '#A78BFA', volume: 85, muted: false, solo: false },
-      drums:        { label: 'Trống & Bộ gõ',        color: '#F97316', volume: 85, muted: false, solo: false },
+      vocals:       { label: 'Giọng hát (Vocal)',        color: '#EC4899', volume: 100, muted: false, solo: false },
+      instrumental: { label: 'Nhạc cụ & Hòa âm (Other)', color: '#67E8F9', volume: 100, muted: false, solo: false },
+      bass:         { label: 'Bass & Sub',               color: '#A78BFA', volume: 100, muted: false, solo: false },
+      drums:        { label: 'Trống & Bộ gõ',            color: '#F97316', volume: 100, muted: false, solo: false },
     };
+    this.activePreset = 'all';
 
     this.playCtx = null;
     this.isPlaying = false;
     this.currentTimeSec = 0;
     this._playStartCtxTime = 0;
     this._playStartOffset = 0;
+    this._playSeq = 0;
     this._activeSources = [];
     this._stemGainNodes = {};
     this._rafId = null;
@@ -643,15 +812,87 @@ export class StemAnalyzerStudio {
     return Boolean(item && !item.muted && (!anySolo || item.solo));
   }
 
+  _computeStemGainValue(key) {
+    const item = this.stemMixer[key];
+    if (!item || !this._isStemAudible(key)) return 0;
+    const v = clamp(Number(item.volume) || 0, 0, 125);
+    if (v <= 0) return 0;
+    return Math.pow(v / 100, 1.45);
+  }
+
   _syncLiveStemGains() {
     if (!this.playCtx) return;
     const now = this.playCtx.currentTime;
     Object.keys(this.stemMixer).forEach((key) => {
       const node = this._stemGainNodes[key];
       if (!node) return;
-      const audible = this._isStemAudible(key);
-      const val = audible ? Math.pow(this.stemMixer[key].volume / 100, 1.45) : 0;
-      node.gain.setTargetAtTime(val, now, 0.015);
+      const val = this._computeStemGainValue(key);
+      try {
+        node.gain.cancelScheduledValues(now);
+        node.gain.setValueAtTime(node.gain.value, now);
+        node.gain.linearRampToValueAtTime(val, now + 0.015);
+      } catch (_) {
+        node.gain.value = val;
+      }
+    });
+  }
+
+  _detectActivePreset() {
+    const m = this.stemMixer;
+    const allDefaultVol = Object.values(m).every((s) => s.volume === 100);
+    if (!anyMuteOrSolo(m) && allDefaultVol) return 'all';
+    if (m.vocals.muted && !m.instrumental.muted && !m.bass.muted && !m.drums.muted &&
+        !m.instrumental.solo && !m.bass.solo && !m.drums.solo) {
+      return 'karaoke';
+    }
+    if (m.vocals.solo && !m.vocals.muted && !m.instrumental.solo && !m.bass.solo && !m.drums.solo) {
+      return 'acapella';
+    }
+    if (m.vocals.muted && m.instrumental.muted && !m.bass.muted && !m.drums.muted &&
+        !m.bass.solo && !m.drums.solo) {
+      return 'rhythm';
+    }
+    return 'custom';
+
+    function anyMuteOrSolo(mix) {
+      return Object.values(mix).some((s) => s.muted || s.solo);
+    }
+  }
+
+  applyMixerPreset(presetId) {
+    const m = this.stemMixer;
+    Object.values(m).forEach((s) => {
+      s.muted = false;
+      s.solo = false;
+      s.volume = 100;
+    });
+    if (presetId === 'karaoke') {
+      m.vocals.muted = true;
+    } else if (presetId === 'acapella') {
+      m.vocals.solo = true;
+    } else if (presetId === 'rhythm') {
+      m.vocals.muted = true;
+      m.instrumental.muted = true;
+    }
+    this.activePreset = this._detectActivePreset();
+    this._syncLiveStemGains();
+    this._syncMixerDomUI();
+  }
+
+  _syncMixerDomUI() {
+    if (!this.root) return;
+    Object.entries(this.stemMixer).forEach(([key, st]) => {
+      const volInp = this.root.querySelector(`[data-stem-vol="${key}"]`);
+      if (volInp) volInp.value = String(st.volume);
+      const volLbl = this.root.querySelector(`[data-stem-vol-lbl="${key}"]`);
+      if (volLbl) volLbl.textContent = `${st.volume}%`;
+      const muteBtn = this.root.querySelector(`[data-stem-mute="${key}"]`);
+      if (muteBtn) muteBtn.classList.toggle('active-mute', Boolean(st.muted));
+      const soloBtn = this.root.querySelector(`[data-stem-solo="${key}"]`);
+      if (soloBtn) soloBtn.classList.toggle('active-solo', Boolean(st.solo));
+    });
+    this.root.querySelectorAll('[data-stem-preset]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.stemPreset === this.activePreset);
     });
   }
 
@@ -734,6 +975,7 @@ export class StemAnalyzerStudio {
       return;
     }
 
+    const seq = ++this._playSeq;
     const ctx = this._ensurePlayCtx();
     if (ctx.state !== 'running') {
       await Promise.race([
@@ -741,6 +983,7 @@ export class StemAnalyzerStudio {
         new Promise((r) => setTimeout(r, 700)),
       ]);
     }
+    if (seq !== this._playSeq || !this.stems) return;
     this._stopSources();
 
     const dur = this.stems.durationSec;
@@ -758,8 +1001,7 @@ export class StemAnalyzerStudio {
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const g = ctx.createGain();
-      const val = this._isStemAudible(key) ? Math.pow(this.stemMixer[key].volume / 100, 1.45) : 0;
-      g.gain.value = val;
+      g.gain.value = this._computeStemGainValue(key);
       src.connect(g);
       g.connect(ctx.destination);
       src.start(now, startOffset);
@@ -773,6 +1015,7 @@ export class StemAnalyzerStudio {
   }
 
   pausePlayback() {
+    this._playSeq += 1;
     if (this.isPlaying && this.playCtx) {
       this.currentTimeSec = Math.min(
         this.stems ? this.stems.durationSec : 0,
@@ -786,6 +1029,7 @@ export class StemAnalyzerStudio {
   }
 
   stopPlayback() {
+    this._playSeq += 1;
     this._stopSources();
     this.isPlaying = false;
     this.currentTimeSec = 0;
@@ -884,6 +1128,64 @@ export class StemAnalyzerStudio {
     }
   }
 
+  async _downloadMixedStems() {
+    if (!this.stems) return;
+    const keys = Object.keys(this.stemMixer);
+    const gains = {};
+    let hasAudible = false;
+    keys.forEach((k) => {
+      const g = this._computeStemGainValue(k);
+      gains[k] = g;
+      if (g > 0 && this.stems[k]) hasAudible = true;
+    });
+    if (!hasAudible) {
+      this._toast('Tất cả 4 Stems đang bị tắt (Mute hoặc Volume 0%).', true);
+      return;
+    }
+
+    const refBuf = this.stems.instrumental || this.stems.vocals;
+    const len = refBuf.length;
+    const sr = refBuf.sampleRate;
+    const outL = new Float32Array(len);
+    const outR = new Float32Array(len);
+
+    keys.forEach((k) => {
+      const g = gains[k];
+      const buf = this.stems[k];
+      if (!buf || g <= 0) return;
+      const ch0 = buf.getChannelData(0);
+      const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
+      for (let i = 0; i < len; i++) {
+        outL[i] += ch0[i] * g;
+        outR[i] += ch1[i] * g;
+      }
+    });
+
+    softLimitPcm(outL, 0.96);
+    softLimitPcm(outR, 0.96);
+    const mixBuf = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr });
+    mixBuf.getChannelData(0).set(outL);
+    mixBuf.getChannelData(1).set(outR);
+
+    const fmt = this.exportFormat === 'mp3' ? 'mp3' : 'wav';
+    try {
+      const encoded = await encodeAudioBufferByFormat(mixBuf, fmt, { kbps: 192 });
+      const baseSlug = (this.sourceName || 'track').toLowerCase().replace(/[^a-z0-9-_]+/g, '-');
+      const filename = `hevos-stems-mix-${baseSlug}.${encoded.ext}`;
+      const url = URL.createObjectURL(encoded.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      this._toast(`Đã xuất bản Mix 4 Stems hiện tại (.${encoded.ext})`);
+    } catch (err) {
+      this._toast(err.message || `Lỗi xuất Mix ${fmt.toUpperCase()}.`, true);
+    }
+  }
+
   _render() {
     if (!this.root) return;
 
@@ -902,8 +1204,8 @@ export class StemAnalyzerStudio {
     if (this.analysis && this.stems && !this.isProcessing) {
       const { keyInfo, bpmInfo, timeline } = this.analysis;
       const stereoNote = this.stems.isStereo
-        ? 'Nguồn Stereo chuẩn · Mid/Side + Spectral DSP'
-        : 'Nguồn Mono · Tách theo dải tần phổ & Transient';
+        ? 'Nguồn Stereo · 2D-HPSS + Mid/Side Partition 4 Stems'
+        : 'Nguồn Mono (L=R) · Tách phổ HPSS (dùng file Stereo để xóa Vocal sạch nhất)';
 
       const chordsTimelineHtml = timeline.length
         ? timeline
@@ -990,6 +1292,16 @@ export class StemAnalyzerStudio {
               <button type="button" class="fmt-pill${this.exportFormat === 'wav' ? ' active' : ''}" data-stem-fmt="wav">WAV</button>
               <button type="button" class="fmt-pill${this.exportFormat === 'mp3' ? ' active' : ''}" data-stem-fmt="mp3">MP3</button>
             </div>
+            <button type="button" id="stem-btn-dl-mix" class="btn btn-indigo-outline btn-xs" title="Gộp 4 Stems theo Mixer hiện tại và tải xuống">
+              ↓ Tải bản Mix hiện tại
+            </button>
+          </div>
+
+          <div class="stem-quick-presets" role="group" aria-label="Chế độ nghe nhanh Stems">
+            <button type="button" class="stem-preset-btn${this.activePreset === 'all' ? ' active' : ''}" data-stem-preset="all">🎧 Toàn bộ (Gốc)</button>
+            <button type="button" class="stem-preset-btn${this.activePreset === 'karaoke' ? ' active' : ''}" data-stem-preset="karaoke">🎤 Xóa Vocal (Karaoke)</button>
+            <button type="button" class="stem-preset-btn${this.activePreset === 'acapella' ? ' active' : ''}" data-stem-preset="acapella">🗣️ Chỉ Giọng hát</button>
+            <button type="button" class="stem-preset-btn${this.activePreset === 'rhythm' ? ' active' : ''}" data-stem-preset="rhythm">🥁 Chỉ Trống &amp; Bass</button>
           </div>
 
           <div class="stem-mixer-grid">${stemCardsHtml}</div>
@@ -1072,6 +1384,10 @@ export class StemAnalyzerStudio {
         this.stemMixer[key].volume = Number(e.target.value);
         const lbl = q(`[data-stem-vol-lbl="${key}"]`);
         if (lbl) lbl.textContent = `${this.stemMixer[key].volume}%`;
+        this.activePreset = this._detectActivePreset();
+        this.root.querySelectorAll('[data-stem-preset]').forEach((b) =>
+          b.classList.toggle('active', b.dataset.stemPreset === this.activePreset)
+        );
         this._syncLiveStemGains();
       });
     });
@@ -1082,6 +1398,10 @@ export class StemAnalyzerStudio {
         if (!this.stemMixer[key]) return;
         this.stemMixer[key].muted = !this.stemMixer[key].muted;
         btn.classList.toggle('active-mute', this.stemMixer[key].muted);
+        this.activePreset = this._detectActivePreset();
+        this.root.querySelectorAll('[data-stem-preset]').forEach((b) =>
+          b.classList.toggle('active', b.dataset.stemPreset === this.activePreset)
+        );
         this._syncLiveStemGains();
       });
     });
@@ -1092,9 +1412,19 @@ export class StemAnalyzerStudio {
         if (!this.stemMixer[key]) return;
         this.stemMixer[key].solo = !this.stemMixer[key].solo;
         btn.classList.toggle('active-solo', this.stemMixer[key].solo);
+        this.activePreset = this._detectActivePreset();
+        this.root.querySelectorAll('[data-stem-preset]').forEach((b) =>
+          b.classList.toggle('active', b.dataset.stemPreset === this.activePreset)
+        );
         this._syncLiveStemGains();
       });
     });
+
+    this.root.querySelectorAll('[data-stem-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => this.applyMixerPreset(btn.dataset.stemPreset));
+    });
+
+    q('#stem-btn-dl-mix')?.addEventListener('click', () => this._downloadMixedStems());
 
     this.root.querySelectorAll('[data-stem-dl]').forEach((btn) => {
       btn.addEventListener('click', () => this._downloadStem(btn.dataset.stemDl));

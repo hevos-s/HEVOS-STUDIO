@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=29';
-import { getQwertyLabelForMidi } from './midiController.js?v=29';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=30';
+import { getQwertyLabelForMidi } from './midiController.js?v=30';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=29';
+} from './musicTheory.js?v=30';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=29';
+} from './earTraining.js?v=30';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -35,12 +35,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=29';
+} from './trainerData.js?v=30';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=29';
+} from './staffRenderer.js?v=30';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({

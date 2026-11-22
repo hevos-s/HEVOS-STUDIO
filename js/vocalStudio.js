@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=29';
+} from './theory.js?v=30';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=29';
+} from './pitchToMidi.js?v=30';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=29';
+} from './autoTune.js?v=30';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=29';
+} from './audioEngine.js?v=30';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=29';
+} from './audioEncode.js?v=30';
 
 export { encodeAudioBufferToWavBlob };
 
