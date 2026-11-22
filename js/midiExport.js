@@ -13,7 +13,7 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=26';
+} from './audioEngine.js?v=27';
 
 export const MIDI_PPQ = 480;
 
@@ -353,7 +353,7 @@ export function downloadMidiFile(params, filename = 'hevos-studio-beat.mid') {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 
   return {
     ...result,

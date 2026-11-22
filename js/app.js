@@ -14,27 +14,27 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=26';
+} from './theory.js?v=27';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=26';
+} from './audioEngine.js?v=27';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=26';
-import { PianoRoll } from './pianoRoll.js?v=26';
-import { downloadMidiFile } from './midiExport.js?v=26';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=26';
-import { MusicTrainer } from './musicTrainer.js?v=26';
-import { VocalStudio } from './vocalStudio.js?v=26';
-import { ArrangementStudio } from './arrangementStudio.js?v=26';
-import { createAmbientScene } from './ambientScene.js?v=26';
+} from './pitchToMidi.js?v=27';
+import { PianoRoll } from './pianoRoll.js?v=27';
+import { downloadMidiFile } from './midiExport.js?v=27';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=27';
+import { MusicTrainer } from './musicTrainer.js?v=27';
+import { VocalStudio } from './vocalStudio.js?v=27';
+import { ArrangementStudio } from './arrangementStudio.js?v=27';
+import { createAmbientScene } from './ambientScene.js?v=27';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -1075,7 +1075,7 @@ async function handleExportAudio() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2500);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
       showToast(`Đã xuất Beat định dạng ${fmt.toUpperCase()}: ${filename}`);
     }
   } catch (err) {
@@ -1459,18 +1459,37 @@ function setMobileTab(tabName) {
 // Gắn toàn bộ sự kiện DOM & Phím tắt
 // ============================================================================
 function bindEvents() {
-  // Mở khóa âm thanh sớm ngay lần chạm đầu tiên (đảm bảo iOS Safari không bị câm)
-  const unlockOnce = () => {
+  // Mở khóa Web Audio trên mọi chạm thực tế (touchend / click / keydown) cho đến khi running;
+  // tự gắn lại nếu iOS Safari chuyển AudioContext sang interrupted khi về nền
+  let audioUnlockAttached = false;
+  const detachAudioUnlock = () => {
+    if (!audioUnlockAttached) return;
+    audioUnlockAttached = false;
+    window.removeEventListener('touchend', onUnlockGesture, true);
+    window.removeEventListener('click', onUnlockGesture, true);
+    window.removeEventListener('keydown', onUnlockGesture, true);
+  };
+  const onUnlockGesture = () => {
+    audioEngine.unlockSync();
     audioEngine.ensureReady()
       .then(() => {
         if (ambientScene) {
           ambientScene.connectTone(audioEngine.getMasterOutputNode());
         }
+        if (audioEngine.isAudioRunning()) {
+          detachAudioUnlock();
+        }
       })
       .catch(() => {});
-    window.removeEventListener('pointerdown', unlockOnce);
   };
-  window.addEventListener('pointerdown', unlockOnce, { passive: true });
+  const attachAudioUnlock = () => {
+    if (audioUnlockAttached) return;
+    audioUnlockAttached = true;
+    window.addEventListener('touchend', onUnlockGesture, { capture: true, passive: true });
+    window.addEventListener('click', onUnlockGesture, { capture: true, passive: true });
+    window.addEventListener('keydown', onUnlockGesture, { capture: true, passive: true });
+  };
+  attachAudioUnlock();
 
   // Bấm vào Logo -> Về màn hình Tổng quan (Studio Hub)
   if (el.btnLogoHome) {
@@ -1505,6 +1524,7 @@ function bindEvents() {
   // Phát / Dừng bên Sáng tác Beat (có khóa chống bấm đúp khi Tone.start() đang chạy)
   let isPlayToggleBusy = false;
   el.btnPlay.addEventListener('click', async () => {
+    audioEngine.unlockSync();
     if (state.recordPhase !== 'idle') {
       cancelRecordingCleanly();
       return;
@@ -1961,8 +1981,13 @@ function bindEvents() {
         cancelAnimationFrame(uiRafId);
         uiRafId = null;
       }
-    } else if (audioEngine.isPlaying && state.activeSection === 'studio') {
-      startPlayheadWatch();
+    } else {
+      if (!audioEngine.isAudioRunning()) {
+        attachAudioUnlock();
+      }
+      if (audioEngine.isPlaying && state.activeSection === 'studio') {
+        startPlayheadWatch();
+      }
     }
   });
 }
@@ -1989,12 +2014,31 @@ function setupHubScrollReveal() {
     },
     {
       root: el.hubRoot,
-      threshold: 0.14,
-      rootMargin: '0px 0px -6% 0px',
+      threshold: 0.02,
+      rootMargin: '0px',
     }
   );
 
   items.forEach((item) => observer.observe(item));
+
+  setTimeout(() => {
+    if (!el.hubRoot) return;
+    const hubRect = el.hubRoot.getBoundingClientRect();
+    const collapsedHub = el.hubRoot.clientHeight === 0 || hubRect.height === 0;
+    items.forEach((item) => {
+      if (item.classList.contains('is-visible')) return;
+      if (collapsedHub) {
+        item.classList.add('is-visible');
+        observer.unobserve(item);
+        return;
+      }
+      const r = item.getBoundingClientRect();
+      if (r.top < window.innerHeight + 60 && r.bottom > -60) {
+        item.classList.add('is-visible');
+        observer.unobserve(item);
+      }
+    });
+  }, 600);
 }
 
 // ============================================================================
@@ -2072,6 +2116,7 @@ function init() {
         totalBars: state.totalBars,
         humanize: state.humanize,
         chordStyle: state.chordStyle,
+        chordTimbre: state.chordTimbre,
         drumPattern: state.drumPattern,
         voicedChords: state.voicedChords,
         melodyNotes: state.melodyNotes,

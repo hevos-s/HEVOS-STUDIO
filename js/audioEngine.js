@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=26';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=27';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -583,15 +583,7 @@ class AudioEngine {
     this.vocalEventId = null;
 
     // Chống trùng timestamp & khóa bật tắt Playback
-    this._lastTriggerTime = {
-      chord: -1,
-      melody: -1,
-      kick: -1,
-      snare: -1,
-      rim: -1,
-      hat: -1,
-      click: -1,
-    };
+    this._lastTriggerTime = this._createTriggerMap();
     this._playStartPromise = null;
     this._readyPromise = null;
     this._contextConfigured = false;
@@ -601,8 +593,97 @@ class AudioEngine {
     this._loopEndCallbackId = null;
   }
 
+  _createTriggerMap() {
+    return {
+      chord: -1,
+      bass: -1,
+      melody: -1,
+      trainer: -1,
+      kick: -1,
+      kickClick: -1,
+      snare: -1,
+      clap: -1,
+      clapTail: -1,
+      crash: -1,
+      rim: -1,
+      hat: -1,
+      click: -1,
+    };
+  }
+
+  isAudioRunning() {
+    if (typeof window === 'undefined' || typeof window.Tone === 'undefined') return false;
+    const ctx = getToneContext(window.Tone);
+    return Boolean(ctx && ctx.state === 'running');
+  }
+
+  _configurePreferredContext() {
+    if (this.initialized || this._contextConfigured || typeof window === 'undefined' || typeof window.Tone === 'undefined') {
+      return;
+    }
+    const Tone = window.Tone;
+    const isDesktop = window.innerWidth > 768;
+    this._contextConfigured = true;
+    if (!isDesktop) return;
+    try {
+      if (typeof Tone.Context === 'function' && typeof Tone.setContext === 'function') {
+        Tone.setContext(new Tone.Context({ latencyHint: 'playback', lookAhead: 0.25 }), true);
+      }
+    } catch (err) {
+      console.warn('[HEVOS STUDIO Desktop AudioContext]', err);
+    }
+  }
+
   /**
-   * Mở khóa Web Audio Context an toàn (tối ưu riêng buffer 'playback' + lookAhead 0.25 trên PC Desktop, giữ nguyên Mobile)
+   * Kích hoạt & mở khóa Web Audio đồng bộ ngay bên trong thao tác chạm (chống câm iOS/Android)
+   */
+  unlockSync() {
+    if (typeof window === 'undefined' || typeof window.Tone === 'undefined') return false;
+    this._configurePreferredContext();
+    const Tone = window.Tone;
+    const ctx = getToneContext(Tone);
+    const rawCtx = (ctx && ctx.rawContext) || ctx;
+
+    try {
+      if (typeof Tone.start === 'function') {
+        const res = Tone.start();
+        if (res && typeof res.catch === 'function') res.catch(() => {});
+      }
+    } catch (_) {}
+
+    if (ctx && ctx.state !== 'running') {
+      try {
+        if (typeof ctx.resume === 'function') {
+          const p = ctx.resume();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      } catch (_) {}
+
+      if (rawCtx && rawCtx !== ctx) {
+        try {
+          if (typeof rawCtx.resume === 'function') {
+            const rp = rawCtx.resume();
+            if (rp && typeof rp.catch === 'function') rp.catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      if (rawCtx && typeof rawCtx.createBuffer === 'function' && rawCtx.destination) {
+        try {
+          const silentBuf = rawCtx.createBuffer(1, 1, rawCtx.sampleRate || 44100);
+          const src = rawCtx.createBufferSource();
+          src.buffer = silentBuf;
+          src.connect(rawCtx.destination);
+          src.start(0);
+        } catch (_) {}
+      }
+    }
+
+    return Boolean(ctx && ctx.state === 'running');
+  }
+
+  /**
+   * Mở khóa Web Audio Context an toàn (không bao giờ treo deadlock nếu trình duyệt chặn autoplay, có timeout 900ms)
    */
   async ensureReady() {
     if (this._readyPromise) return this._readyPromise;
@@ -613,23 +694,34 @@ class AudioEngine {
       const Tone = window.Tone;
       const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
 
-      if (isDesktop && !this._contextConfigured) {
-        this._contextConfigured = true;
-        try {
-          if (typeof Tone.Context === 'function' && typeof Tone.setContext === 'function') {
-            Tone.setContext(new Tone.Context({ latencyHint: 'playback', lookAhead: 0.25 }), true);
-          }
-        } catch (err) {
-          console.warn('[HEVOS STUDIO Desktop AudioContext]', err);
-        }
-      }
+      this._configurePreferredContext();
+      this.unlockSync();
 
       const ctx = getToneContext(Tone);
-      if (ctx && typeof ctx.resume === 'function' && ctx.state !== 'running') {
-        await ctx.resume();
-      } else {
-        await Tone.start();
+      if (ctx && ctx.state !== 'running') {
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 900));
+        const resumeTasks = [
+          Promise.resolve()
+            .then(() => (typeof Tone.start === 'function' ? Tone.start() : undefined))
+            .catch(() => {}),
+        ];
+        if (typeof ctx.resume === 'function') {
+          resumeTasks.push(
+            Promise.resolve()
+              .then(() => ctx.resume())
+              .catch(() => {})
+          );
+        }
+        if (ctx.rawContext && typeof ctx.rawContext.resume === 'function' && ctx.rawContext !== ctx) {
+          resumeTasks.push(
+            Promise.resolve()
+              .then(() => ctx.rawContext.resume())
+              .catch(() => {})
+          );
+        }
+        await Promise.race([Promise.allSettled(resumeTasks), timeoutPromise]);
       }
+
       try {
         const activeCtx = getToneContext(Tone);
         if (activeCtx) {
@@ -1483,16 +1575,7 @@ class AudioEngine {
   }
 
   _resetTriggerTimes() {
-    this._lastTriggerTime = {
-      chord: -1,
-      melody: -1,
-      trainer: -1,
-      kick: -1,
-      snare: -1,
-      rim: -1,
-      hat: -1,
-      click: -1,
-    };
+    this._lastTriggerTime = this._createTriggerMap();
   }
 
   _nextSafeTime(key, rawTime) {
@@ -1890,6 +1973,7 @@ class AudioEngine {
    */
   async auditionMelodyNote(midi, duration = 0.28) {
     if (!Number.isFinite(midi)) return;
+    this.unlockSync();
     await this.ensureReady();
     const synth = this._getMelodySynth(this.state.melodyTimbre);
     const dur = Number.isFinite(duration) ? Math.max(0.05, duration) : 0.28;
@@ -1904,6 +1988,7 @@ class AudioEngine {
    */
   async auditionChord(voicedChord) {
     if (!voicedChord || !Number.isFinite(voicedChord.bassMidi)) return;
+    this.unlockSync();
     await this.ensureReady();
     const synth = this._getChordSynth(this.state.chordTimbre);
     const bassSynth = this._getBassSynth();
@@ -1938,6 +2023,7 @@ class AudioEngine {
   }
 
   async play(fromStart = false, { muteVocal = false, recordingTrack = null } = {}) {
+    this.unlockSync();
     if (this._playStartPromise) return this._playStartPromise;
     this._playStartPromise = (async () => {
       try {
@@ -2162,6 +2248,7 @@ class AudioEngine {
    */
   async playTrainerPiano(midi, duration = 0.65, velocity = 0.82) {
     if (!Number.isFinite(midi)) return;
+    this.unlockSync();
     await this.ensureReady();
     this._ensureTrainerSynths();
     const t = this._nextSafeTime('trainer', getToneNow(window.Tone) + 0.005);
@@ -2178,6 +2265,7 @@ class AudioEngine {
   }
 
   async playTrainerWrong() {
+    this.unlockSync();
     await this.ensureReady();
     this._ensureTrainerSynths();
     const t = this._nextSafeTime('trainer', getToneNow(window.Tone) + 0.005);
@@ -2187,6 +2275,7 @@ class AudioEngine {
   }
 
   async playTrainerClick(accent = false) {
+    this.unlockSync();
     await this.ensureReady();
     this._ensureTrainerSynths();
     const t = this._nextSafeTime('click', getToneNow(window.Tone) + 0.005);

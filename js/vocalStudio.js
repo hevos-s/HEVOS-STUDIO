@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=26';
+} from './theory.js?v=27';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=26';
+} from './pitchToMidi.js?v=27';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=26';
+} from './autoTune.js?v=27';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=26';
+} from './audioEngine.js?v=27';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=26';
+} from './audioEncode.js?v=27';
 
 export { encodeAudioBufferToWavBlob };
 
@@ -503,8 +503,16 @@ export class VocalStudio {
       this._visualBus.connect(this._visualAnalyser);
       this._visualBus.connect(this.playCtx.destination);
     }
-    if (this.playCtx.state === 'suspended') {
-      this.playCtx.resume().catch(() => {});
+    if (this.playCtx.state !== 'running') {
+      try {
+        const res = this.playCtx.resume();
+        if (res && typeof res.catch === 'function') res.catch(() => {});
+        const silentBuf = this.playCtx.createBuffer(1, 1, this.playCtx.sampleRate || 44100);
+        const src = this.playCtx.createBufferSource();
+        src.buffer = silentBuf;
+        src.connect(this.playCtx.destination);
+        src.start(0);
+      } catch (_) {}
     }
     return this.playCtx;
   }
@@ -1786,7 +1794,11 @@ export class VocalStudio {
       const singleLoopSec = singleLoopBeats * beatSec;
       const totalSec = singleLoopSec * loops;
       const sr = 44100;
-      const offline = new OfflineAudioContext(2, Math.ceil(totalSec * sr), sr);
+      const OfflineAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if (!OfflineAC) {
+        throw new Error('Trình duyệt không hỗ trợ OfflineAudioContext.');
+      }
+      const offline = new OfflineAC(2, Math.ceil(totalSec * sr), sr);
 
       const masterGain = offline.createGain();
       masterGain.gain.value = 0.78;
@@ -2258,14 +2270,24 @@ export class VocalStudio {
   /**
    * Phát các track hiện có từ vị trí offsetSec (TUYỆT ĐỐI KHÔNG bật Tone.Transport của Sáng tác Beat)
    */
-  startPlayback(fromOffsetSec = null, { maskTrackId = null, allowEmpty = false } = {}) {
+  async startPlayback(fromOffsetSec = null, { maskTrackId = null, allowEmpty = false } = {}) {
     const totalDur = this.getTotalTimelineDurationSec();
     if (!allowEmpty && totalDur <= 0.02 && !this.metronomeEnabled) {
       this._toast('Chưa có Beat nền hoặc bản thu giọng nào để phát. Hãy nhập Beat hoặc bấm Thu giọng!', true);
       return;
     }
 
+    const gen = (this._playGen = (this._playGen || 0) + 1);
     const ctx = this._ensurePlayContext();
+    if (ctx.state !== 'running') {
+      await Promise.race([
+        Promise.resolve()
+          .then(() => ctx.resume())
+          .catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 700)),
+      ]);
+      if (gen !== this._playGen) return;
+    }
     this._stopActiveSources();
 
     let startOffset = fromOffsetSec !== null ? fromOffsetSec : this.currentTimeSec;
@@ -2367,6 +2389,7 @@ export class VocalStudio {
   }
 
   pausePlayback() {
+    this._playGen = (this._playGen || 0) + 1;
     if (this.isPlaying && this.playCtx) {
       const elapsed = Math.max(0, this.playCtx.currentTime - this._playStartCtxTime);
       this.currentTimeSec = this._playStartOffsetSec + elapsed;
@@ -2392,6 +2415,7 @@ export class VocalStudio {
   }
 
   stopAll() {
+    this._playGen = (this._playGen || 0) + 1;
     if (this.recordPhase !== 'idle') {
       this.cancelRecording();
     }
@@ -2893,7 +2917,11 @@ export class VocalStudio {
       )
     );
     const totalFrames = Math.ceil(renderDur * sr);
-    const offline = new OfflineAudioContext(2, totalFrames, sr);
+    const OfflineAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OfflineAC) {
+      throw new Error('Trình duyệt không hỗ trợ OfflineAudioContext.');
+    }
+    const offline = new OfflineAC(2, totalFrames, sr);
 
     const masterLimiter = offline.createDynamicsCompressor();
     masterLimiter.threshold.value = -1.2;
@@ -3043,7 +3071,7 @@ export class VocalStudio {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2500);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
 
       this._toast(
         `Đã xuất file ${fmt.toUpperCase()} (${formatTimeClock(renderedBuffer.duration)}): ${filename}`
@@ -3095,7 +3123,7 @@ export class VocalStudio {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
       this._toast(`Đã tải file giọng (${ext.toUpperCase()}): ${filename}`);
     } catch (err) {
       console.warn('[HEVOS Single Track Download]', err);

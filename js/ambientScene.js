@@ -5,7 +5,24 @@
 //   và chỉ giữ 1 khung hình nền tĩnh cân đối dịu nhẹ (chỉ vẽ lại 1 lần khi resize)
 // ============================================================================
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+let THREE = null;
+let threeLoadPromise = null;
+
+function loadThree() {
+  if (THREE) return Promise.resolve(THREE);
+  if (!threeLoadPromise) {
+    threeLoadPromise = import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js')
+      .then((mod) => {
+        THREE = mod;
+        return THREE;
+      })
+      .catch((err) => {
+        console.warn('[HEVOS STUDIO Three.js Lazy Load Fallback]', err);
+        return null;
+      });
+  }
+  return threeLoadPromise;
+}
 
 function createSoftGlowTexture(innerRgba, midRgba, outerRgba) {
   const size = 128;
@@ -95,8 +112,15 @@ export class AmbientAudioScene {
     this._initThree();
   }
 
-  _initThree() {
+  async _initThree() {
     try {
+      const threeMod = await loadThree();
+      if (!threeMod || this.disposed) {
+        this.supported = false;
+        return;
+      }
+      THREE = threeMod;
+
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
         antialias: true,
@@ -126,8 +150,12 @@ export class AmbientAudioScene {
       this._bindEvents();
       this.supported = true;
       this._lastFrameMs = performance.now();
-      this._renderOnce();
-      this._startLoop();
+      if (this.section === 'hub') {
+        this._renderOnce();
+        this._startLoop();
+      } else {
+        this._renderStaticBackdrop();
+      }
       this._syncCanvasDataset();
     } catch (err) {
       console.warn('[HEVOS STUDIO 3D Fallback]', err);
@@ -399,6 +427,7 @@ export class AmbientAudioScene {
   }
 
   _updateScrollTarget() {
+    if (!THREE) return;
     if (this.section !== 'hub') {
       this.scrollTarget = 0;
       return;
@@ -413,7 +442,7 @@ export class AmbientAudioScene {
   }
 
   resize() {
-    if (!this.supported || !this.renderer || !this.camera) return;
+    if (!THREE || !this.supported || !this.renderer || !this.camera) return;
     this._applySize();
     if (this.section === 'hub') {
       this.targetCamZ = this.isMobile ? 7.8 : 6.2;
@@ -475,7 +504,7 @@ export class AmbientAudioScene {
 
   _renderStaticBackdrop() {
     this._stopLoop();
-    if (!this.supported || !this.renderer || !this.scene || !this.camera) return;
+    if (!THREE || !this.supported || !this.renderer || !this.scene || !this.camera) return;
 
     const staticCamZ = this.isMobile ? 10.8 : 9.6;
     const intensity = 0.30;
@@ -537,6 +566,10 @@ export class AmbientAudioScene {
     this.section = section || 'hub';
     const isHub = this.section === 'hub';
     this.isFrozen = !isHub;
+    if (!THREE || !this.supported) {
+      this._syncCanvasDataset();
+      return;
+    }
     if (isHub) {
       this.targetIntensity = 1.0;
       this.targetCamZ = this.isMobile ? 7.8 : 6.2;
@@ -552,7 +585,7 @@ export class AmbientAudioScene {
   }
 
   wake() {
-    if (!this.supported || this.disposed || this._paused || this.section !== 'hub') return;
+    if (!THREE || !this.supported || this.disposed || this._paused || this.section !== 'hub') return;
     this._startLoop();
   }
 
@@ -685,6 +718,7 @@ export class AmbientAudioScene {
   }
 
   _stepFrame(dt) {
+    if (!THREE || !this.supported) return;
     this._elapsed += dt;
 
     const tone = typeof window !== 'undefined' ? window.Tone : null;

@@ -1277,8 +1277,11 @@ export class ArrangementStudio {
   // Quản lý Kho Clip & Cầu nối Nhận Audio từ Sáng tác Beat / Phòng thu Vocal / File
   // ============================================================================
   _ensureAudioContext() {
-    if (!this.playCtx) {
+    if (!this.playCtx || this.playCtx.state === 'closed') {
       const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        throw new Error('Trình duyệt không hỗ trợ Web AudioContext.');
+      }
       this.playCtx = new AC();
       this.masterChain = buildMasteringChain(
         this.playCtx,
@@ -1287,6 +1290,17 @@ export class ArrangementStudio {
         { tapMeters: true }
       );
       this._syncTrackNodes();
+    }
+    if (this.playCtx.state !== 'running') {
+      try {
+        const res = this.playCtx.resume();
+        if (res && typeof res.catch === 'function') res.catch(() => {});
+        const silentBuf = this.playCtx.createBuffer(1, 1, this.playCtx.sampleRate || 44100);
+        const src = this.playCtx.createBufferSource();
+        src.buffer = silentBuf;
+        src.connect(this.playCtx.destination);
+        src.start(0);
+      } catch (_) {}
     }
     return this.playCtx;
   }
@@ -1629,6 +1643,7 @@ export class ArrangementStudio {
     }
 
     const pl = hit.placement;
+    if (e.cancelable) e.preventDefault();
     this.selectedPlacementId = pl.id;
     this._syncSelectionButtons();
 
@@ -2106,8 +2121,13 @@ export class ArrangementStudio {
     }
 
     const ctx = this._ensureAudioContext();
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
+    if (ctx.state !== 'running') {
+      await Promise.race([
+        Promise.resolve()
+          .then(() => ctx.resume())
+          .catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 700)),
+      ]);
     }
 
     const songEnd = this.getSongEndSec();
@@ -2441,7 +2461,11 @@ export class ArrangementStudio {
     const totalSec = songEndSec + 0.25;
     const sr = 44100;
     const totalFrames = Math.ceil(totalSec * sr);
-    const offline = new OfflineAudioContext(2, totalFrames, sr);
+    const OfflineAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OfflineAC) {
+      throw new Error('Trình duyệt không hỗ trợ OfflineAudioContext.');
+    }
+    const offline = new OfflineAC(2, totalFrames, sr);
 
     const chain = buildMasteringChain(offline, this.masterParams, offline.destination, {
       tapMeters: false,
@@ -2524,7 +2548,7 @@ export class ArrangementStudio {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2500);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
 
       this._toast(
         `Đã xuất Sản Phẩm Master ${this.bitDepth}-bit (${formatClockTime(rendered.duration)}): ${filename}`
