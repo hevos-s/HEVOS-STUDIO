@@ -1,9 +1,9 @@
-// ============================================================================
+﻿// ============================================================================
 // audioEngine.js — Bộ máy Âm thanh Tone.js: Đệm hợp âm có hồn, 4 chất tiếng,
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=25';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=26';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -18,6 +18,8 @@ const getToneNow = (Tone) => {
 };
 
 export const CHORD_TIMBRES = [
+  { id: 'dark_brass',   label: 'Dark Brass (K-Pop)' },
+  { id: 'stage_pluck',  label: 'Stage Pluck / Lead' },
   { id: 'rhodes',       label: 'Rhodes / EP Ấm' },
   { id: 'modern_piano', label: 'Piano Pop Trầm Ấm' },
   { id: 'piano',        label: 'Grand Piano Êm' },
@@ -26,6 +28,27 @@ export const CHORD_TIMBRES = [
 ];
 
 export const CHORD_STYLES = [
+  {
+    id: 'yg_bounce',
+    group: 'Đệm Sân Khấu · K-Pop / US-UK',
+    shortLabel: 'YG Stage Bounce',
+    label: 'YG / K-Pop Stage Bounce',
+    desc: 'K-Pop / YG Stage · Dập staccato dứt khoát, chừa khoảng thở cho rap/vocal, drop 808 bùng nổ.',
+  },
+  {
+    id: 'usuk_stage',
+    group: 'Đệm Sân Khấu · K-Pop / US-UK',
+    shortLabel: 'US-UK Stage Pop',
+    label: 'US-UK Anthemic Stage Pop',
+    desc: 'US-UK Stage Pop · Synth pulse tràn năng lượng sân vận động kết hợp quãng 8 cao trào.',
+  },
+  {
+    id: 'alt_punk',
+    group: 'Đệm Sân Khấu · K-Pop / US-UK',
+    shortLabel: 'GD Alt-Pop Bounce',
+    label: 'GD Alt-Pop / Avant-Garde',
+    desc: 'GD Alt-Pop · Nhấn phách nghịch cá tính cùng bass chạy đều kiểu Crooked / Sober.',
+  },
   {
     id: 'block',
     group: 'Đệm Phím Piano Cơ Bản',
@@ -99,11 +122,14 @@ export const CHORD_STYLES = [
 ];
 
 export const DRUM_PATTERNS = [
-  { id: 'off',       label: 'Tắt trống' },
-  { id: 'metronome', label: 'Đập nhịp Metronome' },
-  { id: 'lofi',      label: 'Lo-Fi / R&B' },
-  { id: 'pop',       label: 'Pop' },
-  { id: 'ballad',    label: 'Ballad' },
+  { id: 'off',        label: 'Tắt trống' },
+  { id: 'kpop_trap',  label: 'K-Pop / YG Trap Stage' },
+  { id: 'stage_pop',  label: 'US-UK Stage Pop' },
+  { id: 'alt_hiphop', label: 'G-Dragon / Alt Bounce' },
+  { id: 'metronome',  label: 'Đập nhịp Metronome' },
+  { id: 'lofi',       label: 'Lo-Fi / R&B' },
+  { id: 'pop',        label: 'Pop' },
+  { id: 'ballad',     label: 'Ballad' },
 ];
 
 export const MELODY_TIMBRES = [
@@ -118,8 +144,10 @@ export const GM_DRUM_NOTES = {
   kick: 36,      // C1  — Bass Drum 1
   rim: 37,       // C#1 — Side Stick / Rimshot
   snare: 38,     // D1  — Acoustic Snare
+  clap: 39,      // D#1 — Hand Clap
   closedHat: 42, // F#1 — Closed Hi-Hat
   openHat: 46,   // A#1 — Open Hi-Hat
+  crash: 49,     // C#2 — Crash Cymbal 1
 };
 
 /**
@@ -146,8 +174,19 @@ function deterministicUnit(seed) {
  */
 export function applySwingBeat(beat, totalBeats, chordStyle = 'rnb', drumPattern = 'lofi', humanize = 55) {
   const humanAmt = Math.max(0, Math.min(100, Number(humanize) || 0)) / 100;
+  const isTightStage =
+    chordStyle === 'yg_bounce' ||
+    chordStyle === 'usuk_stage' ||
+    drumPattern === 'kpop_trap' ||
+    drumPattern === 'stage_pop';
   const swingAmountBeats =
-    (chordStyle === 'rnb' || drumPattern === 'lofi' ? 0.045 : 0.020) * humanAmt;
+    (isTightStage
+      ? 0.004
+      : chordStyle === 'alt_punk' || drumPattern === 'alt_hiphop'
+        ? 0.015
+        : chordStyle === 'rnb' || drumPattern === 'lofi'
+          ? 0.045
+          : 0.020) * humanAmt;
 
   const frac = beat - Math.floor(beat);
   let b = beat;
@@ -293,6 +332,8 @@ export function generateDrumEvents({
     if (drumType === 'kick') midi = GM_DRUM_NOTES.kick;
     else if (drumType === 'rim' || drumType === 'clickAccent' || drumType === 'click') midi = GM_DRUM_NOTES.rim;
     else if (drumType === 'snare') midi = GM_DRUM_NOTES.snare;
+    else if (drumType === 'clap') midi = GM_DRUM_NOTES.clap;
+    else if (drumType === 'crash') midi = GM_DRUM_NOTES.crash;
     else if (drumType === 'hat') midi = openHat ? GM_DRUM_NOTES.openHat : GM_DRUM_NOTES.closedHat;
 
     events.push({
@@ -349,6 +390,94 @@ export function generateDrumEvents({
       for (let step = 0; step < 8; step++) {
         const vel = step % 2 === 0 ? 0.34 : 0.20;
         add(bar, step * 0.5, 'hat', vel, false);
+      }
+    } else if (drumPattern === 'kpop_trap') {
+      // K-Pop / YG Trap Stage: Kick 808 nặng uy lực + Clap/Snare layered + Hi-hat roll 1/16 & 1/32 + Crash/Fill chuyển ô
+      const isTurnaround = bar === totalBars - 1 || bar % 4 === 3;
+      if (bar % 4 === 0) add(bar, 0.0, 'crash', 0.84);
+
+      add(bar, 0.0, 'kick', 0.95);
+      if (bar % 2 === 1) add(bar, 0.75, 'kick', 0.72);
+      add(bar, 1.5, 'kick', 0.88);
+      if (bar % 2 === 0) add(bar, 2.5, 'kick', 0.84);
+      if (isTurnaround) add(bar, 2.75, 'kick', 0.78);
+
+      // Clap + Snare layer đánh bật trên sân khấu
+      add(bar, 1.0, 'clap', 0.88);
+      add(bar, 1.0, 'snare', 0.62);
+      add(bar, 3.0, 'clap', 0.92);
+      add(bar, 3.0, 'snare', 0.68);
+      if (isTurnaround) {
+        // Turnaround fill báo chuyển nhịp
+        add(bar, 3.5, 'snare', 0.72);
+        add(bar, 3.5, 'clap', 0.66);
+        add(bar, 3.75, 'snare', 0.86);
+        add(bar, 3.75, 'clap', 0.82);
+      }
+
+      // Hi-hat 1/8 + 1/16 & các cụm roll 1/32 đậm chất Trap K-Pop
+      const rollBeats = [0.0, 0.5, 1.0, 1.5, 1.625, 1.75, 1.875, 2.0, 2.25, 2.5, 3.0, 3.25, 3.5];
+      rollBeats.forEach((hb, idx) => {
+        const isFastRoll = hb % 0.25 !== 0;
+        add(bar, hb, 'hat', isFastRoll ? 0.36 + (idx % 2) * 0.14 : 0.48, false);
+      });
+      if (bar % 2 === 1) {
+        add(bar, 3.625, 'hat', 0.42, false);
+        add(bar, 3.75, 'hat', 0.50, false);
+        add(bar, 3.8125, 'hat', 0.44, false);
+        add(bar, 3.875, 'hat', 0.54, false);
+      }
+      add(bar, 2.75, 'hat', 0.56, !isTurnaround);
+    } else if (drumPattern === 'stage_pop') {
+      // US-UK Stage Pop: Đập Four-on-the-Floor / Driving Synth Pop + Open Hat phách nghịch + Clap lớn
+      const isTurnaround = bar === totalBars - 1 || bar % 4 === 3;
+      if (bar % 4 === 0) add(bar, 0.0, 'crash', 0.86);
+
+      add(bar, 0.0, 'kick', 0.94);
+      add(bar, 1.0, 'kick', 0.86);
+      add(bar, 2.0, 'kick', 0.92);
+      add(bar, 3.0, 'kick', 0.86);
+      if (bar % 2 === 1) add(bar, 3.5, 'kick', 0.72);
+
+      add(bar, 1.0, 'clap', 0.88);
+      add(bar, 1.0, 'snare', 0.68);
+      add(bar, 3.0, 'clap', 0.92);
+      add(bar, 3.0, 'snare', 0.74);
+      if (isTurnaround) {
+        add(bar, 3.5, 'snare', 0.72);
+        add(bar, 3.75, 'snare', 0.88);
+        add(bar, 3.75, 'clap', 0.84);
+      }
+
+      for (let step = 0; step < 8; step++) {
+        const isOffBeat = step % 2 === 1;
+        add(bar, step * 0.5, 'hat', isOffBeat ? 0.62 : 0.34, isOffBeat);
+      }
+    } else if (drumPattern === 'alt_hiphop') {
+      // G-Dragon / Alt Bounce: Hip-Hop x Punk-Pop đảo phách cá tính + Fill triplet cuối ô
+      const isTurnaround = bar === totalBars - 1 || bar % 4 === 3;
+      if (bar % 4 === 0) add(bar, 0.0, 'crash', 0.82);
+
+      add(bar, 0.0, 'kick', 0.94);
+      add(bar, 1.5, 'kick', 0.82);
+      add(bar, 2.0, 'kick', 0.88);
+      if (bar % 2 === 1) add(bar, 2.5, 'kick', 0.74);
+
+      add(bar, 1.0, 'snare', 0.88);
+      add(bar, 1.0, 'clap', 0.74);
+      add(bar, 3.0, 'snare', 0.90);
+      add(bar, 3.0, 'clap', 0.78);
+      add(bar, 1.75, 'rim', 0.48);
+
+      for (let step = 0; step < 8; step++) {
+        const vel = step % 2 === 1 ? 0.58 : 0.38;
+        add(bar, step * 0.5, 'hat', vel, step === 3 || (step === 7 && !isTurnaround));
+      }
+      if (isTurnaround) {
+        add(bar, 3.5, 'snare', 0.68);
+        add(bar, 3.6667, 'snare', 0.76);
+        add(bar, 3.8333, 'snare', 0.88);
+        add(bar, 3.8333, 'clap', 0.80);
       }
     }
   }
@@ -776,13 +905,21 @@ class AudioEngine {
     const Tone = window.Tone;
     const drumBus = this.channels.drums;
 
-    // Kick sâu gọn (giảm nhẹ gain tạo headroom -5dB)
+    // Kick sâu gọn có transient click giúp đục rõ qua loa laptop/điện thoại (giữ headroom sạch)
     const kick = new Tone.MembraneSynth({
-      pitchDecay: 0.045,
-      octaves: 5.2,
+      pitchDecay: 0.042,
+      octaves: 5.8,
       oscillator: { type: 'sine' },
       envelope: { attack: 0.002, decay: 0.30, sustain: 0.01, release: 0.22 },
-      volume: -7,
+      volume: -6,
+    }).connect(drumBus);
+
+    const kickClick = new Tone.MembraneSynth({
+      pitchDecay: 0.012,
+      octaves: 2.0,
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.001, decay: 0.022, sustain: 0, release: 0.01 },
+      volume: -14,
     }).connect(drumBus);
 
     // Snare noise (lọc bandpass gọn)
@@ -793,6 +930,21 @@ class AudioEngine {
       volume: -11,
     }).connect(snareFilter);
     snareFilter.connect(new Tone.Gain(0.18).connect(this.reverbSend));
+
+    // Clap sân khấu 2 lớp (1350Hz + đuôi 1650Hz vang nhẹ)
+    const clapFilter = new Tone.Filter({ type: 'bandpass', frequency: 1400, Q: 1.1 }).connect(drumBus);
+    const clap = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: { attack: 0.002, decay: 0.065, sustain: 0, release: 0.03 },
+      volume: -11,
+    }).connect(clapFilter);
+    const clapTailFilter = new Tone.Filter({ type: 'bandpass', frequency: 1750, Q: 0.85 }).connect(drumBus);
+    const clapTail = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: { attack: 0.003, decay: 0.13, sustain: 0, release: 0.06 },
+      volume: -13,
+    }).connect(clapTailFilter);
+    clapTailFilter.connect(new Tone.Gain(0.24).connect(this.reverbSend));
 
     // Rimshot / Snare tonal body (rất hợp Lo-Fi / R&B / Ballad)
     const rim = new Tone.MembraneSynth({
@@ -811,6 +963,15 @@ class AudioEngine {
       volume: -16,
     }).connect(hatFilter);
 
+    // Crash cymbal mở đầu đoạn drop sân khấu
+    const crashFilter = new Tone.Filter({ type: 'highpass', frequency: 4800 }).connect(drumBus);
+    const crash = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: { attack: 0.004, decay: 0.55, sustain: 0, release: 0.25 },
+      volume: -16,
+    }).connect(crashFilter);
+    crashFilter.connect(new Tone.Gain(0.28).connect(this.reverbSend));
+
     // Metronome click đi qua kênh trống
     const click = new Tone.Synth({
       oscillator: { type: 'sine' },
@@ -818,7 +979,7 @@ class AudioEngine {
       volume: -9,
     }).connect(drumBus);
 
-    this.drums = { kick, snareNoise, rim, hat, click };
+    this.drums = { kick, kickClick, snareNoise, clap, clapTail, rim, hat, crash, click };
   }
 
   _getBassSynth() {
@@ -855,7 +1016,43 @@ class AudioEngine {
     let filter;
     const revSend = new Tone.Gain(0.24).connect(this.reverbSend);
 
-    if (timbreId === 'modern_piano') {
+    if (timbreId === 'dark_brass') {
+      // Dark Synth Brass (YG / K-Pop / US-UK Stage): Fatsawtooth dày uy lực, ngắt gọn khi đánh staccato
+      const punchEq = new Tone.EQ3({
+        low: 2.0,
+        mid: 1.8,
+        high: -2.0,
+        lowFrequency: 210,
+        highFrequency: 3400,
+      });
+      const chorusSend = new Tone.Gain(0.20).connect(this.chordChorus);
+      filter = new Tone.Filter(1950, 'lowpass');
+      synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -14,
+        oscillator: { type: 'fatsawtooth', count: 2, spread: 18 },
+        envelope: { attack: 0.014, decay: 0.48, sustain: 0.48, release: 0.28 },
+      });
+      revSend.gain.value = 0.22;
+      synth.connect(punchEq);
+      punchEq.connect(filter);
+      filter.connect(this.channels.chords);
+      filter.connect(chorusSend);
+      filter.connect(revSend);
+    } else if (timbreId === 'stage_pluck') {
+      // Stage Pluck / Lead (G-Dragon / Trap Soul): Nảy đanh dứt khoát, sáng rõ hợp với beat nhiều khoảng thở
+      const chorusSend = new Tone.Gain(0.18).connect(this.chordChorus);
+      filter = new Tone.Filter(2850, 'lowpass');
+      synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -13,
+        oscillator: { type: 'fatsawtooth', count: 2, spread: 11 },
+        envelope: { attack: 0.004, decay: 0.34, sustain: 0.08, release: 0.22 },
+      });
+      revSend.gain.value = 0.24;
+      synth.connect(filter);
+      filter.connect(this.channels.chords);
+      filter.connect(chorusSend);
+      filter.connect(revSend);
+    } else if (timbreId === 'modern_piano') {
       // Piano Pop Hiện Đại Trầm Ấm (Felt / Modern Upright Piano: thân ấm dày, dải cao êm không chói)
       const warmEq = new Tone.EQ3({
         low: 3.2,
@@ -1657,9 +1854,24 @@ class AudioEngine {
 
     try {
       if (type === 'kick') {
-        this.drums.kick.triggerAttackRelease('C1', 0.12, this._nextSafeTime('kick', time), safeVel);
+        const kt = this._nextSafeTime('kick', time);
+        this.drums.kick.triggerAttackRelease('C1', 0.14, kt, safeVel);
+        if (this.drums.kickClick) {
+          this.drums.kickClick.triggerAttackRelease('G3', 0.02, this._nextSafeTime('kickClick', time), safeVel * 0.65);
+        }
       } else if (type === 'snare') {
         this.drums.snareNoise.triggerAttackRelease(0.08, this._nextSafeTime('snare', time), safeVel);
+      } else if (type === 'clap') {
+        if (this.drums.clap) {
+          this.drums.clap.triggerAttackRelease(0.05, this._nextSafeTime('clap', time), safeVel);
+        }
+        if (this.drums.clapTail) {
+          this.drums.clapTail.triggerAttackRelease(0.11, this._nextSafeTime('clapTail', time + 0.013), safeVel * 0.85);
+        }
+      } else if (type === 'crash') {
+        if (this.drums.crash) {
+          this.drums.crash.triggerAttackRelease(0.45, this._nextSafeTime('crash', time), safeVel * 0.72);
+        }
       } else if (type === 'rim') {
         this.drums.rim.triggerAttackRelease('G3', 0.045, this._nextSafeTime('rim', time), safeVel);
       } else if (type === 'hat') {
@@ -2117,8 +2329,26 @@ class AudioEngine {
           osc.type = 'triangle';
           sub.type = 'sine';
           sub.frequency.setValueAtTime(freq * 0.5, start);
-          filter.frequency.setValueAtTime(480, start);
+          filter.frequency.setValueAtTime(560, start);
           pan.pan.value = 0;
+        } else if (cTimbre === 'dark_brass') {
+          osc.type = 'sawtooth';
+          osc.detune.setValueAtTime(-10, start);
+          sub.type = 'sawtooth';
+          sub.detune.setValueAtTime(10, start);
+          sub.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(2550, start);
+          filter.frequency.exponentialRampToValueAtTime(1150, Math.min(end, start + 0.18));
+          pan.pan.value = ((ev.midi % 9) - 4) * 0.04;
+        } else if (cTimbre === 'stage_pluck') {
+          osc.type = 'sawtooth';
+          osc.detune.setValueAtTime(-6, start);
+          sub.type = 'square';
+          sub.detune.setValueAtTime(6, start);
+          sub.frequency.setValueAtTime(freq, start);
+          filter.frequency.setValueAtTime(3400, start);
+          filter.frequency.exponentialRampToValueAtTime(980, Math.min(end, start + 0.16));
+          pan.pan.value = ((ev.midi % 9) - 4) * 0.045;
         } else if (cTimbre === 'modern_piano') {
           osc.setPeriodicWave(modernPianoWave);
           sub.type = 'sine';
@@ -2155,15 +2385,16 @@ class AudioEngine {
         }
 
         filter.type = 'lowpass';
-        const peak = Math.max(0.02, ev.velocity * (isBass ? 0.24 : 0.14));
-        const atk = !isBass && cTimbre === 'pad' ? 0.18 : 0.009;
+        const peak = Math.max(0.02, ev.velocity * (isBass ? 0.25 : cTimbre === 'dark_brass' || cTimbre === 'stage_pluck' ? 0.13 : 0.14));
+        const atk = !isBass && cTimbre === 'pad' ? 0.18 : cTimbre === 'stage_pluck' ? 0.004 : 0.009;
         env.gain.setValueAtTime(0.0001, start);
         env.gain.linearRampToValueAtTime(peak, Math.min(end - 0.02, start + atk));
-        env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peak * 0.36), Math.min(end, start + dur));
+        const midRatio = cTimbre === 'stage_pluck' ? 0.16 : cTimbre === 'dark_brass' ? 0.48 : 0.36;
+        env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peak * midRatio), Math.min(end, start + dur));
         env.gain.linearRampToValueAtTime(0.0001, end);
 
         const subG = offline.createGain();
-        subG.gain.value = isBass ? 0.35 : cTimbre === 'pad' ? 0.5 : cTimbre === 'modern_piano' ? 0.22 : 0.14;
+        subG.gain.value = isBass ? 0.36 : cTimbre === 'pad' ? 0.5 : cTimbre === 'dark_brass' ? 0.65 : cTimbre === 'stage_pluck' ? 0.32 : cTimbre === 'modern_piano' ? 0.22 : 0.14;
 
         osc.connect(filter);
         sub.connect(subG);
@@ -2256,16 +2487,66 @@ class AudioEngine {
         if (ev.drumType === 'kick') {
           const osc = offline.createOscillator();
           const env = offline.createGain();
-          const stopAt = Math.min(loopDurationSec, start + 0.24);
+          const stopAt = Math.min(loopDurationSec, start + 0.26);
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(140, start);
+          osc.frequency.setValueAtTime(155, start);
           osc.frequency.exponentialRampToValueAtTime(42, Math.min(stopAt, start + 0.085));
-          env.gain.setValueAtTime(vel * 0.52, start);
+          env.gain.setValueAtTime(vel * 0.56, start);
           env.gain.exponentialRampToValueAtTime(0.001, stopAt);
           osc.connect(env);
           env.connect(chDrums);
           osc.start(start);
           osc.stop(stopAt + 0.005);
+
+          // Transient click giúp tiếng 808 / stage kick đánh đanh rõ
+          const clickOsc = offline.createOscillator();
+          const clickEnv = offline.createGain();
+          const clickEnd = Math.min(loopDurationSec, start + 0.022);
+          clickOsc.type = 'triangle';
+          clickOsc.frequency.setValueAtTime(2200, start);
+          clickOsc.frequency.exponentialRampToValueAtTime(180, clickEnd);
+          clickEnv.gain.setValueAtTime(vel * 0.18, start);
+          clickEnv.gain.exponentialRampToValueAtTime(0.001, clickEnd);
+          clickOsc.connect(clickEnv);
+          clickEnv.connect(chDrums);
+          clickOsc.start(start);
+          clickOsc.stop(clickEnd + 0.004);
+        } else if (ev.drumType === 'clap') {
+          [0, 0.013].forEach((offset, layerIdx) => {
+            const cStart = start + offset;
+            if (cStart >= loopDurationSec - 0.01) return;
+            const src = offline.createBufferSource();
+            src.buffer = noiseBuf;
+            const filter = offline.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(layerIdx === 0 ? 1400 : 1750, cStart);
+            filter.Q.setValueAtTime(layerIdx === 0 ? 1.1 : 0.85, cStart);
+            const env = offline.createGain();
+            const stopAt = Math.min(loopDurationSec, cStart + (layerIdx === 0 ? 0.065 : 0.135));
+            env.gain.setValueAtTime(vel * (layerIdx === 0 ? 0.30 : 0.24), cStart);
+            env.gain.exponentialRampToValueAtTime(0.001, stopAt);
+            src.connect(filter);
+            filter.connect(env);
+            env.connect(chDrums);
+            src.start(cStart);
+            src.stop(stopAt + 0.005);
+          });
+        } else if (ev.drumType === 'crash') {
+          const src = offline.createBufferSource();
+          src.buffer = noiseBuf;
+          src.loop = true;
+          const filter = offline.createBiquadFilter();
+          filter.type = 'highpass';
+          filter.frequency.setValueAtTime(4800, start);
+          const env = offline.createGain();
+          const stopAt = Math.min(loopDurationSec, start + 0.58);
+          env.gain.setValueAtTime(vel * 0.20, start);
+          env.gain.exponentialRampToValueAtTime(0.001, stopAt);
+          src.connect(filter);
+          filter.connect(env);
+          env.connect(chDrums);
+          src.start(start);
+          src.stop(stopAt + 0.005);
         } else if (ev.drumType === 'snare' || ev.drumType === 'hat') {
           const src = offline.createBufferSource();
           src.buffer = noiseBuf;

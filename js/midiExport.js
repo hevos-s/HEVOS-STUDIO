@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // midiExport.js — Bộ mã hóa nhị phân chuẩn Standard MIDI File Format 1 (.mid)
 // Xuất trọn bộ beat đa track (tối đa 4 track chuẩn General MIDI, PPQ = 480):
 //   Track 1: Chords (Hop am)    — Channel 0
@@ -13,11 +13,13 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=25';
+} from './audioEngine.js?v=26';
 
 export const MIDI_PPQ = 480;
 
 const CHORD_GM_PROGRAM = {
+  dark_brass: 62,  // SynthBrass 1
+  stage_pluck: 81, // Lead 2 (sawtooth / pluck)
   rhodes: 4,       // Electric Piano 1 (Rhodes)
   modern_piano: 0, // Acoustic Grand / Warm Pop Piano
   piano: 0,        // Acoustic Grand Piano

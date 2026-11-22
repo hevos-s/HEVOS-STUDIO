@@ -751,6 +751,110 @@ export const PROGRESSION_PRESETS = [
       { degree: 6, extension: 'triad' },
     ],
   },
+
+  // --- K-Pop / G-Dragon Stage ---
+  {
+    id: 'yg-swag-bounce',
+    vibe: 'K-Pop / G-Dragon',
+    name: 'YG Swag Bounce',
+    desc: 'im7 – VImaj7 – VII – V7',
+    keyPc: 5, // Fm
+    scaleType: 'minor',
+    bpm: 126,
+    bars: 4,
+    style: 'yg_bounce',
+    timbre: 'dark_brass',
+    drums: 'kpop_trap',
+    humanize: 20,
+    chords: [
+      { degree: 0, extension: 'm7' },
+      { degree: 5, extension: 'maj7' },
+      { degree: 6, extension: 'triad' },
+      { degree: 4, extension: '7' },
+    ],
+  },
+  {
+    id: 'gd-crooked-alt',
+    vibe: 'K-Pop / G-Dragon',
+    name: 'GD Alt-Pop (Nổi Loạn)',
+    desc: 'I – V – vim7 – IV',
+    keyPc: 2, // D
+    scaleType: 'major',
+    bpm: 132,
+    bars: 4,
+    style: 'alt_punk',
+    timbre: 'stage_pluck',
+    drums: 'alt_hiphop',
+    humanize: 24,
+    chords: [
+      { degree: 0, extension: 'triad' },
+      { degree: 4, extension: 'triad' },
+      { degree: 5, extension: 'm7' },
+      { degree: 3, extension: 'triad' },
+    ],
+  },
+  {
+    id: 'gd-untitled-stage',
+    vibe: 'K-Pop / G-Dragon',
+    name: 'Stage Ballad (Sâu Lắng)',
+    desc: 'Iadd9 – iii7 – vim7 – IVmaj7',
+    keyPc: 3, // Eb
+    scaleType: 'major',
+    bpm: 78,
+    bars: 4,
+    style: 'pattern_158',
+    timbre: 'modern_piano',
+    drums: 'ballad',
+    humanize: 45,
+    chords: [
+      { degree: 0, extension: 'add9' },
+      { degree: 2, extension: 'm7' },
+      { degree: 5, extension: 'm7' },
+      { degree: 3, extension: 'maj7' },
+    ],
+  },
+
+  // --- US-UK Stage Pop ---
+  {
+    id: 'usuk-synth-anthem',
+    vibe: 'US-UK Stage Pop',
+    name: 'US-UK Synth Anthem',
+    desc: 'im7 – VII – VImaj7 – V7',
+    keyPc: 0, // Cm
+    scaleType: 'minor',
+    bpm: 122,
+    bars: 4,
+    style: 'usuk_stage',
+    timbre: 'dark_brass',
+    drums: 'stage_pop',
+    humanize: 20,
+    chords: [
+      { degree: 0, extension: 'm7' },
+      { degree: 6, extension: 'triad' },
+      { degree: 5, extension: 'maj7' },
+      { degree: 4, extension: '7' },
+    ],
+  },
+  {
+    id: 'usuk-dark-trap',
+    vibe: 'US-UK Stage Pop',
+    name: 'Dark Trap Soul',
+    desc: 'im7 – iv7 – VImaj7 – V7',
+    keyPc: 8, // Abm / G#m
+    scaleType: 'minor',
+    bpm: 96,
+    bars: 4,
+    style: 'yg_bounce',
+    timbre: 'stage_pluck',
+    drums: 'kpop_trap',
+    humanize: 22,
+    chords: [
+      { degree: 0, extension: 'm7' },
+      { degree: 3, extension: 'm7' },
+      { degree: 5, extension: 'maj7' },
+      { degree: 4, extension: '7' },
+    ],
+  },
 ];
 
 /**
@@ -849,7 +953,112 @@ export function buildBarChordEvents(
   const b5 = arp158[1];
   const b8 = arp158[2];
 
-  if (style === 'block') {
+  if (style === 'yg_bounce') {
+    // K-Pop / YG Stage Bounce: Dập staccato uy lực, chừa khoảng thở cho rap/vocal & 808 octave drop
+    if (isTurnaround) {
+      pushEvent(b1, 0.0, 0.90, 0.88, 'bass');
+      pushTaggedChord(0.0, tagUpper([...upper, vOct]), 0.36, 0.86, 0, false);
+      pushEvent(warmHighBass, 1.5, 0.42, 0.78, 'bass');
+      pushTaggedChord(1.5, tagUpper(upper), 0.30, 0.82, 0, false);
+      pushEvent(b1, 2.5, 0.45, 0.80, 'bass');
+      pushTaggedChord(2.5, tagUpper(upper), 0.34, 0.76, 0, false);
+      // Fill chuyển ô dồn dập cuối nhịp 4
+      pushEvent(passingBass, 3.0, 0.44, 0.80, 'bass');
+      pushTaggedChord(3.0, tagUpper([v1, vTop, vOct]), 0.32, 0.82, 0, false);
+      pushEvent(passingBass, 3.5, 0.24, 0.84, 'bass');
+      pushTaggedChord(3.5, tagUpper([...upper, vOct]), 0.22, 0.86, 0, false);
+      pushTaggedChord(3.75, tagUpper([vTop, vOct]), 0.22, 0.82, 0, false);
+    } else if (isOddBar) {
+      pushEvent(b1, 0.0, 1.15, 0.88, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.34, 0.84, 0, false);
+      pushEvent(warmHighBass, 0.75, 0.32, 0.72, 'bass');
+      pushEvent(b1, 1.5, 0.65, 0.84, 'bass');
+      pushTaggedChord(1.5, tagUpper([...upper, vOct]), 0.38, 0.86, 0, false);
+      pushEvent(b5 <= 56 ? b5 : warmHighBass, 2.75, 0.45, 0.74, 'bass');
+      pushTaggedChord(3.0, tagUpper(upper), 0.34, 0.78, 0, false);
+    } else if (isLiftBar) {
+      const liftChord = [...upper, vOct];
+      pushEvent(b1, 0.0, 1.30, 0.90, 'bass');
+      pushTaggedChord(0.0, tagUpper(liftChord), 0.44, 0.88, 0, false);
+      pushTaggedChord(0.75, tagUpper([v1, vTop]), 0.28, 0.72, 0, false);
+      pushEvent(warmHighBass, 1.5, 0.46, 0.80, 'bass');
+      pushTaggedChord(1.5, tagUpper(liftChord), 0.38, 0.84, 0, false);
+      pushEvent(b1, 2.5, 0.85, 0.84, 'bass');
+      pushTaggedChord(2.5, tagUpper(liftChord), 0.42, 0.82, 0, false);
+      pushTaggedChord(3.5, tagUpper([vTop, vOct]), 0.26, 0.76, 0, false);
+    } else {
+      pushEvent(b1, 0.0, 1.35, 0.90, 'bass');
+      pushTaggedChord(0.0, tagUpper([...upper, vOct]), 0.38, 0.88, 0, false);
+      pushEvent(warmHighBass, 1.5, 0.45, 0.78, 'bass');
+      pushTaggedChord(1.5, tagUpper(upper), 0.32, 0.82, 0, false);
+      pushEvent(b1, 2.5, 0.70, 0.82, 'bass');
+      pushTaggedChord(2.5, tagUpper(upper), 0.36, 0.78, 0, false);
+      pushEvent(b5 <= 56 ? b5 : b1, 3.5, 0.40, 0.76, 'bass');
+    }
+  } else if (style === 'usuk_stage') {
+    // US-UK Anthemic Stage Pop: Synth pulse dập 8/16th căng tràn năng lượng sân vận động + quãng 8 cao trào
+    if (isTurnaround) {
+      pushEvent(b1, 0.0, 0.92, 0.86, 'bass');
+      pushTaggedChord(0.0, tagUpper([...upper, vOct]), 0.58, 0.84, 0, false);
+      pushEvent(warmHighBass, 1.0, 0.60, 0.76, 'bass');
+      pushTaggedChord(1.5, tagUpper(upper), 0.42, 0.78, 0, false);
+      pushEvent(b1, 2.0, 0.85, 0.84, 'bass');
+      pushTaggedChord(2.0, tagUpper([...upper, vOct]), 0.55, 0.84, 0, false);
+      pushEvent(passingBass, 3.0, 0.45, 0.82, 'bass');
+      pushTaggedChord(3.0, tagUpper([...upper, vOct]), 0.36, 0.84, 0, false);
+      pushEvent(passingBass, 3.5, 0.24, 0.84, 'bass');
+      pushTaggedChord(3.5, tagUpper([v1, vTop, vOct]), 0.22, 0.86, 0, false);
+      pushTaggedChord(3.75, tagUpper([vTop, vOct]), 0.22, 0.84, 0, false);
+    } else if (isOddBar) {
+      pushEvent(b1, 0.0, 0.85, 0.84, 'bass');
+      pushTaggedChord(0.0, tagUpper(upper), 0.46, 0.80, 0, false);
+      pushEvent(warmHighBass, 0.5, 0.42, 0.68, 'bass');
+      pushTaggedChord(0.75, tagUpper([v1, vTop]), 0.36, 0.74, 0, false);
+      pushEvent(b1, 1.5, 0.46, 0.80, 'bass');
+      pushTaggedChord(1.5, tagUpper(upper), 0.42, 0.82, 0, false);
+      pushEvent(b1, 2.0, 0.85, 0.82, 'bass');
+      pushTaggedChord(2.25, tagUpper([v2, vOct]), 0.40, 0.74, 0, false);
+      pushEvent(warmHighBass, 3.0, 0.85, 0.76, 'bass');
+      pushTaggedChord(3.0, tagUpper(upper), 0.65, 0.78, 0, false);
+    } else {
+      const anthemChord = isLiftBar ? [...upper, vOct] : upper;
+      pushEvent(b1, 0.0, 0.85, 0.86, 'bass');
+      pushTaggedChord(0.0, tagUpper(anthemChord), 0.50, 0.84, 0, false);
+      pushEvent(warmHighBass, 0.75, 0.40, 0.72, 'bass');
+      pushTaggedChord(0.75, tagUpper(anthemChord), 0.42, 0.76, 0, false);
+      pushEvent(b1, 1.5, 0.45, 0.82, 'bass');
+      pushTaggedChord(1.5, tagUpper(anthemChord), 0.42, 0.82, 0, false);
+      pushEvent(b1, 2.0, 0.85, 0.84, 'bass');
+      pushTaggedChord(2.0, tagUpper(anthemChord), 0.50, 0.80, 0, false);
+      pushEvent(b5 <= 56 ? b5 : warmHighBass, 3.0, 0.85, 0.76, 'bass');
+      pushTaggedChord(3.0, tagUpper(anthemChord), 0.46, 0.80, 0, false);
+      pushTaggedChord(3.5, tagUpper([vTop, vOct]), 0.36, 0.74, 0, false);
+    }
+  } else if (style === 'alt_punk') {
+    // GD Alt-Pop / Avant-Garde: Bass chạy móc đơn đẩy nhịp + hợp âm đánh nghịch phách (Crooked / Sober vibe)
+    const driveChord = isLiftBar || isTurnaround ? [...upper, vOct] : upper;
+    for (let step = 0; step < 8; step++) {
+      const offset = step * 0.5;
+      const isOffBeat = step % 2 === 1;
+      const bassNote =
+        isTurnaround && step >= 6
+          ? passingBass
+          : step === 2 || step === 6
+            ? warmHighBass
+            : step === 4 && b5 <= 56
+              ? b5
+              : b1;
+      pushEvent(bassNote, offset, 0.42, isOffBeat ? 0.68 : 0.82, 'bass');
+
+      if (isOffBeat) {
+        // Nhấn hợp âm chém dứt khoát vào phách nghịch (upbeat skank)
+        pushTaggedChord(offset, tagUpper(driveChord), 0.28, step === 7 && isTurnaround ? 0.86 : 0.78, 0, false);
+      } else if (step === 0 || (isTurnaround && step === 4)) {
+        // Phách 1 giữ đòn nhấn ngắn mở đường
+        pushTaggedChord(offset, tagUpper(driveChord), 0.24, 0.82, 0, false);
+      }
+    }
+  } else if (style === 'block') {
     // Block Chord: Bấm các nốt hợp âm cùng lúc — chắc nhịp, cao trào hoặc đệm hát đơn giản
     if (isTurnaround) {
       pushTaggedChord(0.0, tagWithBass(upper), 0.90, 0.80, 0, false);

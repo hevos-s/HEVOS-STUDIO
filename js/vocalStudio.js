@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // vocalStudio.js — Phòng Thu Vocal Độc Lập Hoàn Toàn (Standalone Vocal Booth)
 // - Tách biệt 100% khỏi Tone.Transport của mục Sáng tác Beat
 // - Track 0: Nhập Beat MP3/WAV/M4A/OGG từ máy, Thu mộc tự do, hoặc Render Beat từ Sáng tác
@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=25';
+} from './theory.js?v=26';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=25';
+} from './pitchToMidi.js?v=26';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=25';
+} from './autoTune.js?v=26';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=25';
+} from './audioEngine.js?v=26';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=25';
+} from './audioEncode.js?v=26';
 
 export { encodeAudioBufferToWavBlob };
 
@@ -1816,8 +1816,10 @@ export class VocalStudio {
         humanize: studioCtx.humanize ?? 50,
       });
 
-      // Tổng hợp tiếng đàn ấm (hỗ trợ Piano Pop Trầm Ấm / Rhodes / Piano) + Bass + Trống trên OfflineAudioContext
-      const isWarmModernPiano = studioCtx.chordTimbre === 'modern_piano';
+      // Tổng hợp tiếng đàn (Dark Synth Brass / Stage Pluck / Piano Pop Trầm Ấm / Rhodes) + Bass + Trống trên OfflineAudioContext
+      const chordTimbre = studioCtx.chordTimbre || 'rhodes';
+      const isWarmModernPiano = chordTimbre === 'modern_piano';
+      const isStageSynth = chordTimbre === 'dark_brass' || chordTimbre === 'stage_pluck';
       const scheduleNote = (freq, startSec, durSec, vel, isBass = false) => {
         if (startSec >= totalSec) return;
         const osc = offline.createOscillator();
@@ -1825,26 +1827,36 @@ export class VocalStudio {
         const env = offline.createGain();
         const filter = offline.createBiquadFilter();
 
-        osc.type = isBass ? 'triangle' : isWarmModernPiano ? 'triangle' : 'sine';
-        sub.type = isBass || isWarmModernPiano ? 'sine' : 'triangle';
+        osc.type = isBass ? 'triangle' : isStageSynth ? 'sawtooth' : isWarmModernPiano ? 'triangle' : 'sine';
+        sub.type = isBass || isWarmModernPiano ? 'sine' : chordTimbre === 'stage_pluck' ? 'square' : isStageSynth ? 'sawtooth' : 'triangle';
+        if (!isBass && isStageSynth) {
+          osc.detune.setValueAtTime(-8, startSec);
+          sub.detune.setValueAtTime(8, startSec);
+        }
         osc.frequency.setValueAtTime(freq, startSec);
         sub.frequency.setValueAtTime(
-          isBass || isWarmModernPiano ? freq * 0.5 : freq * 2,
+          isBass || isWarmModernPiano ? freq * 0.5 : isStageSynth ? freq : freq * 2,
           startSec
         );
 
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(isBass ? 480 : isWarmModernPiano ? 1650 : 2200, startSec);
+        filter.frequency.setValueAtTime(
+          isBass ? 540 : chordTimbre === 'dark_brass' ? 2350 : chordTimbre === 'stage_pluck' ? 3100 : isWarmModernPiano ? 1650 : 2200,
+          startSec
+        );
+        if (!isBass && isStageSynth) {
+          filter.frequency.exponentialRampToValueAtTime(1050, Math.min(totalSec, startSec + 0.18));
+        }
 
-        const peak = Math.max(0.02, vel * (isBass ? 0.24 : isWarmModernPiano ? 0.16 : 0.14));
+        const peak = Math.max(0.02, vel * (isBass ? 0.25 : isWarmModernPiano ? 0.16 : isStageSynth ? 0.125 : 0.14));
         const end = Math.min(totalSec, startSec + Math.max(0.08, durSec));
         env.gain.setValueAtTime(0.0001, startSec);
-        env.gain.linearRampToValueAtTime(peak, startSec + 0.012);
-        env.gain.exponentialRampToValueAtTime(peak * 0.45, Math.min(end, startSec + 0.18));
+        env.gain.linearRampToValueAtTime(peak, startSec + (chordTimbre === 'stage_pluck' ? 0.005 : 0.012));
+        env.gain.exponentialRampToValueAtTime(peak * (chordTimbre === 'stage_pluck' ? 0.20 : 0.45), Math.min(end, startSec + 0.18));
         env.gain.exponentialRampToValueAtTime(0.0001, end + 0.08);
 
         const subGain = offline.createGain();
-        subGain.gain.value = isBass ? 0.35 : isWarmModernPiano ? 0.22 : 0.12;
+        subGain.gain.value = isBass ? 0.35 : chordTimbre === 'dark_brass' ? 0.60 : chordTimbre === 'stage_pluck' ? 0.30 : isWarmModernPiano ? 0.22 : 0.12;
 
         osc.connect(filter);
         sub.connect(subGain);
@@ -1873,14 +1885,48 @@ export class VocalStudio {
           const osc = offline.createOscillator();
           const env = offline.createGain();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(135, startSec);
+          osc.frequency.setValueAtTime(150, startSec);
           osc.frequency.exponentialRampToValueAtTime(42, startSec + 0.09);
-          env.gain.setValueAtTime(vel * 0.48, startSec);
-          env.gain.exponentialRampToValueAtTime(0.001, startSec + 0.22);
+          env.gain.setValueAtTime(vel * 0.52, startSec);
+          env.gain.exponentialRampToValueAtTime(0.001, startSec + 0.24);
           osc.connect(env);
           env.connect(masterGain);
           osc.start(startSec);
-          osc.stop(startSec + 0.24);
+          osc.stop(startSec + 0.25);
+        } else if (type === 'clap') {
+          [0, 0.013].forEach((offset, layerIdx) => {
+            const cStart = startSec + offset;
+            if (cStart >= totalSec) return;
+            const src = offline.createBufferSource();
+            src.buffer = noiseBuf;
+            const filter = offline.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(layerIdx === 0 ? 1400 : 1750, cStart);
+            const env = offline.createGain();
+            const decay = layerIdx === 0 ? 0.065 : 0.135;
+            env.gain.setValueAtTime(vel * (layerIdx === 0 ? 0.28 : 0.22), cStart);
+            env.gain.exponentialRampToValueAtTime(0.001, cStart + decay);
+            src.connect(filter);
+            filter.connect(env);
+            env.connect(masterGain);
+            src.start(cStart);
+            src.stop(cStart + decay + 0.015);
+          });
+        } else if (type === 'crash') {
+          const src = offline.createBufferSource();
+          src.buffer = noiseBuf;
+          src.loop = true;
+          const filter = offline.createBiquadFilter();
+          filter.type = 'highpass';
+          filter.frequency.setValueAtTime(4800, startSec);
+          const env = offline.createGain();
+          env.gain.setValueAtTime(vel * 0.18, startSec);
+          env.gain.exponentialRampToValueAtTime(0.001, startSec + 0.50);
+          src.connect(filter);
+          filter.connect(env);
+          env.connect(masterGain);
+          src.start(startSec);
+          src.stop(startSec + 0.52);
         } else if (type === 'snare' || type === 'hat') {
           const src = offline.createBufferSource();
           src.buffer = noiseBuf;

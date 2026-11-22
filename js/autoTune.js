@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // autoTune.js — Bộ máy Auto-Tune Khóa Tông TD-PSOLA Động Sample Rate (44.1 / 48 / 96 kHz)
 // - Không hardcode 44100: tự động co giãn cửa sổ, bước nhảy & bán kính Pitch Marks theo sampleRate thực tế
 // - Gộp trung bình sạch Stereo Mic PC khi phân tích & tổng hợp đồng pha L/R chuẩn xác từng sample (1:1)
@@ -15,8 +15,8 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=25';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=25';
+} from './theory.js?v=26';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=26';
 
 // Hồ sơ trọng số 12 bán cung Krumhansl-Schmuckler cho giọng Trưởng & Thứ
 const KS_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];

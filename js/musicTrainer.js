@@ -1,9 +1,9 @@
-// ============================================================================
+﻿// ============================================================================
 // musicTrainer.js — Phân khu Học nhạc (Luyện Đọc Nốt & Phản Xạ Nhạc Lý)
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { midiToFreq } from './theory.js?v=25';
+import { midiToFreq } from './theory.js?v=26';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -20,12 +20,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=25';
+} from './trainerData.js?v=26';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=25';
+} from './staffRenderer.js?v=26';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({

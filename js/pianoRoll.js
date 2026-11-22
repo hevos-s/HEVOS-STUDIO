@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // pianoRoll.js — Bảng chấm MIDI trực quan 60fps trên HTML5 Canvas
 // Hỗ trợ tô sáng Âm giai & Hợp âm theo từng ô nhịp, Chuột & Cảm ứng (Pointer)
 // ============================================================================
@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=25';
+} from './theory.js?v=26';
 
 const MIN_MIDI = 48; // C3
 const MAX_MIDI = 84; // C6
