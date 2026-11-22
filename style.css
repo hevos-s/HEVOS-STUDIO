@@ -2824,6 +2824,674 @@ body.piano-roll-open .toast-container {
   border-color: #FAFAFA !important;
 }
 
+/* --------------------------------------------------------------------------
+   HYBRID PIANO TRAINER & MIDI STUDIO (Phòng Đàn Piano Đa Chế Độ)
+   -------------------------------------------------------------------------- */
+#btn-midi-record-arm.has-device .rec-dot {
+  background: #34D399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+}
+#btn-midi-record-arm.active {
+  background: rgba(239, 68, 68, 0.20);
+  border-color: rgba(239, 68, 68, 0.7);
+  color: #FCA5A5;
+}
+#btn-midi-record-arm.active .rec-dot {
+  background: #EF4444;
+  animation: pulseDot 0.9s infinite;
+}
+
+.trainer-device-bar {
+  width: 100%;
+  max-width: 1220px;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  background: var(--glass-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.device-bar-left,
+.device-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.midi-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.midi-status-pill.connected {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6EE7B7;
+}
+
+.midi-signal-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  transition: transform 0.08s ease, background-color 0.08s ease, box-shadow 0.08s ease;
+}
+.midi-status-pill.connected .midi-signal-led {
+  background: #10B981;
+}
+.midi-signal-led.is-pulse {
+  background: #22D3EE !important;
+  box-shadow: 0 0 10px #22D3EE;
+  transform: scale(1.35);
+}
+
+.device-ctrl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-ctrl-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.octave-ctrl-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.octave-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #FAFAFA;
+  min-width: 48px;
+  text-align: center;
+}
+
+.btn-mini-pill {
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+  font-size: 11px;
+  font-weight: 700;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.btn-mini-pill:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+.btn-mini-pill.active {
+  background: #F4F4F5;
+  color: #09090B;
+  border-color: #FFFFFF;
+}
+.btn-mini-pill:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.trainer-top-tabs {
+  width: 100%;
+  max-width: 1220px;
+  margin: 0 auto 10px;
+  display: inline-flex;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.trainer-top-tabs .seg-btn {
+  min-height: 36px;
+  padding: 0 15px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  background: rgba(16, 18, 28, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.trainer-top-tabs .seg-btn.active {
+  background: #F4F4F5;
+  color: #09090B;
+  border-color: #FFFFFF;
+}
+
+.piano-room-wrap {
+  width: 100%;
+  max-width: 1220px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.piano-submode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.piano-submode-tabs .seg-btn {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+/* Free Play & Live Chord HUD */
+.free-play-hud {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.live-chord-display,
+.scale-guide-panel,
+.chord-wait-panel,
+.falling-controls-panel {
+  background: var(--glass-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight);
+  padding: 12px 14px;
+}
+
+.live-chord-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.live-chord-kicker {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.live-chord-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+}
+
+.live-chord-symbol {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 900;
+  color: var(--text-3);
+  transition: color 0.12s ease;
+}
+.live-chord-symbol.has-chord {
+  color: #67E8F9;
+}
+
+.sustain-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(167, 139, 250, 0.22);
+  border: 1px solid rgba(167, 139, 250, 0.55);
+  color: #DDD6FE;
+}
+
+.live-chord-quality {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.live-chord-notes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.live-note-pill {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 12px;
+  font-weight: 700;
+  color: #FAFAFA;
+}
+
+.scale-guide-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.scale-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scale-guide-title {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+}
+
+.scale-guide-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scale-guide-tip {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Wait Mode Panel (Luyện Đệm Hợp Âm) */
+.chord-wait-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cw-toolbar,
+.fn-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cw-toolbar-left,
+.cw-toolbar-right,
+.fn-left,
+.fn-actions,
+.fn-settings,
+.fn-stats-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cw-bpm-wrap,
+.fn-speed-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--bg-lcd);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.cw-target-callout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cw-prompt-lbl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.cw-target-symbol {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 900;
+  color: #67E8F9;
+}
+
+.cw-required-notes {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.cw-req-pill {
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--text-2);
+  transition: all 0.14s ease;
+}
+.cw-req-pill.hit {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #34D399;
+  color: #6EE7B7;
+}
+
+.cw-progress-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.cw-progress-badge strong {
+  font-size: 13.5px;
+  color: #FAFAFA;
+}
+
+.cw-chord-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 8px;
+}
+
+.cw-chord-card {
+  padding: 8px 11px;
+  border-radius: 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+.cw-chord-card.active {
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.65);
+}
+.cw-chord-card.completed {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: #34D399;
+}
+
+.cw-card-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.cw-symbol {
+  font-size: 16px;
+  font-weight: 800;
+  color: #FAFAFA;
+}
+.cw-notes-sub {
+  font-size: 10.5px;
+  color: var(--text-2);
+}
+
+/* Falling Notes Stage & Controls */
+.falling-controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fn-stat-chip {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.falling-stage-wrap {
+  position: relative;
+  width: 100%;
+  height: 205px;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: rgba(7, 8, 13, 0.94);
+}
+
+#falling-notes-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.falling-hit-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(9, 10, 17, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 11.5px;
+  color: var(--text-1);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 3-Octave Hybrid Multi-Touch Piano Keyboard */
+.hybrid-kb-shell {
+  background: var(--glass-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-highlight), 0 14px 36px rgba(0, 0, 0, 0.48);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hybrid-kb-viewport {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hybrid-piano-scroll-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.hybrid-piano-keyboard {
+  position: relative;
+  width: 100%;
+  height: 196px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: #0B0C14;
+  border-radius: 0 0 10px 10px;
+}
+
+.h-whites-layer {
+  display: grid;
+  grid-template-columns: repeat(21, minmax(0, 1fr));
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+}
+
+.h-blacks-layer {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 60%;
+  pointer-events: none;
+}
+
+.h-key {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+  gap: 4px;
+  transition: background 0.08s ease, border-color 0.08s ease, box-shadow 0.08s ease;
+}
+
+.h-key.white {
+  background: linear-gradient(180deg, #FAFAFA 0%, #E4E4E7 100%);
+  border: 1px solid #A1A1AA;
+  border-radius: 0 0 7px 7px;
+  color: #18181B;
+}
+
+.h-key.black {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: auto;
+  background: linear-gradient(180deg, #27272A 0%, #09090B 100%);
+  border: 1px solid #3F3F46;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  color: #E4E4E7;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.7);
+  z-index: 2;
+  padding-bottom: 7px;
+}
+
+.h-key-lbl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+.h-key-lbl.is-c {
+  font-weight: 900;
+  opacity: 1;
+}
+
+.h-key-kbd {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.45;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+}
+
+/* Tô sáng Âm giai (Scale Guide) */
+.h-key.in-scale::before {
+  content: '';
+  position: absolute;
+  bottom: 28px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.72);
+}
+.h-key.black.in-scale::before {
+  bottom: 22px;
+  background: rgba(56, 189, 248, 0.85);
+}
+.h-key.scale-root::before {
+  width: 8px;
+  height: 8px;
+  background: #6D28D9;
+  box-shadow: 0 0 6px rgba(109, 40, 217, 0.7);
+}
+.h-key.black.scale-root::before {
+  background: #A78BFA;
+}
+
+/* Trạng thái Mục tiêu / Đang bấm / Chord Latch / Đúng */
+.h-key.white.is-target {
+  background: linear-gradient(180deg, #CFFAFE 0%, #67E8F9 100%);
+  border-color: #06B6D4;
+  color: #083344;
+}
+.h-key.black.is-target {
+  background: linear-gradient(180deg, #0E7490 0%, #0891B2 100%);
+  border-color: #67E8F9;
+  color: #FFFFFF;
+}
+
+.h-key.white.is-active,
+.h-key.white.is-latched {
+  background: linear-gradient(180deg, #A78BFA 0%, #7C3AED 100%) !important;
+  border-color: #DDD6FE !important;
+  color: #FFFFFF !important;
+}
+.h-key.black.is-active,
+.h-key.black.is-latched {
+  background: linear-gradient(180deg, #8B5CF6 0%, #5B21B6 100%) !important;
+  border-color: #EDE9FE !important;
+  color: #FFFFFF !important;
+}
+
+.h-key.is-correct {
+  background: #10B981 !important;
+  border-color: #6EE7B7 !important;
+  color: #052E20 !important;
+}
+
+.mobile-kb-nav {
+  flex-direction: column;
+  gap: 6px;
+}
+.mobile-kb-oct-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 /* 5. End-of-Session Report Screen */
 .report-panel {
   width: 100%;
@@ -6325,7 +6993,49 @@ body.piano-roll-open .toast-container {
 
   /* 6. Học nhạc lý trên Mobile */
   .trainer-shell {
-    padding: 6px 8px calc(82px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 8px calc(114px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .piano-room-wrap {
+    flex: 0 0 auto;
+    padding-bottom: 12px;
+  }
+
+  .trainer-top-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 6px;
+  }
+
+  .trainer-top-tabs .seg-btn {
+    padding: 0 8px;
+    font-size: 11.5px;
+    text-align: center;
+  }
+
+  .piano-submode-bar {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .piano-submode-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .piano-submode-tabs {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .piano-submode-tabs .seg-btn {
+    padding: 0 11px;
+    font-size: 11.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .trainer-stats-bar,
@@ -6383,6 +7093,44 @@ body.piano-roll-open .toast-container {
 
   .black-key .pk-name {
     font-size: 8px;
+  }
+
+  .trainer-device-bar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .free-play-hud {
+    grid-template-columns: 1fr;
+  }
+
+  .live-chord-symbol {
+    font-size: 24px;
+  }
+
+  .cw-chord-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hybrid-kb-shell {
+    padding: 8px;
+  }
+
+  .hybrid-piano-scroll-inner {
+    min-width: 780px;
+  }
+
+  .hybrid-piano-keyboard {
+    height: clamp(162px, 27dvh, 210px);
+  }
+
+  .falling-stage-wrap {
+    height: 158px;
+  }
+
+  .falling-hit-hint {
+    font-size: 10px;
+    padding: 4px 9px;
   }
 
   /* 6. Phân khu Dựng bài & Master trên Mobile */

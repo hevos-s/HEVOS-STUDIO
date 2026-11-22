@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=27';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=28';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -559,6 +559,11 @@ class AudioEngine {
     this.drums = {};
     this.countInSynth = null;
     this.trainerPiano = null;
+    this.trainerSynths = {};
+    this.trainerTimbre = 'grand';
+    this._heldTrainerMidis = new Set();
+    this._activeTrainerNotes = new Map();
+    this._heldStudioMidis = new Set();
     this.trainerWrongSynth = null;
     this.trainerClickSynth = null;
 
@@ -991,6 +996,71 @@ class AudioEngine {
       envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
       volume: -10,
     }).connect(this.masterBus);
+  }
+
+  _getTrainerSynth(timbreId = null) {
+    const Tone = window.Tone;
+    const key = timbreId === 'rhodes' || timbreId === 'pad' ? timbreId : 'grand';
+    if (this.trainerSynths[key]) return this.trainerSynths[key];
+    if (!Tone || !this.masterBus) return null;
+
+    let synth;
+    let filter;
+    const revSend = new Tone.Gain(key === 'pad' ? 0.34 : 0.22).connect(this.reverbSend);
+
+    if (key === 'rhodes') {
+      filter = new Tone.Filter(2500, 'lowpass');
+      synth = new Tone.PolySynth(Tone.FMSynth, {
+        volume: -11,
+        harmonicity: 2,
+        modulationIndex: 1.35,
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.008, decay: 1.35, sustain: 0.28, release: 0.60 },
+        modulation: { type: 'sine' },
+        modulationEnvelope: { attack: 0.008, decay: 0.38, sustain: 0.06, release: 0.24 },
+      });
+      synth.connect(filter);
+      if (this.chordChorus) filter.connect(this.chordChorus);
+      filter.connect(this.masterBus);
+      filter.connect(revSend);
+    } else if (key === 'pad') {
+      filter = new Tone.Filter(1550, 'lowpass');
+      synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -14,
+        oscillator: { type: 'fatsawtooth', count: 2, spread: 16 },
+        envelope: { attack: 0.14, decay: 0.70, sustain: 0.65, release: 0.68 },
+      });
+      synth.connect(filter);
+      if (this.chordChorus) filter.connect(this.chordChorus);
+      filter.connect(this.masterBus);
+      filter.connect(revSend);
+    } else {
+      // Grand Piano sáng ấm rõ nét
+      filter = new Tone.Filter(2800, 'lowpass');
+      synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -10,
+        oscillator: {
+          type: 'custom',
+          partials: [1, 0.48, 0.22, 0.09, 0.035, 0.012],
+        },
+        envelope: { attack: 0.006, decay: 1.5, sustain: 0.22, release: 0.65 },
+      });
+      synth.connect(filter);
+      filter.connect(this.masterBus);
+      filter.connect(revSend);
+    }
+
+    synth.maxPolyphony = 48;
+    this.trainerSynths[key] = synth;
+    return synth;
+  }
+
+  setTrainerTimbre(timbreId) {
+    const key = timbreId === 'rhodes' || timbreId === 'pad' ? timbreId : 'grand';
+    this.trainerTimbre = key;
+    if (this.initialized) {
+      this._getTrainerSynth(key);
+    }
   }
 
   _initDrums() {
@@ -2290,11 +2360,121 @@ class AudioEngine {
   }
 
   stopTrainerAudio() {
+    this._heldTrainerMidis.clear();
+    this._activeTrainerNotes.clear();
     if (this.trainerPiano) {
       try {
         this.trainerPiano.releaseAll();
       } catch (_) {}
     }
+    Object.values(this.trainerSynths || {}).forEach((s) => {
+      try {
+        s.releaseAll();
+      } catch (_) {}
+    });
+  }
+
+  async trainerNoteOn(midi, velocity = 0.82, timbreId = null) {
+    if (!Number.isFinite(midi)) return;
+    const rounded = Math.max(21, Math.min(108, Math.round(midi)));
+    const vel = Number.isFinite(velocity) ? Math.max(0.08, Math.min(0.95, velocity)) : 0.82;
+    this._heldTrainerMidis.add(rounded);
+    this.unlockSync();
+
+    if (!this.initialized || !this.isAudioRunning()) {
+      await this.ensureReady();
+    }
+    const useTimbre = timbreId || this.trainerTimbre || 'grand';
+    const synth = this._getTrainerSynth(useTimbre);
+    if (!synth) return;
+
+    const noteName = midiToToneNote(rounded);
+    const t = this._nextSafeTime('trainer', getToneNow(window.Tone) + 0.004);
+    try {
+      if (!this._heldTrainerMidis.has(rounded)) {
+        // Người dùng nhả tay nhanh trước khi AudioContext kịp mở xong -> ngân gọn không bị treo nốt
+        synth.triggerAttackRelease(noteName, 0.24, t, vel);
+        return;
+      }
+      if (this._activeTrainerNotes.has(rounded)) {
+        const prevTimbre = this._activeTrainerNotes.get(rounded);
+        const prevSynth = this._getTrainerSynth(prevTimbre);
+        try { prevSynth?.triggerRelease(noteName, t); } catch (_) {}
+      }
+      synth.triggerAttack(noteName, t, vel);
+      this._activeTrainerNotes.set(rounded, useTimbre);
+    } catch (_) {}
+  }
+
+  trainerNoteOff(midi) {
+    if (!Number.isFinite(midi)) return;
+    const rounded = Math.max(21, Math.min(108, Math.round(midi)));
+    this._heldTrainerMidis.delete(rounded);
+    if (!this.initialized) return;
+
+    const timbre = this._activeTrainerNotes.get(rounded) || this.trainerTimbre || 'grand';
+    this._activeTrainerNotes.delete(rounded);
+    const synth = this._getTrainerSynth(timbre);
+    if (!synth) return;
+
+    const t = this._nextSafeTime('trainer', getToneNow(window.Tone) + 0.004);
+    try {
+      synth.triggerRelease(midiToToneNote(rounded), t);
+    } catch (_) {}
+  }
+
+  async playTrainerChordPreview(midis = [], duration = 0.85, velocity = 0.70, timbreId = null) {
+    if (!Array.isArray(midis) || midis.length === 0) return;
+    this.unlockSync();
+    await this.ensureReady();
+    const synth = this._getTrainerSynth(timbreId || this.trainerTimbre || 'grand');
+    if (!synth) return;
+    const dur = Number.isFinite(duration) ? Math.max(0.1, duration) : 0.85;
+    const vel = Number.isFinite(velocity) ? Math.max(0.1, Math.min(0.92, velocity)) : 0.70;
+    const baseNow = getToneNow(window.Tone) + 0.006;
+
+    midis.forEach((m, idx) => {
+      if (!Number.isFinite(m)) return;
+      const t = this._nextSafeTime('trainer', baseNow + idx * 0.018);
+      try {
+        synth.triggerAttackRelease(midiToToneNote(Math.round(m)), dur, t, Math.max(0.2, vel - idx * 0.02));
+      } catch (_) {}
+    });
+  }
+
+  async studioMidiNoteOn(midi, velocity = 0.82) {
+    if (!Number.isFinite(midi)) return;
+    const rounded = Math.max(21, Math.min(108, Math.round(midi)));
+    const vel = Number.isFinite(velocity) ? Math.max(0.08, Math.min(0.95, velocity)) : 0.82;
+    this._heldStudioMidis.add(rounded);
+    this.unlockSync();
+    if (!this.initialized || !this.isAudioRunning()) {
+      await this.ensureReady();
+    }
+    const synth = this._getMelodySynth(this.state.melodyTimbre);
+    if (!synth) return;
+    const noteName = midiToToneNote(rounded);
+    const t = this._nextSafeTime('melody', getToneNow(window.Tone) + 0.004);
+    try {
+      if (!this._heldStudioMidis.has(rounded)) {
+        synth.triggerAttackRelease(noteName, 0.24, t, vel);
+        return;
+      }
+      synth.triggerAttack(noteName, t, vel);
+    } catch (_) {}
+  }
+
+  studioMidiNoteOff(midi) {
+    if (!Number.isFinite(midi)) return;
+    const rounded = Math.max(21, Math.min(108, Math.round(midi)));
+    this._heldStudioMidis.delete(rounded);
+    if (!this.initialized) return;
+    const synth = this._getMelodySynth(this.state.melodyTimbre);
+    if (!synth) return;
+    const t = this._nextSafeTime('melody', getToneNow(window.Tone) + 0.004);
+    try {
+      synth.triggerRelease(midiToToneNote(rounded), t);
+    } catch (_) {}
   }
 
   /**

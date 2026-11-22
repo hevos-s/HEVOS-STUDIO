@@ -14,27 +14,29 @@ import {
   getDiatonicChords,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=27';
+  snapMidiToScale,
+} from './theory.js?v=28';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=27';
+} from './audioEngine.js?v=28';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=27';
-import { PianoRoll } from './pianoRoll.js?v=27';
-import { downloadMidiFile } from './midiExport.js?v=27';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=27';
-import { MusicTrainer } from './musicTrainer.js?v=27';
-import { VocalStudio } from './vocalStudio.js?v=27';
-import { ArrangementStudio } from './arrangementStudio.js?v=27';
-import { createAmbientScene } from './ambientScene.js?v=27';
+} from './pitchToMidi.js?v=28';
+import { PianoRoll } from './pianoRoll.js?v=28';
+import { downloadMidiFile } from './midiExport.js?v=28';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=28';
+import { MusicTrainer } from './musicTrainer.js?v=28';
+import { VocalStudio } from './vocalStudio.js?v=28';
+import { ArrangementStudio } from './arrangementStudio.js?v=28';
+import { createAmbientScene } from './ambientScene.js?v=28';
+import { midiController } from './midiController.js?v=28';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -70,6 +72,8 @@ const state = {
   overdubVocal: false,
   echoCancellation: false,
   micGain: getDefaultMicGain(),
+  midiRecordArmed: false,
+  midiStepCursor: 0,
 
   // Mixer 4 kênh của phân khu Sáng tác Beat
   mixer: {
@@ -145,6 +149,7 @@ const el = {
   prCanvas: $('#piano-roll-canvas'),
   prModeGroup: $('#pr-mode-group'),
   btnScaleLock: $('#btn-scale-lock'),
+  btnMidiRecordArm: $('#btn-midi-record-arm'),
   prGridSelect: $('#pr-grid-select'),
   btnUndo: $('#btn-undo'),
   btnRedo: $('#btn-redo'),
@@ -1355,6 +1360,7 @@ function setAppSection(section) {
   }
 
   stopPlayheadWatch();
+  midiController.releaseAll();
 
   state.activeSection = target;
   el.app.dataset.section = target;
@@ -1750,6 +1756,18 @@ function bindEvents() {
     pianoRoll.setScaleLock(state.scaleLock);
   });
 
+  if (el.btnMidiRecordArm) {
+    el.btnMidiRecordArm.addEventListener('click', () => {
+      state.midiRecordArmed = !state.midiRecordArmed;
+      state.midiStepCursor = 0;
+      el.btnMidiRecordArm.classList.toggle('active', state.midiRecordArmed);
+      el.btnMidiRecordArm.setAttribute('aria-pressed', String(state.midiRecordArmed));
+      if (state.midiRecordArmed) {
+        showToast('Đã bật Ghi MIDI trực tiếp vào Piano Roll — bấm phím đàn MIDI để ghi nốt!');
+      }
+    });
+  }
+
   el.prGridSelect.addEventListener('change', (e) => {
     state.prGridStep = Number(e.target.value);
     pianoRoll.setGridStep(state.prGridStep);
@@ -1906,6 +1924,8 @@ function bindEvents() {
       vocalStudio.resizeAndRedraw();
     } else if (state.activeSection === 'arrangement' && arrangementStudio) {
       arrangementStudio.resizeAndRedraw();
+    } else if (state.activeSection === 'trainer' && musicTrainer && musicTrainer.view === 'piano-room' && musicTrainer.pianoSubMode === 'falling') {
+      musicTrainer._drawFallingNotesFrame();
     } else if (state.activeSection === 'studio' && pianoRoll) {
       pianoRoll.resize();
     }
@@ -2080,13 +2100,105 @@ function init() {
     },
   });
 
-  // Khởi tạo phân khu Học nhạc (Luyện đọc nốt & phản xạ)
+  // Khởi tạo phân khu Học nhạc & Phòng Luyện Đàn Piano Tương Tác (Web MIDI + On-Screen)
+  midiController.setQwertyActiveCheck(
+    () => state.activeSection === 'trainer' && Boolean(musicTrainer) && musicTrainer.view === 'piano-room'
+  );
+
   if (el.trainerRoot) {
     musicTrainer = new MusicTrainer(el.trainerRoot, {
       audioEngine,
+      midiController,
+      getStudioContext: () => ({
+        keyPc: state.keyPc,
+        scaleType: state.scaleType,
+        bpm: state.bpm,
+        totalBars: state.totalBars,
+        voicedChords: state.voicedChords,
+        melodyNotes: state.melodyNotes,
+      }),
       showToast,
     });
   }
+
+  // Kết nối đàn MIDI USB vào Sáng tác Beat (nghe tiếng & ghi trực tiếp vào Piano Roll)
+  const studioMidiRecActive = new Map();
+  let lastMidiUndoAt = 0;
+  midiController.subscribe({
+    onDeviceChange: ({ primaryDevice, newlyConnected }) => {
+      if (el.btnMidiRecordArm) {
+        el.btnMidiRecordArm.classList.toggle('has-device', Boolean(primaryDevice));
+        el.btnMidiRecordArm.title = primaryDevice
+          ? `Thiết bị MIDI: ${primaryDevice} · Bật để ghi trực tiếp vào Piano Roll`
+          : 'Bật để ghi từng nốt bấm từ đàn Piano MIDI USB vào Piano Roll';
+      }
+      if (newlyConnected && primaryDevice) {
+        showToast(`Đã kết nối MIDI: ${primaryDevice} (Sẵn sàng chơi & ghi nốt!)`);
+      }
+    },
+    onNoteOn: ({ midi, velocity, source }) => {
+      if (state.activeSection !== 'studio' || source !== 'midi') return;
+      audioEngine.studioMidiNoteOn(midi, velocity).catch(() => {});
+      if (!audioEngine.isPlaying && !state.midiRecordArmed) return;
+
+      let targetMidi = Math.round(midi);
+      while (targetMidi < 48) targetMidi += 12;
+      while (targetMidi > 84) targetMidi -= 12;
+      if (state.scaleLock) {
+        targetMidi = snapMidiToScale(targetMidi, state.keyPc, state.scaleType);
+      }
+
+      const step = state.prGridStep > 0 ? state.prGridStep : 0.25;
+      const totalBeats = state.totalBars * 4;
+      let startBeat = 0;
+      if (audioEngine.isPlaying) {
+        const raw = audioEngine.getCurrentBeat();
+        startBeat = Math.min(totalBeats - step, Math.round(raw / step) * step);
+      } else {
+        startBeat = state.midiStepCursor < totalBeats - 0.01 ? state.midiStepCursor : 0;
+        state.midiStepCursor = startBeat + step >= totalBeats ? 0 : startBeat + step;
+      }
+
+      const nowMs = performance.now();
+      if (nowMs - lastMidiUndoAt > 1200) {
+        pushUndoSnapshot();
+      }
+      lastMidiUndoAt = nowMs;
+
+      const noteObj = {
+        id: `n_midi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        midi: targetMidi,
+        startBeat: Number(startBeat.toFixed(4)),
+        durationBeats: step,
+        velocity: Math.max(0.2, Math.min(0.96, velocity || 0.82)),
+      };
+      state.melodyNotes = [...state.melodyNotes, noteObj];
+      state.selectedNoteId = noteObj.id;
+      studioMidiRecActive.set(midi, { note: noteObj, wallMs: nowMs, livePlay: audioEngine.isPlaying });
+
+      syncPianoRoll();
+      syncAudioEngine();
+    },
+    onNoteOff: ({ midi, source }) => {
+      if (state.activeSection !== 'studio' || source !== 'midi') return;
+      audioEngine.studioMidiNoteOff(midi);
+      const active = studioMidiRecActive.get(midi);
+      if (active) {
+        studioMidiRecActive.delete(midi);
+        if (active.livePlay) {
+          const step = state.prGridStep > 0 ? state.prGridStep : 0.25;
+          const elapsedBeats = ((performance.now() - active.wallMs) / 1000) * (state.bpm / 60);
+          const qDur = Math.max(step, Math.round(elapsedBeats / step) * step);
+          const maxDur = Math.max(0.25, state.totalBars * 4 - active.note.startBeat);
+          active.note.durationBeats = Number(Math.min(maxDur, qDur).toFixed(4));
+          syncPianoRoll();
+          syncAudioEngine();
+        }
+      }
+    },
+  });
+
+  midiController.initWebMidi();
 
   // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist & Mastering)
   if (el.arrangementRoot) {
