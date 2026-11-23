@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=30';
+} from './theory.js?v=31';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=30';
+} from './audioEngine.js?v=31';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=30';
-import { PianoRoll } from './pianoRoll.js?v=30';
-import { downloadMidiFile } from './midiExport.js?v=30';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=30';
-import { MusicTrainer } from './musicTrainer.js?v=30';
-import { VocalStudio } from './vocalStudio.js?v=30';
-import { ArrangementStudio } from './arrangementStudio.js?v=30';
-import { createAmbientScene } from './ambientScene.js?v=30';
-import { midiController } from './midiController.js?v=30';
+} from './pitchToMidi.js?v=31';
+import { PianoRoll } from './pianoRoll.js?v=31';
+import { downloadMidiFile } from './midiExport.js?v=31';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=31';
+import { MusicTrainer } from './musicTrainer.js?v=31';
+import { VocalStudio } from './vocalStudio.js?v=31';
+import { ArrangementStudio } from './arrangementStudio.js?v=31';
+import { createAmbientScene } from './ambientScene.js?v=31';
+import { midiController } from './midiController.js?v=31';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=30';
+} from './stepSequencer.js?v=31';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -2013,6 +2013,8 @@ function bindEvents() {
       arrangementStudio.resizeAndRedraw();
     } else if (state.activeSection === 'trainer' && musicTrainer && musicTrainer.view === 'piano-room' && musicTrainer.pianoSubMode === 'falling') {
       musicTrainer._drawFallingNotesFrame();
+    } else if (state.activeSection === 'trainer' && musicTrainer && musicTrainer.view === 'academy' && musicTrainer.exerciseRunner) {
+      musicTrainer.exerciseRunner.onResize();
     } else if (state.activeSection === 'studio' && pianoRoll) {
       pianoRoll.resize();
     }
@@ -2211,9 +2213,9 @@ function init() {
     });
   }
 
-  // Khởi tạo phân khu Học nhạc & Phòng Luyện Đàn Piano Tương Tác (Web MIDI + On-Screen)
+  // Khởi tạo phân khu Học viện Nhạc lý 6 Chặng & Phòng Tập Đàn Hybrid (Web MIDI + On-Screen)
   midiController.setQwertyActiveCheck(
-    () => state.activeSection === 'trainer' && Boolean(musicTrainer) && musicTrainer.view === 'piano-room'
+    () => Boolean(musicTrainer) && musicTrainer.isHybridKeyboardActive()
   );
 
   if (el.trainerRoot) {
@@ -2228,6 +2230,39 @@ function init() {
         voicedChords: state.voicedChords,
         melodyNotes: state.melodyNotes,
       }),
+      onExportToStudio: ({ keyPc, scaleType, bpm, chords, melodyNotes, label }) => {
+        audioEngine.stop();
+        updatePlayButtonUI();
+        if (state.melodyNotes.length > 0) {
+          pushUndoSnapshot();
+        }
+        state.keyPc = ((Number(keyPc) || 0) + 12) % 12;
+        state.scaleType = scaleType === 'minor' ? 'minor' : 'major';
+        state.bpm = Math.max(50, Math.min(200, Math.round(Number(bpm) || 82)));
+        const srcChords = Array.isArray(chords) && chords.length > 0 ? chords : state.chords.slice(0, 4);
+        state.totalBars = srcChords.length >= 8 ? 8 : 4;
+        state.chords = srcChords.slice(0, state.totalBars).map((c) => ({ ...c }));
+        if (Array.isArray(melodyNotes)) {
+          state.melodyNotes = melodyNotes.map((n) => ({ ...n }));
+          state.selectedNoteId = null;
+        }
+        recomputeVoicings();
+        syncGlobalControlsUI();
+        renderChordStrip();
+        syncPianoRoll();
+        syncAudioEngine();
+        if (vocalStudio) vocalStudio.onContextChange({ keyChanged: true });
+        setStudioCenterView('melody');
+        setAppSection('studio');
+        if (window.innerWidth <= 768) {
+          setMobileTab(Array.isArray(melodyNotes) && melodyNotes.length > 0 ? 'melody' : 'chords');
+        }
+        showToast(
+          Array.isArray(melodyNotes) && melodyNotes.length > 0
+            ? `Đã chuyển dự án "${label || 'Hỏi - Đáp'}" (${melodyNotes.length} nốt MIDI) sang Sáng tác Beat!`
+            : `Đã đẩy vòng hợp âm "${label || 'Học viện'}" sang Sáng tác Beat!`
+        );
+      },
       showToast,
     });
   }

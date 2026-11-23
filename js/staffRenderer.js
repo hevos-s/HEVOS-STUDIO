@@ -3,7 +3,7 @@
 // KHÔNG dùng ký tự Unicode nhạc để đảm bảo nét căng trên Windows/iOS/Android)
 // ============================================================================
 
-import { CLEF_META, KEY_SIGNATURES, LETTERS, createNoteObj, diatonicIndex, diatonicToLetterOctave } from './trainerData.js?v=30';
+import { CLEF_META, KEY_SIGNATURES, LETTERS, createNoteObj, diatonicIndex, diatonicToLetterOctave } from './trainerData.js?v=31';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 

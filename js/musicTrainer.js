@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=30';
-import { getQwertyLabelForMidi } from './midiController.js?v=30';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=31';
+import { getQwertyLabelForMidi } from './midiController.js?v=31';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,25 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=30';
+} from './musicTheory.js?v=31';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=30';
+} from './earTraining.js?v=31';
+import {
+  ALL_LESSONS,
+  CURRICULUM_STAGES,
+  getLessonById,
+  getNextLesson,
+  getPrevLesson,
+  getStageById,
+  loadTheoryProgress,
+  recordLessonExerciseScore,
+  resetTheoryProgress,
+  setLastLessonId,
+} from './curriculumData.js?v=31';
+import { TheoryExerciseRunner } from './theoryExercises.js?v=31';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -35,12 +48,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=30';
+} from './trainerData.js?v=31';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=30';
+} from './staffRenderer.js?v=31';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -60,16 +73,24 @@ function formatTimer(secLeft) {
 }
 
 export class MusicTrainer {
-  constructor(rootEl, { audioEngine, midiController = null, getStudioContext = null, showToast }) {
+  constructor(rootEl, { audioEngine, midiController = null, getStudioContext = null, onExportToStudio = null, showToast }) {
     this.root = rootEl;
     this.audio = audioEngine;
     this.midi = midiController;
     this.getStudioContext = typeof getStudioContext === 'function' ? getStudioContext : null;
+    this.onExportToStudio = typeof onExportToStudio === 'function' ? onExportToStudio : null;
     this.showToast = showToast || (() => {});
 
     this.isSectionActive = false;
-    this.view = 'piano-room'; // 'piano-room' | 'home' | 'setup-single' | 'setup-scroll' | 'drill-single' | 'drill-scroll' | 'reference' | 'report'
+    this.view = 'academy'; // 'academy' | 'piano-room' | 'ear-training' | 'home' | ...
     this.pianoSubMode = 'free'; // 'free' | 'chord-wait' | 'falling'
+
+    const savedProg = loadTheoryProgress();
+    this.academySubView = 'roadmap'; // 'roadmap' | 'lesson' | 'exercise'
+    this.activeLessonId = savedProg.lastLessonId || '1.1';
+    this.mobileTocOpen = false;
+    this.exerciseRunner = null;
+    this._demoTimers = [];
 
     this.pianoConfig = {
       timbre: 'grand',
@@ -174,6 +195,9 @@ export class MusicTrainer {
         onSignal: () => this._flashMidiSignalLed(),
         onOctaveChange: () => {
           if (this.view === 'piano-room') this._rebuildHybridKeyboard();
+          if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
+            this.exerciseRunner.onMidiOctaveChange();
+          }
           this._updateDeviceBarStatus();
         },
         onSustainChange: () => {
@@ -189,11 +213,25 @@ export class MusicTrainer {
     this.render();
   }
 
+  isHybridKeyboardActive() {
+    if (!this.isSectionActive) return false;
+    if (this.view === 'piano-room') return true;
+    if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
+      return this.exerciseRunner.usesKeyboard();
+    }
+    return false;
+  }
+
   setSectionActive(active) {
     this.isSectionActive = Boolean(active);
     if (!active) {
       this.stopActiveSession();
-    } else if (this.view === 'home' || this.view === 'piano-room' || this.view === 'ear-training') {
+    } else if (
+      this.view === 'academy' ||
+      this.view === 'home' ||
+      this.view === 'piano-room' ||
+      this.view === 'ear-training'
+    ) {
       this.render();
     }
   }
@@ -206,6 +244,17 @@ export class MusicTrainer {
         mode: this.earState.mode,
         difficulty: this.earState.difficulty,
       });
+    }
+    this.render();
+  }
+
+  openFallingSongCustom(songId) {
+    this.stopActiveSession();
+    this.view = 'piano-room';
+    this.pianoSubMode = 'falling';
+    const found = FALLING_NOTES_SONGS.find((s) => s.id === songId);
+    if (found) {
+      this.falling.song = found;
     }
     this.render();
   }
@@ -229,6 +278,11 @@ export class MusicTrainer {
     this.render();
   }
 
+  _clearDemoTimers() {
+    (this._demoTimers || []).forEach((id) => clearTimeout(id));
+    this._demoTimers = [];
+  }
+
   stopActiveSession() {
     if (this._rafId !== null) {
       cancelAnimationFrame(this._rafId);
@@ -243,6 +297,11 @@ export class MusicTrainer {
       this._nextNoteTimer = null;
     }
     this._clearEarTimers();
+    this._clearDemoTimers();
+    if (this.exerciseRunner) {
+      this.exerciseRunner.destroy();
+      this.exerciseRunner = null;
+    }
     this._stopChordWaitTimers();
     this._stopFallingLoop();
     this.falling.playing = false;
@@ -260,7 +319,7 @@ export class MusicTrainer {
   // ==========================================================================
   _bindKeyboardShortcuts() {
     this._onKeyDown = (e) => {
-      if (!this.isSectionActive || this.view === 'piano-room' || this.view === 'ear-training') return;
+      if (!this.isSectionActive || this.view === 'academy' || this.view === 'piano-room' || this.view === 'ear-training') return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -291,8 +350,15 @@ export class MusicTrainer {
     if (this.view !== 'ear-training') {
       this._clearEarTimers();
     }
+    this._clearDemoTimers();
+    if (!(this.view === 'academy' && this.academySubView === 'exercise') && this.exerciseRunner) {
+      this.exerciseRunner.destroy();
+      this.exerciseRunner = null;
+    }
 
-    if (this.view === 'piano-room') {
+    if (this.view === 'academy') {
+      this._renderAcademy();
+    } else if (this.view === 'piano-room') {
       this._renderPianoRoom();
     } else if (this.view === 'ear-training') {
       this._renderEarTraining();
@@ -1703,42 +1769,84 @@ export class MusicTrainer {
   }
 
   _renderTopSectionTabsHtml() {
+    const isAcademy = this.view === 'academy';
     const isPiano = this.view === 'piano-room';
     const isEar = this.view === 'ear-training';
-    const isStaff = !isPiano && !isEar;
+    const isStaff = !isAcademy && !isPiano && !isEar;
+
+    const practiceNavHtml = !isAcademy
+      ? `
+        <div class="practice-space-nav" role="tablist" aria-label="Công cụ trong Phòng tập Tự do">
+          <button type="button" class="prac-pill${isPiano && this.pianoSubMode === 'free' ? ' active' : ''}" data-practice-target="piano:free">
+            🎹 Chơi tự do &amp; Dò Hợp âm
+          </button>
+          <button type="button" class="prac-pill${isPiano && this.pianoSubMode === 'chord-wait' ? ' active' : ''}" data-practice-target="piano:chord-wait">
+            🤝 Luyện Đệm Hợp Âm
+          </button>
+          <button type="button" class="prac-pill${isPiano && this.pianoSubMode === 'falling' ? ' active' : ''}" data-practice-target="piano:falling">
+            🎵 Nốt Rơi (Synthesia)
+          </button>
+          <button type="button" class="prac-pill${isEar ? ' active' : ''}" data-practice-target="ear-training">
+            🎧 Cảm Âm Hợp Âm
+          </button>
+          <button type="button" class="prac-pill${isStaff ? ' active' : ''}" data-practice-target="home">
+            🎼 Đọc Khuông Nhạc
+          </button>
+        </div>
+      `
+      : '';
+
     return `
-      <div class="trainer-top-tabs trainer-tabs-3" role="tablist" aria-label="Phân mục Học nhạc lý">
-        <button type="button" class="seg-btn${isPiano ? ' active' : ''}" data-trainer-top="piano-room" role="tab" aria-selected="${isPiano}">
-          🎹 Phòng Đàn Piano
-        </button>
-        <button type="button" class="seg-btn${isEar ? ' active' : ''}" data-trainer-top="ear-training" role="tab" aria-selected="${isEar}">
-          🎧 Cảm Âm Hợp Âm
-        </button>
-        <button type="button" class="seg-btn${isStaff ? ' active' : ''}" data-trainer-top="home" role="tab" aria-selected="${isStaff}">
-          🎼 Đọc Khuông Nhạc
-        </button>
+      <div class="trainer-space-header">
+        <div class="trainer-top-tabs trainer-space-tabs" role="tablist" aria-label="Không gian Học viện và Phòng tập Tự do">
+          <button type="button" class="seg-btn${isAcademy ? ' active' : ''}" data-trainer-space="academy" role="tab" aria-selected="${isAcademy}">
+            🎓 Lộ trình Sáng tác <span class="desktop-only">(6 Chặng · 18 Bài)</span>
+          </button>
+          <button type="button" class="seg-btn${!isAcademy ? ' active' : ''}" data-trainer-space="practice" role="tab" aria-selected="${!isAcademy}">
+            🎹 Phòng tập Tự do <span class="desktop-only">(MIDI &amp; Công cụ)</span>
+          </button>
+        </div>
+        ${practiceNavHtml}
       </div>
     `;
   }
 
   _bindTopSectionTabsEvents() {
-    this.root.querySelectorAll('[data-trainer-top]').forEach((btn) => {
+    this.root.querySelectorAll('[data-trainer-space]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const next = btn.dataset.trainerTop;
-        if (next === this.view) return;
-        this.stopActiveSession();
-        if (next === 'ear-training') {
-          this.view = 'ear-training';
-          if (!this.earState.question) {
-            this.earState.question = generateEarQuestion({
-              mode: this.earState.mode,
-              difficulty: this.earState.difficulty,
-            });
-          }
+        const space = btn.dataset.trainerSpace;
+        if (space === 'academy') {
+          if (this.view === 'academy') return;
+          this.stopActiveSession();
+          this.view = 'academy';
+          this.render();
         } else {
-          this.view = next === 'home' ? 'home' : 'piano-room';
+          if (this.view !== 'academy') return;
+          this.stopActiveSession();
+          this.view = 'piano-room';
+          this.pianoSubMode = 'free';
+          this.render();
         }
-        this.render();
+      });
+    });
+
+    this.root.querySelectorAll('[data-practice-target]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tgt = btn.dataset.practiceTarget;
+        if (tgt.startsWith('piano:')) {
+          const sub = tgt.split(':')[1] || 'free';
+          if (this.view === 'piano-room' && this.pianoSubMode === sub) return;
+          this.stopActiveSession();
+          this.view = 'piano-room';
+          this.pianoSubMode = sub;
+          this.render();
+        } else if (tgt === 'ear-training') {
+          this.openEarTraining();
+        } else if (tgt === 'home') {
+          this.stopActiveSession();
+          this.view = 'home';
+          this.render();
+        }
       });
     });
   }
@@ -1801,6 +1909,7 @@ export class MusicTrainer {
     const octBadge = this.root.querySelector('#trainer-octave-badge');
     const octDown = this.root.querySelector('#btn-oct-down');
     const octUp = this.root.querySelector('#btn-oct-up');
+    const latchBtn = this.root.querySelector('#btn-chord-latch');
     if (!this.midi) return;
 
     const st = this.midi.getDeviceStatus();
@@ -1809,6 +1918,10 @@ export class MusicTrainer {
     if (octBadge) octBadge.textContent = this.midi.getOctaveRangeLabel();
     if (octDown) octDown.disabled = this.midi.octaveShift <= -1;
     if (octUp) octUp.disabled = this.midi.octaveShift >= 1;
+    if (latchBtn) {
+      latchBtn.classList.toggle('active', Boolean(this.midi.chordLatchEnabled));
+      latchBtn.setAttribute('aria-pressed', String(Boolean(this.midi.chordLatchEnabled)));
+    }
   }
 
   _flashMidiSignalLed() {
@@ -1953,6 +2066,8 @@ export class MusicTrainer {
               <select id="pt-scale-type" class="studio-select compact" aria-label="Chọn âm giai Scale Guide">
                 <option value="major"${this.pianoConfig.scaleType === 'major' ? ' selected' : ''}>Trưởng (Major)</option>
                 <option value="minor"${this.pianoConfig.scaleType === 'minor' ? ' selected' : ''}>Thứ (Minor)</option>
+                <option value="pentatonic_major"${this.pianoConfig.scaleType === 'pentatonic_major' ? ' selected' : ''}>Ngũ cung Trưởng</option>
+                <option value="pentatonic_minor"${this.pianoConfig.scaleType === 'pentatonic_minor' ? ' selected' : ''}>Ngũ cung Thứ</option>
               </select>
             </label>
           </div>
@@ -2424,6 +2539,11 @@ export class MusicTrainer {
     if (!evt || !Number.isFinite(evt.midi)) return;
     if (!this.isSectionActive) return;
 
+    if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
+      this.exerciseRunner.handleNoteOn(evt.midi, evt.velocity);
+      return;
+    }
+
     if (this.view === 'piano-room') {
       this.audio.trainerNoteOn(evt.midi, evt.velocity, this.pianoConfig.timbre).catch(() => {});
       if (this.pianoSubMode === 'falling' && this.falling.playing) {
@@ -2441,6 +2561,10 @@ export class MusicTrainer {
 
   _onUnifiedNoteOff(evt) {
     if (!evt || !Number.isFinite(evt.midi)) return;
+    if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
+      this.exerciseRunner.handleNoteOff(evt.midi);
+      return;
+    }
     this.audio.trainerNoteOff(evt.midi);
   }
 
@@ -2454,7 +2578,14 @@ export class MusicTrainer {
       clearBtn.textContent = `Nhả phím (${latchSet.size})`;
     }
 
-    if (!this.isSectionActive || this.view !== 'piano-room') return;
+    if (!this.isSectionActive) return;
+
+    if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
+      this.exerciseRunner.handleActiveChange(snap);
+      return;
+    }
+
+    if (this.view !== 'piano-room') return;
 
     this._keyElByMidi.forEach((el, midi) => {
       el.classList.toggle('is-active', activeSet.has(midi));
@@ -3194,5 +3325,547 @@ export class MusicTrainer {
         this._renderEarTraining();
       });
     });
+  }
+
+  // ==========================================================================
+  // 12. HỌC VIỆN NHẠC LÝ & LỘ TRÌNH TỰ SÁNG TÁC 6 CHẶNG (18 BÀI HỌC)
+  // ==========================================================================
+  _renderAcademy() {
+    this._clearDemoTimers();
+    const progress = loadTheoryProgress();
+    const completedSet = new Set(progress.completedLessonIds || []);
+    const completedCount = ALL_LESSONS.filter((l) => completedSet.has(l.id)).length;
+    const totalCount = ALL_LESSONS.length;
+    const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    // Chọn bài gợi ý để học tiếp
+    const firstUnfinished = ALL_LESSONS.find((l) => !completedSet.has(l.id)) || ALL_LESSONS[0];
+    const resumeLesson = getLessonById(progress.lastLessonId || firstUnfinished.id);
+    const activeLesson = getLessonById(this.activeLessonId);
+
+    const progressBannerHtml = `
+      <div class="academy-progress-banner">
+        <div class="academy-prog-left">
+          <div class="academy-prog-title-row">
+            <span class="academy-badge-tag">HỌC VIỆN SÁNG TÁC · 6 CHẶNG THỰC CHIẾN</span>
+            <strong id="academy-progress-summary" class="academy-prog-val mono-val">Đã hoàn thành ${completedCount}/${totalCount} bài · ${progressPct}%</strong>
+          </div>
+          <div class="academy-progress-track">
+            <div id="academy-progress-fill" class="academy-progress-fill" style="width: ${progressPct}%"></div>
+          </div>
+        </div>
+        <div class="academy-prog-actions">
+          <button type="button" id="btn-academy-resume" class="btn btn-amber-solid btn-xs">
+            Học tiếp: ${escapeHtml(resumeLesson.code)} →
+          </button>
+          <button type="button" id="btn-academy-reset" class="btn btn-ghost btn-xs" title="Đặt lại toàn bộ tiến độ Học viện">
+            ↺ Đặt lại
+          </button>
+        </div>
+      </div>
+    `;
+
+    let bodyHtml = '';
+    if (this.academySubView === 'lesson') {
+      bodyHtml = this._renderAcademyLessonHtml(activeLesson, progress, completedSet);
+    } else if (this.academySubView === 'exercise') {
+      bodyHtml = this._renderAcademyExerciseHtml(activeLesson);
+    } else {
+      bodyHtml = this._renderAcademyRoadmapHtml(progress, completedSet);
+    }
+
+    this.root.innerHTML = `
+      <div class="trainer-shell">
+        ${this._renderDeviceBarHtml()}
+        ${this._renderTopSectionTabsHtml()}
+        <div class="academy-shell">
+          ${progressBannerHtml}
+          <div class="academy-content-area">${bodyHtml}</div>
+        </div>
+      </div>
+    `;
+
+    this._bindDeviceBarEvents();
+    this._bindTopSectionTabsEvents();
+    this._bindAcademyEvents(activeLesson, progress);
+  }
+
+  _renderAcademyRoadmapHtml(progress, completedSet) {
+    const stagesHtml = CURRICULUM_STAGES.map((stage) => {
+      const doneInStage = stage.lessons.filter((l) => completedSet.has(l.id)).length;
+      const lessonsHtml = stage.lessons
+        .map((lesson) => {
+          const isDone = completedSet.has(lesson.id);
+          const best = Number(progress.bestScores[lesson.id]) || 0;
+          const statusHtml = isDone
+            ? `<span class="lesson-status-pill is-done">✓ Hoàn thành · ${best}%</span>`
+            : best > 0
+              ? `<span class="lesson-status-pill is-tried">Cao nhất ${best}% (Mốc 80%)</span>`
+              : `<span class="lesson-status-pill">Mở học ngay →</span>`;
+
+          return `
+            <button type="button" class="roadmap-lesson-card${isDone ? ' is-completed' : ''}" data-open-lesson="${lesson.id}">
+              <div class="rlc-head">
+                <span class="rlc-code mono-val">${escapeHtml(lesson.code)}</span>
+                ${statusHtml}
+              </div>
+              <strong class="rlc-title">${escapeHtml(lesson.title)}</strong>
+              <p class="rlc-sub">${escapeHtml(lesson.subtitle)}</p>
+              <div class="rlc-foot">
+                <span>🎯 ${escapeHtml(lesson.exercise.title)}</span>
+                <span class="mono-val">${lesson.durationMin}p</span>
+              </div>
+            </button>
+          `;
+        })
+        .join('');
+
+      return `
+        <section class="academy-stage-block accent-${stage.accent}" data-stage-id="${stage.id}">
+          <div class="stage-block-head">
+            <div class="stage-head-left">
+              <span class="stage-num-badge mono-val">${escapeHtml(stage.badge)}</span>
+              <div>
+                <h2 class="stage-title">${escapeHtml(stage.title)}</h2>
+                <p class="stage-goal">${escapeHtml(stage.goal)}</p>
+              </div>
+            </div>
+            <span class="stage-count-badge mono-val">${doneInStage}/${stage.lessons.length} bài</span>
+          </div>
+          <div class="stage-lessons-grid">${lessonsHtml}</div>
+        </section>
+      `;
+    }).join('');
+
+    return `<div class="academy-roadmap-list">${stagesHtml}</div>`;
+  }
+
+  _renderAcademyLessonHtml(lesson, progress, completedSet) {
+    setLastLessonId(lesson.id);
+    const stage = getStageById(lesson.stageId);
+    const prevL = getPrevLesson(lesson.id);
+    const nextL = getNextLesson(lesson.id);
+    const isDone = completedSet.has(lesson.id);
+    const best = Number(progress.bestScores[lesson.id]) || 0;
+
+    const tocHtml = CURRICULUM_STAGES.map((st) => {
+      const items = st.lessons
+        .map((l) => {
+          const lDone = completedSet.has(l.id);
+          const isCur = l.id === lesson.id;
+          return `
+            <button type="button" class="toc-lesson-item${isCur ? ' active' : ''}${lDone ? ' is-done' : ''}" data-open-lesson="${l.id}">
+              <span class="toc-dot">${lDone ? '✓' : '·'}</span>
+              <span class="toc-label"><strong>${escapeHtml(l.code)}</strong> ${escapeHtml(l.title)}</span>
+            </button>
+          `;
+        })
+        .join('');
+
+      return `
+        <div class="toc-stage-group">
+          <div class="toc-stage-title">${escapeHtml(st.badge)}: ${escapeHtml(st.title)}</div>
+          <div class="toc-stage-items">${items}</div>
+        </div>
+      `;
+    }).join('');
+
+    const takeawaysHtml = lesson.keyTakeaways
+      .map((t) => `<li>${escapeHtml(t)}</li>`)
+      .join('');
+
+    const sectionsHtml = lesson.sections
+      .map((sec) => {
+        const bullets = sec.bullets
+          ? `<ul class="lesson-bullets">${sec.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`
+          : '';
+        const callout = sec.callout
+          ? `
+            <div class="lesson-callout type-${sec.callout.type || 'tip'}">
+              <strong>${escapeHtml(sec.callout.title)}</strong>
+              <p>${escapeHtml(sec.callout.text)}</p>
+            </div>
+          `
+          : '';
+        return `
+          <article class="lesson-section-block">
+            <h3>${escapeHtml(sec.heading)}</h3>
+            <p>${escapeHtml(sec.body)}</p>
+            ${bullets}
+            ${callout}
+          </article>
+        `;
+      })
+      .join('');
+
+    const demosHtml = (lesson.demos || [])
+      .map((demo) => this._renderLessonDemoCardHtml(demo))
+      .join('');
+
+    return `
+      <div class="lesson-reader-layout">
+        <div class="lesson-mobile-bar mobile-only">
+          <button type="button" id="btn-lesson-roadmap-m" class="btn btn-ghost btn-xs">← Lộ trình 6 chặng</button>
+          <button type="button" id="btn-toggle-toc" class="btn btn-amber-outline btn-xs">☰ Mục lục 18 bài</button>
+        </div>
+
+        <div id="academy-toc-backdrop" class="academy-toc-backdrop${this.mobileTocOpen ? ' is-open' : ''}"></div>
+        <aside id="academy-toc-drawer" class="academy-toc-sidebar${this.mobileTocOpen ? ' is-open' : ''}" aria-label="Mục lục 6 chặng">
+          <div class="toc-head">
+            <button type="button" id="btn-lesson-roadmap-d" class="btn btn-ghost btn-xs">← Về Bản đồ 6 Chặng</button>
+            <button type="button" id="btn-close-toc" class="btn-close-xs mobile-only" aria-label="Đóng mục lục">×</button>
+          </div>
+          <div class="toc-scroll-body">${tocHtml}</div>
+        </aside>
+
+        <main class="lesson-reading-pane">
+          <div class="lesson-hero-head">
+            <div class="lesson-crumb-row">
+              <span class="stage-num-badge mono-val">${escapeHtml(stage.badge)} · ${escapeHtml(lesson.code)}</span>
+              ${
+                isDone
+                  ? `<span class="lesson-status-pill is-done">✓ Đã hoàn thành · ${best}%</span>`
+                  : best > 0
+                    ? `<span class="lesson-status-pill is-tried">Cao nhất: ${best}%</span>`
+                    : ''
+              }
+            </div>
+            <h1 class="lesson-main-title">${escapeHtml(lesson.title)}</h1>
+            <p class="lesson-subtitle">${escapeHtml(lesson.subtitle)}</p>
+          </div>
+
+          <div class="lesson-takeaways-card">
+            <span class="takeaways-kicker">TRỌNG TÂM CẦN NẮM TRONG ${lesson.durationMin} PHÚT</span>
+            <ul>${takeawaysHtml}</ul>
+          </div>
+
+          <div class="lesson-sections-stack">${sectionsHtml}</div>
+
+          <section class="lesson-demos-section" aria-label="Ví dụ âm thanh tương tác">
+            <div class="demos-head">
+              <span class="takeaways-kicker">VÍ DỤ ÂM THANH SỐNG (NGHE &amp; NHÌN TRỰC QUAN)</span>
+              <p>Bấm nút <strong>▶ Nghe minh họa</strong> để hệ thống phát tiếng thật qua Tone.js và phát sáng đúng phím / phách đang kêu.</p>
+            </div>
+            <div class="demos-list">${demosHtml}</div>
+          </section>
+
+          <div class="lesson-bottom-nav">
+            ${
+              prevL
+                ? `<button type="button" class="btn btn-ghost btn-xs" data-open-lesson="${prevL.id}">← ${escapeHtml(prevL.code)}</button>`
+                : `<span></span>`
+            }
+            <button type="button" id="btn-start-lesson-exercise" class="btn btn-amber-solid lesson-cta-ex">
+              Bắt đầu Bài tập Thực hành của bài này →
+            </button>
+            ${
+              nextL
+                ? `<button type="button" class="btn btn-indigo-outline btn-xs" data-open-lesson="${nextL.id}">${escapeHtml(nextL.code)} →</button>`
+                : `<button type="button" id="btn-finish-roadmap" class="btn btn-ghost btn-xs">Tổng quan Lộ trình</button>`
+            }
+          </div>
+        </main>
+      </div>
+    `;
+  }
+
+  _renderLessonDemoCardHtml(demo) {
+    if (demo.type === 'rhythm') {
+      const stepsHtml = demo.steps
+        .map(
+          (st, i) => `
+        <div class="demo-rhythm-step${st.hit ? ' is-hit' : ''}${st.accent ? ' is-accent' : ''}" data-demo-step="${i}">
+          <span class="drs-dot"></span>
+          <span class="drs-lbl mono-val">${escapeHtml(st.label)}</span>
+        </div>
+      `
+        )
+        .join('');
+      return `
+        <div class="demo-card" data-demo-card="${demo.id}">
+          <div class="demo-card-head">
+            <div>
+              <strong class="demo-title">${escapeHtml(demo.title)}</strong>
+              <p class="demo-sub">${escapeHtml(demo.caption)}</p>
+            </div>
+            <div class="demo-head-right">
+              <span class="demo-meta-badge mono-val">${demo.timeSig} · ${demo.bpm} BPM${demo.swingPct ? ` · Swing ${demo.swingPct}%` : ''}</span>
+              <button type="button" class="btn btn-emerald-solid btn-xs" data-play-demo="${demo.id}">▶ Nghe minh họa</button>
+            </div>
+          </div>
+          <div class="demo-rhythm-strip">${stepsHtml}</div>
+          <div id="demo-caption-${demo.id}" class="demo-active-caption mono-val">Sẵn sàng — bấm Nghe minh họa để xem từng phách sáng đèn</div>
+        </div>
+      `;
+    }
+
+    // Piano demo visual keyboard
+    const startM = demo.startMidi || 60;
+    const endM = demo.endMidi || 72;
+    const whites = [];
+    const blacks = [];
+    let wCount = 0;
+
+    for (let m = startM; m <= endM; m++) {
+      const pc = ((m % 12) + 12) % 12;
+      const isBlack = pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10;
+      if (!isBlack) {
+        whites.push({ midi: m, idx: wCount, lbl: midiToNoteName(m, Boolean(demo.preferFlats)) });
+        wCount += 1;
+      } else {
+        blacks.push({ midi: m, anchor: wCount });
+      }
+    }
+    const wRatio = 1 / Math.max(1, wCount);
+    const whiteHtml = whites
+      .map(
+        (w) => `
+      <div class="demo-k-w" data-demo-midi="${w.midi}">
+        <span>${escapeHtml(w.lbl)}</span>
+      </div>
+    `
+      )
+      .join('');
+    const blackHtml = blacks
+      .map((b) => {
+        const leftPct = ((b.anchor - 0.31) * wRatio * 100).toFixed(3);
+        const widthPct = (wRatio * 0.62 * 100).toFixed(3);
+        return `<div class="demo-k-b" data-demo-midi="${b.midi}" style="left:${leftPct}%;width:${widthPct}%"></div>`;
+      })
+      .join('');
+
+    return `
+      <div class="demo-card" data-demo-card="${demo.id}">
+        <div class="demo-card-head">
+          <div>
+            <strong class="demo-title">${escapeHtml(demo.title)}</strong>
+            <p class="demo-sub">${escapeHtml(demo.caption)}</p>
+          </div>
+          <button type="button" class="btn btn-emerald-solid btn-xs" data-play-demo="${demo.id}">▶ Nghe minh họa</button>
+        </div>
+        <div class="demo-mini-kb" data-demo-kb="${demo.id}">
+          <div class="demo-whites">${whiteHtml}</div>
+          <div class="demo-blacks">${blackHtml}</div>
+        </div>
+        <div id="demo-caption-${demo.id}" class="demo-active-caption mono-val">Sẵn sàng — bấm Nghe minh họa để xem phím đàn phát sáng</div>
+      </div>
+    `;
+  }
+
+  _playLessonDemo(demo) {
+    if (!demo) return;
+    this._clearDemoTimers();
+    this.root.querySelectorAll('.is-demo-lit').forEach((el) => el.classList.remove('is-demo-lit'));
+    this.audio.unlockSync();
+
+    const capEl = this.root.querySelector(`#demo-caption-${demo.id}`);
+    const cardEl = this.root.querySelector(`[data-demo-card="${demo.id}"]`);
+
+    if (demo.type === 'rhythm') {
+      const stepMs = 60000 / (demo.bpm || 90);
+      const swingRatio = Number(demo.swingPct) > 0 ? clamp(Number(demo.swingPct), 50, 68) / 100 : 0.5;
+      let accMs = 0;
+
+      demo.steps.forEach((st, i) => {
+        const isOdd = i % 2 === 1;
+        const durMs = demo.swingPct > 0
+          ? (isOdd ? stepMs * 2 * (1 - swingRatio) : stepMs * 2 * swingRatio)
+          : stepMs;
+        const triggerAt = accMs;
+        accMs += durMs;
+
+        const tid = setTimeout(() => {
+          if (!cardEl || !cardEl.isConnected) return;
+          cardEl.querySelectorAll('.demo-rhythm-step').forEach((el) => el.classList.remove('is-demo-lit'));
+          const stepEl = cardEl.querySelector(`[data-demo-step="${i}"]`);
+          if (stepEl) stepEl.classList.add('is-demo-lit');
+          if (capEl) capEl.textContent = `Đang phát phách: ${st.label}`;
+          if (st.hit) {
+            if (Array.isArray(st.chordMidis) && st.chordMidis.length > 0) {
+              this.audio.playTrainerChordPreview(st.chordMidis, 0.36, 0.72, 'rhodes').catch(() => {});
+            } else if (Number.isFinite(st.noteMidi)) {
+              this.audio.playTrainerPiano(st.noteMidi, 0.28, 0.80).catch(() => {});
+            } else {
+              this.audio.playTrainerClick(Boolean(st.accent)).catch(() => {});
+            }
+          }
+        }, triggerAt);
+        this._demoTimers.push(tid);
+      });
+
+      const endTid = setTimeout(() => {
+        if (!cardEl || !cardEl.isConnected) return;
+        cardEl.querySelectorAll('.demo-rhythm-step').forEach((el) => el.classList.remove('is-demo-lit'));
+        if (capEl) capEl.textContent = 'Phát xong — bấm Nghe minh họa để nghe lại';
+      }, accMs + 220);
+      this._demoTimers.push(endTid);
+      return;
+    }
+
+    // Piano demo playback
+    let tCursor = 0;
+    (demo.events || []).forEach((ev) => {
+      const durMs = Math.max(240, Math.round((ev.durationSec || 0.6) * 1000));
+      const at = tCursor;
+      tCursor += durMs + (ev.gapMs || 90);
+
+      const tid = setTimeout(() => {
+        if (!cardEl || !cardEl.isConnected) return;
+        cardEl.querySelectorAll('[data-demo-midi]').forEach((k) => k.classList.remove('is-demo-lit'));
+        (ev.midis || []).forEach((m) => {
+          const k = cardEl.querySelector(`[data-demo-midi="${m}"]`);
+          if (k) k.classList.add('is-demo-lit');
+        });
+        if (capEl) capEl.textContent = `Đang kêu: ${ev.label}`;
+        this.audio.playTrainerChordPreview(ev.midis || [], Math.max(0.28, (ev.durationSec || 0.6) * 0.92), 0.78, 'rhodes').catch(() => {});
+      }, at);
+      this._demoTimers.push(tid);
+    });
+
+    const endTid = setTimeout(() => {
+      if (!cardEl || !cardEl.isConnected) return;
+      cardEl.querySelectorAll('[data-demo-midi]').forEach((k) => k.classList.remove('is-demo-lit'));
+      if (capEl) capEl.textContent = 'Phát xong — bấm Nghe minh họa để đối chiếu lại';
+    }, tCursor + 150);
+    this._demoTimers.push(endTid);
+  }
+
+  _renderAcademyExerciseHtml(lesson) {
+    return `
+      <div class="academy-exercise-wrapper">
+        <div class="academy-ex-nav">
+          <button type="button" id="btn-ex-back-lesson" class="btn btn-ghost btn-xs">← Quay lại ${escapeHtml(lesson.code)}: ${escapeHtml(lesson.title)}</button>
+          <button type="button" id="btn-ex-back-roadmap" class="btn btn-ghost btn-xs">Bản đồ 6 Chặng</button>
+        </div>
+        <div id="academy-exercise-mount"></div>
+      </div>
+    `;
+  }
+
+  _bindAcademyEvents(activeLesson, progress) {
+    void progress;
+    const q = (sel) => this.root.querySelector(sel);
+
+    q('#btn-academy-resume')?.addEventListener('click', () => {
+      const latest = loadTheoryProgress();
+      const done = new Set(latest.completedLessonIds || []);
+      const firstUndone = ALL_LESSONS.find((l) => !done.has(l.id)) || ALL_LESSONS[0];
+      const tgtId = latest.lastLessonId || firstUndone.id;
+      this.activeLessonId = tgtId;
+      this.academySubView = 'lesson';
+      this.mobileTocOpen = false;
+      this.render();
+    });
+
+    q('#btn-academy-reset')?.addEventListener('click', () => {
+      resetTheoryProgress();
+      this.activeLessonId = '1.1';
+      this.academySubView = 'roadmap';
+      this.showToast('Đã đặt lại toàn bộ tiến độ Học viện Nhạc lý.');
+      this.render();
+    });
+
+    this.root.querySelectorAll('[data-open-lesson]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.activeLessonId = btn.dataset.openLesson;
+        this.academySubView = 'lesson';
+        this.mobileTocOpen = false;
+        this.render();
+      });
+    });
+
+    const backToRoadmap = () => {
+      this.academySubView = 'roadmap';
+      this.mobileTocOpen = false;
+      this.render();
+    };
+    q('#btn-lesson-roadmap-m')?.addEventListener('click', backToRoadmap);
+    q('#btn-lesson-roadmap-d')?.addEventListener('click', backToRoadmap);
+    q('#btn-finish-roadmap')?.addEventListener('click', backToRoadmap);
+    q('#btn-ex-back-roadmap')?.addEventListener('click', backToRoadmap);
+
+    q('#btn-toggle-toc')?.addEventListener('click', () => {
+      this.mobileTocOpen = !this.mobileTocOpen;
+      q('#academy-toc-drawer')?.classList.toggle('is-open', this.mobileTocOpen);
+      q('#academy-toc-backdrop')?.classList.toggle('is-open', this.mobileTocOpen);
+    });
+    const closeToc = () => {
+      this.mobileTocOpen = false;
+      q('#academy-toc-drawer')?.classList.remove('is-open');
+      q('#academy-toc-backdrop')?.classList.remove('is-open');
+    };
+    q('#btn-close-toc')?.addEventListener('click', closeToc);
+    q('#academy-toc-backdrop')?.addEventListener('click', closeToc);
+
+    if (this.academySubView === 'lesson') {
+      this.root.querySelectorAll('[data-play-demo]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const demo = (activeLesson.demos || []).find((d) => d.id === btn.dataset.playDemo);
+          if (demo) this._playLessonDemo(demo);
+        });
+      });
+
+      q('#btn-start-lesson-exercise')?.addEventListener('click', () => {
+        this.academySubView = 'exercise';
+        this.render();
+      });
+    } else if (this.academySubView === 'exercise') {
+      q('#btn-ex-back-lesson')?.addEventListener('click', () => {
+        this.academySubView = 'lesson';
+        this.render();
+      });
+
+      const mount = q('#academy-exercise-mount');
+      if (mount) {
+        if (this.exerciseRunner) {
+          this.exerciseRunner.destroy();
+          this.exerciseRunner = null;
+        }
+        this.exerciseRunner = new TheoryExerciseRunner(mount, {
+          lesson: activeLesson,
+          audioEngine: this.audio,
+          midiController: this.midi,
+          onComplete: (accuracyPct) => {
+            const res = recordLessonExerciseScore(activeLesson.id, accuracyPct);
+            const sumEl = q('#academy-progress-summary');
+            const fillEl = q('#academy-progress-fill');
+            if (sumEl || fillEl) {
+              const doneCnt = (res.progress.completedLessonIds || []).length;
+              const totCnt = ALL_LESSONS.length;
+              const pPct = totCnt > 0 ? Math.round((doneCnt / totCnt) * 100) : 0;
+              if (sumEl) sumEl.textContent = `Đã hoàn thành ${doneCnt}/${totCnt} bài · ${pPct}%`;
+              if (fillEl) fillEl.style.width = `${pPct}%`;
+            }
+            return res;
+          },
+          onOpenWaitMode: ({ keyPc, scaleType, bpm, chords }) => {
+            this.openChordPracticeCustom({ keyPc, scaleType, bpm, chords });
+          },
+          onOpenFallingHook: (songId) => {
+            this.openFallingSongCustom(songId);
+          },
+          onExportToStudio: (payload) => {
+            if (this.onExportToStudio) this.onExportToStudio(payload);
+          },
+          onBackToLesson: () => {
+            this.academySubView = 'lesson';
+            this.render();
+          },
+          onNextLesson: () => {
+            const nxt = getNextLesson(activeLesson.id);
+            if (nxt) {
+              this.activeLessonId = nxt.id;
+              this.academySubView = 'lesson';
+              setLastLessonId(nxt.id);
+            } else {
+              this.academySubView = 'roadmap';
+            }
+            this.render();
+          },
+          showToast: this.showToast,
+        });
+        this._updateDeviceBarStatus();
+      }
+    }
   }
 }

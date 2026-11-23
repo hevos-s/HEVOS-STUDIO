@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=30`, `./js/app.js?v=30`, `./theory.js?v=30`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=31`, `./js/app.js?v=31`, `./theory.js?v=31`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=30`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=31`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 5 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight.
@@ -48,8 +48,10 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 (`.mid`, PPQ = 480, tối đa 4 track) |
 | `js/midiController.js` | Bộ điều khiển nhập liệu hợp nhất: Web MIDI Plug & Play (`requestMIDIAccess`, Velocity, CC 64 Sustain Pedal), bàn phím PC 2 quãng tám QWERTY (`Z–M`, `Q–U`), cảm ứng đa điểm và nút `Giữ phím ghép hợp âm` (Chord Latch) |
 | `js/earTraining.js` | Ngân hàng câu hỏi & quản lý thống kê Luyện cảm âm (Hợp âm 3 cấp độ + Đảo bass, Quãng nhạc M2–P8, Bậc hòa âm I–vi theo tông mẫu) |
-| `js/musicTheory.js` | Bộ nhận diện hợp âm thời gian thực (`detectChordFromMidis`), gợi ý âm giai Scale Guide, vòng hợp âm Wait Mode & kho giai điệu Nốt Rơi |
-| `js/musicTrainer.js` | Giao diện & logic Phòng Luyện Đàn Piano Tương Tác (Tự do/Dò hợp âm, Luyện Đệm Hợp Âm Wait Mode, Nốt Rơi Synthesia), 4 chế độ Đọc khuông nhạc & phân khu **Luyện Cảm Âm Hợp Âm** |
+| `js/musicTheory.js` | Bộ nhận diện hợp âm thời gian thực (`detectChordFromMidis`), gợi ý âm giai Scale Guide (Trưởng, Thứ, Ngũ cung), lưu tiến độ Học viện (`hevos_theory_progress_v1`), vòng hợp âm Wait Mode & kho Giai điệu Nốt Rơi |
+| `js/curriculumData.js` | Giáo trình Học viện Nhạc lý Thực chiến **6 Chặng · 18 Bài học đầy đủ** bằng tiếng Việt (từ mặt phím 12 nốt, nhịp Swing, âm giai, hợp âm màu, vòng hòa âm La Mã đến dấu thanh tiếng Việt & cấu trúc ca khúc) kèm hệ thống Ví dụ Âm thanh Sống Tone.js |
+| `js/theoryExercises.js` | Bộ máy **6 dạng Bài tập Thực hành Tương tác** (Note Finder, Interval Ear, Groove Tapper Canvas 4/4+Swing, Scale Runner, Scale & Viet-Tone Impostor, Chord Builder Auto-Latch, Progression Puzzle & Call-Response Lab đẩy thẳng sang Beat) |
+| `js/musicTrainer.js` | Phân khu Học nhạc lý với 2 không gian chính: **Lộ trình Sáng tác 6 Chặng** (đọc bài + mục lục + audio demo + bài tập) và **Phòng tập Tự do** (Đàn Piano Hybrid, Nhận diện hợp âm sống, Wait Mode, Synthesia, Cảm âm & Đọc khuông nhạc) |
 | `js/pianoRoll.js` | Bảng vẽ & chỉnh sửa giai điệu MIDI 60fps trên HTML5 Canvas |
 | `js/pitchToMidi.js` | Thu âm Micro qua Native `AudioContext` + Preamp di động + YIN chuyển giọng ngân nga thành MIDI + đóng gói WAV 16-bit |
 | `js/staffRenderer.js` | Bộ vẽ khuông nhạc Vector SVG sắc nét (Khóa Sol, Fa, Đô, hóa biểu, nốt nhạc) |
@@ -81,3 +83,4 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
   - **Luyện Cảm Âm Hợp Âm (`Học nhạc lý`)**: Nhận diện chất hợp âm (`maj`, `min`, `sus4`, `7`, `maj7`, `m7`, `dim`, hợp âm đảo 3 cấp độ), Quãng nhạc (`M2–P8`) & Bậc hòa âm (`I–vi`), phát Block/Rải, thống kê chuỗi đúng & kỷ lục.
   - **Bộ gõ Step Sequencer 16 bước (`Sáng tác Beat`)**: Lưới 6×16 tương tác trực tiếp (`Kick 808`, `Snare`, `Clap`, `Hi-Hat`, `Open Hat`, `Rim / Crash`) với chế độ Accent, 6 preset nhịp, Audition chạm từng ô & tô sáng cột nhịp theo thời gian thực; đồng bộ 1:1 qua `custom_seq` cho Phát Live, Offline WAV/MP3 & xuất MIDI `.mid`.
   - **Tách Stems & Phân tích Hợp âm Tự động (`Dựng bài & Master`)**: Nạp MP3/WAV hoặc lấy Beat từ Studio, tự động dò Tông (`detectKeyFromAudioBuffer`), dò BPM (`detectBpmFromAudioBuffer`), vẽ Dòng thời gian Hợp âm (`analyzeChordsFromAudioBuffer`) và tách 4 Stems DSP cục bộ theo phân hoạch 2D-HPSS + Mid/Side không dẫm tiếng (`vocals`, `instrumental`, `bass`, `drums`) kèm Mixer nghe thử (`Volume 0%` triệt để, preset nhanh `Xóa Vocal (Karaoke)` / `Chỉ Giọng hát`), tải từng Stem hoặc tải bản Mix, chuyển thẳng 4 lớp lên Playlist hoặc nạp hợp âm sang Beat / Phòng Đàn.
+- **Học viện Nhạc lý Thực chiến 6 Chặng (`curriculumData.js`, `theoryExercises.js`, `musicTrainer.js`)**: Nâng cấp phân khu `Học nhạc lý` thành 2 không gian (**Lộ trình Sáng tác** 6 chặng · 18 bài chuyên sâu + Ví dụ Âm thanh Sống Tone.js phát sáng mini keyboard/nhịp + 6 dạng bài tập thực chiến lưu tiến độ `hevos_theory_progress_v1` đạt mốc `≥ 80%`, cùng cầu nối đẩy vòng hợp âm & giai điệu Hỏi - Đáp trực tiếp sang `Sáng tác Beat`; và **Phòng tập Tự do** bảo toàn toàn bộ công cụ luyện đàn Web MIDI / Cảm âm / Đọc khuông nhạc).

@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=30';
+} from './theory.js?v=31';
 
 // Ưu tiên giáng chuẩn khi gốc hợp âm là các giọng giáng phổ biến trong nhạc nhẹ (Eb, Bb, Ab, Db, Gb, F, Fm, Cm, Gm)
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
@@ -166,15 +166,35 @@ export function detectChordFromMidis(midis, preferFlatsHint = null) {
   };
 }
 
+const EXTRA_SCALES = {
+  pentatonic_major: {
+    id: 'pentatonic_major',
+    label: 'Ngũ cung Trưởng (Pentatonic)',
+    intervals: [0, 2, 4, 7, 9],
+    baseScale: 'major',
+  },
+  pentatonic_minor: {
+    id: 'pentatonic_minor',
+    label: 'Ngũ cung Thứ (Pentatonic)',
+    intervals: [0, 3, 5, 7, 10],
+    baseScale: 'minor',
+  },
+};
+
 export function getScaleGuideInfo(keyPc = 3, scaleType = 'major') {
   const safePc = ((Number(keyPc) || 0) % 12 + 12) % 12;
-  const scaleObj = SCALES[scaleType] || SCALES.major;
-  const preferFlats = shouldPreferFlats(safePc, scaleObj.id);
+  const extra = EXTRA_SCALES[scaleType];
+  const scaleObj = extra || SCALES[scaleType] || SCALES.major;
+  const baseScaleType = extra ? extra.baseScale : scaleObj.id;
+  const preferFlats = shouldPreferFlats(safePc, baseScaleType);
+  const scaleSet = extra
+    ? new Set(extra.intervals.map((iv) => (safePc + iv) % 12))
+    : getScaleSet(safePc, scaleObj.id);
   const keyName = pcToNoteName(safePc, preferFlats);
   return {
     keyPc: safePc,
     scaleType: scaleObj.id,
-    scaleSet: getScaleSet(safePc, scaleObj.id),
+    scaleSet,
     preferFlats,
     label: `${keyName} ${scaleObj.label}`,
   };
@@ -433,6 +453,31 @@ export const FALLING_NOTES_SONGS = [
       { midi: 63, startBeat: 15,   durationBeats: 0.95 }, // Eb4
     ],
   },
+  {
+    id: 'hook-vpop-eb',
+    name: 'Câu Hook Pop Ballad (Eb Trưởng)',
+    desc: 'Mô-típ điệp khúc neo Chord Tone kết hợp bước lướt êm tai cho Chặng 6',
+    keyPc: 3,
+    scaleType: 'major',
+    bpm: 80,
+    totalBeats: 16,
+    notes: [
+      { midi: 67, startBeat: 0,    durationBeats: 0.9 }, // G4
+      { midi: 70, startBeat: 1,    durationBeats: 0.9 }, // Bb4
+      { midi: 72, startBeat: 2,    durationBeats: 1.4 }, // C5
+      { midi: 70, startBeat: 3.5,  durationBeats: 0.45 }, // Bb4
+      { midi: 68, startBeat: 4,    durationBeats: 0.9 }, // Ab4
+      { midi: 67, startBeat: 5,    durationBeats: 0.9 }, // G4
+      { midi: 65, startBeat: 6,    durationBeats: 1.8 }, // F4
+      { midi: 67, startBeat: 8,    durationBeats: 0.9 }, // G4
+      { midi: 70, startBeat: 9,    durationBeats: 0.9 }, // Bb4
+      { midi: 75, startBeat: 10,   durationBeats: 1.4 }, // Eb5
+      { midi: 74, startBeat: 11.5, durationBeats: 0.45 }, // D5
+      { midi: 72, startBeat: 12,   durationBeats: 0.9 }, // C5
+      { midi: 70, startBeat: 13,   durationBeats: 0.9 }, // Bb4
+      { midi: 67, startBeat: 14,   durationBeats: 1.8 }, // G4
+    ],
+  },
 ];
 
 /**
@@ -474,4 +519,90 @@ export function buildFallingSongFromStudio({
     totalBeats,
     notes: sorted,
   };
+}
+
+// ============================================================================
+// Lưu Tiến Độ Học Viện Nhạc Lý (localStorage: hevos_theory_progress_v1)
+// ============================================================================
+export const THEORY_PROGRESS_KEY = 'hevos_theory_progress_v1';
+
+function createEmptyProgress() {
+  return {
+    completedLessonIds: [],
+    bestScores: {},
+    lastLessonId: null,
+    updatedAt: Date.now(),
+  };
+}
+
+export function loadTheoryProgress() {
+  try {
+    const raw = localStorage.getItem(THEORY_PROGRESS_KEY);
+    if (!raw) return createEmptyProgress();
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return createEmptyProgress();
+    return {
+      completedLessonIds: Array.isArray(parsed.completedLessonIds)
+        ? Array.from(new Set(parsed.completedLessonIds.map(String)))
+        : [],
+      bestScores: parsed.bestScores && typeof parsed.bestScores === 'object' ? { ...parsed.bestScores } : {},
+      lastLessonId: parsed.lastLessonId ? String(parsed.lastLessonId) : null,
+      updatedAt: Number(parsed.updatedAt) || Date.now(),
+    };
+  } catch (_) {
+    return createEmptyProgress();
+  }
+}
+
+export function saveTheoryProgress(data) {
+  const safe = {
+    completedLessonIds: Array.isArray(data?.completedLessonIds)
+      ? Array.from(new Set(data.completedLessonIds.map(String)))
+      : [],
+    bestScores: data?.bestScores && typeof data.bestScores === 'object' ? { ...data.bestScores } : {},
+    lastLessonId: data?.lastLessonId ? String(data.lastLessonId) : null,
+    updatedAt: Date.now(),
+  };
+  try {
+    localStorage.setItem(THEORY_PROGRESS_KEY, JSON.stringify(safe));
+  } catch (_) {}
+  return safe;
+}
+
+export function setLastLessonId(lessonId) {
+  const cur = loadTheoryProgress();
+  cur.lastLessonId = lessonId ? String(lessonId) : null;
+  return saveTheoryProgress(cur);
+}
+
+export function recordLessonExerciseScore(lessonId, accuracyPct) {
+  const id = String(lessonId || '');
+  if (!id) return { progress: loadTheoryProgress(), newlyCompleted: false, accuracyPct: 0 };
+  const pct = Math.max(0, Math.min(100, Math.round(Number(accuracyPct) || 0)));
+  const cur = loadTheoryProgress();
+  const prevBest = Number(cur.bestScores[id]) || 0;
+  const wasCompleted = cur.completedLessonIds.includes(id);
+
+  cur.bestScores[id] = Math.max(prevBest, pct);
+  cur.lastLessonId = id;
+  let newlyCompleted = false;
+  if (pct >= 80 && !wasCompleted) {
+    cur.completedLessonIds.push(id);
+    newlyCompleted = true;
+  }
+  const saved = saveTheoryProgress(cur);
+  return {
+    progress: saved,
+    newlyCompleted,
+    passed: pct >= 80,
+    accuracyPct: pct,
+  };
+}
+
+export function resetTheoryProgress() {
+  const empty = createEmptyProgress();
+  try {
+    localStorage.setItem(THEORY_PROGRESS_KEY, JSON.stringify(empty));
+  } catch (_) {}
+  return empty;
 }
