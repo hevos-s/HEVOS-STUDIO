@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=31';
-import { getQwertyLabelForMidi } from './midiController.js?v=31';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=32';
+import { getQwertyLabelForMidi } from './midiController.js?v=32';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=31';
+} from './musicTheory.js?v=32';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=31';
+} from './earTraining.js?v=32';
 import {
   ALL_LESSONS,
   CURRICULUM_STAGES,
@@ -30,8 +30,9 @@ import {
   recordLessonExerciseScore,
   resetTheoryProgress,
   setLastLessonId,
-} from './curriculumData.js?v=31';
-import { TheoryExerciseRunner } from './theoryExercises.js?v=31';
+} from './curriculumData.js?v=32';
+import { TheoryExerciseRunner } from './theoryExercises.js?v=32';
+import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=32';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -48,12 +49,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=31';
+} from './trainerData.js?v=32';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=31';
+} from './staffRenderer.js?v=32';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -3475,7 +3476,7 @@ export class MusicTrainer {
       .join('');
 
     const sectionsHtml = lesson.sections
-      .map((sec) => {
+      .map((sec, secIdx) => {
         const bullets = sec.bullets
           ? `<ul class="lesson-bullets">${sec.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`
           : '';
@@ -3487,12 +3488,15 @@ export class MusicTrainer {
             </div>
           `
           : '';
+        const diagramUid = `td-${String(lesson.id).replace('.', '-')}-${secIdx}`;
+        const diagramHtml = sec.diagram ? renderTheoryDiagramHtml(sec.diagram, diagramUid) : '';
         return `
           <article class="lesson-section-block">
             <h3>${escapeHtml(sec.heading)}</h3>
             <p>${escapeHtml(sec.body)}</p>
             ${bullets}
             ${callout}
+            ${diagramHtml}
           </article>
         `;
       })
@@ -3655,7 +3659,10 @@ export class MusicTrainer {
   _playLessonDemo(demo) {
     if (!demo) return;
     this._clearDemoTimers();
-    this.root.querySelectorAll('.is-demo-lit').forEach((el) => el.classList.remove('is-demo-lit'));
+    this.root.querySelectorAll('.is-demo-lit, .is-td-active, .is-td-key-hit').forEach((el) => {
+      el.classList.remove('is-demo-lit', 'is-td-active', 'is-td-key-hit');
+    });
+    this.root.querySelectorAll('.td-rg-playhead').forEach((el) => el.setAttribute('opacity', '0'));
     this.audio.unlockSync();
 
     const capEl = this.root.querySelector(`#demo-caption-${demo.id}`);
@@ -3798,6 +3805,12 @@ export class MusicTrainer {
     q('#academy-toc-backdrop')?.addEventListener('click', closeToc);
 
     if (this.academySubView === 'lesson') {
+      bindTheoryDiagrams(this.root, activeLesson, {
+        audioEngine: this.audio,
+        registerTimer: (tid) => this._demoTimers.push(tid),
+        clearTimers: () => this._clearDemoTimers(),
+      });
+
       this.root.querySelectorAll('[data-play-demo]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const demo = (activeLesson.demos || []).find((d) => d.id === btn.dataset.playDemo);

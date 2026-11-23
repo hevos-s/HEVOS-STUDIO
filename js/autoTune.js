@@ -15,8 +15,8 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=31';
-import { encodePcmToWavBlob } from './pitchToMidi.js?v=31';
+} from './theory.js?v=32';
+import { encodePcmToWavBlob } from './pitchToMidi.js?v=32';
 
 // Hồ sơ trọng số 12 bán cung Krumhansl-Schmuckler cho giọng Trưởng & Thứ
 const KS_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];

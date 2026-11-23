@@ -7083,6 +7083,8 @@ body.piano-roll-open .toast-container {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
   padding: 20px 22px;
   border-radius: 16px;
   background: var(--glass-surface);
@@ -7920,6 +7922,238 @@ body.piano-roll-open .toast-container {
 }
 .ex-mini-b.is-lit {
   background: #F59E0B;
+}
+
+/* ==========================================================================
+   V32 INLINE INTERACTIVE SVG DIAGRAMS (Học viện Nhạc lý · Sơ đồ nội tuyến)
+   ========================================================================== */
+.lesson-sections-stack,
+.lesson-section-block {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.theory-diagram-card {
+  margin: 14px 0 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(16, 19, 30, 0.96), rgba(11, 13, 21, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.td-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 14px;
+}
+
+.td-head-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 250px;
+}
+
+.td-type-tag {
+  align-self: flex-start;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #FCD34D;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.34);
+}
+
+.td-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #FAFAFA;
+  line-height: 1.38;
+}
+
+.td-caption {
+  margin: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.48 !important;
+  color: #94A3B8 !important;
+}
+
+.td-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.td-play-btn {
+  white-space: nowrap;
+}
+
+.td-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.td-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #CBD5E1;
+}
+
+.td-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.td-dot-amber { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.65); }
+.td-dot-emerald { background: #10B981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.65); }
+.td-dot-cyan { background: #38BDF8; box-shadow: 0 0 6px rgba(56, 189, 248, 0.65); }
+.td-dot-rose { background: #FB7185; box-shadow: 0 0 6px rgba(251, 113, 133, 0.65); }
+.td-dot-muted { background: #71717A; }
+
+.td-svg-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0C0E17;
+}
+
+.td-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Interactive Piano SVG Keys */
+.td-pk {
+  cursor: pointer;
+}
+.td-pk-w .td-pk-rect {
+  fill: #F4F4F5;
+  stroke: #27272A;
+  stroke-width: 1;
+  transition: fill 0.12s ease, stroke 0.12s ease;
+}
+.td-pk-w .td-pk-txt {
+  fill: #27272A;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  pointer-events: none;
+}
+.td-pk-b .td-pk-rect {
+  fill: #18181B;
+  stroke: #3F3F46;
+  stroke-width: 1;
+  transition: fill 0.12s ease, stroke 0.12s ease;
+}
+.td-pk-b-txt {
+  fill: #E4E4E7;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  pointer-events: none;
+}
+
+.td-pk-w.is-root .td-pk-rect { fill: #F59E0B; }
+.td-pk-w.is-root .td-pk-txt { fill: #1C0D02; font-weight: 800; }
+.td-pk-b.is-root .td-pk-rect { fill: #D97706; stroke: #FDE68A; }
+.td-pk-b.is-root .td-pk-b-txt { fill: #FFFFFF; }
+
+.td-pk-w.is-target .td-pk-rect { fill: #34D399; }
+.td-pk-w.is-target .td-pk-txt { fill: #022C22; font-weight: 800; }
+.td-pk-b.is-target .td-pk-rect { fill: #059669; stroke: #A7F3D0; }
+.td-pk-b.is-target .td-pk-b-txt { fill: #FFFFFF; }
+
+.td-pk-w.is-secondary .td-pk-rect { fill: #38BDF8; }
+.td-pk-w.is-secondary .td-pk-txt { fill: #082F49; font-weight: 800; }
+.td-pk-b.is-secondary .td-pk-rect { fill: #0284C7; stroke: #BAE6FD; }
+.td-pk-b.is-secondary .td-pk-b-txt { fill: #FFFFFF; }
+
+.td-pk.is-excluded .td-pk-rect {
+  fill: rgba(251, 113, 133, 0.22);
+  stroke: #FB7185;
+  stroke-dasharray: 2 2;
+}
+.td-pk.is-excluded .td-pk-txt,
+.td-pk.is-excluded .td-pk-b-txt {
+  fill: #FDA4AF;
+  opacity: 0.72;
+}
+.td-pk-ex {
+  fill: #FB7185;
+  font-size: 13px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.td-pk:hover .td-pk-rect,
+.td-pk:focus-visible .td-pk-rect {
+  filter: brightness(1.1);
+  stroke: #FFFFFF;
+  stroke-width: 1.6;
+}
+.td-pk.is-td-active .td-pk-rect,
+.td-pk.is-td-key-hit .td-pk-rect {
+  fill: #FDE68A !important;
+  stroke: #FFFFFF !important;
+  stroke-width: 2 !important;
+}
+.td-pk.is-td-active .td-pk-txt,
+.td-pk.is-td-key-hit .td-pk-txt,
+.td-pk.is-td-active .td-pk-b-txt,
+.td-pk.is-td-key-hit .td-pk-b-txt {
+  fill: #09090B !important;
+}
+
+.td-interactive-node {
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.td-interactive-node:hover {
+  filter: brightness(1.16);
+}
+.td-interactive-node.is-td-active rect,
+.td-rg-block.is-td-active rect,
+.td-tc-syllable.is-td-active rect {
+  stroke: #FFFFFF !important;
+  stroke-width: 2.3 !important;
+  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.75));
+}
+
+.td-status-bar {
+  font-size: 11px;
+  color: #6EE7B7;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  line-height: 1.4;
 }
 
 /* ==========================================================================
@@ -9427,6 +9661,49 @@ body.piano-roll-open .toast-container {
 
   .lesson-reading-pane {
     padding: 14px 12px;
+    min-width: 0;
+  }
+
+  .theory-diagram-card {
+    padding: 10px 10px;
+    gap: 8px;
+  }
+
+  .td-card-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .td-head-info {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .td-head-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .td-play-btn {
+    min-height: 36px;
+  }
+
+  .td-legend {
+    gap: 6px 10px;
+    padding: 6px 8px;
+  }
+
+  .td-legend-item {
+    font-size: 10.5px;
+  }
+
+  .td-svg {
+    min-width: 560px;
+  }
+
+  .td-svg-piano {
+    min-width: 470px;
   }
 
   .pz-bars-row {
