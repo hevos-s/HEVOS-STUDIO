@@ -86,7 +86,9 @@ export class UnifiedMidiController {
     this._listeners = new Set();
     this._qwertyActiveCheck = () => false;
     this._audioUnlockHandler = null;
-    this._boundInputs = new Set();
+    this._portHandlers = new Map(); // MIDIInput -> { id, name, handler, usesAddEventListener }
+    this._openingPorts = new Set(); // Các MIDIInput đang chờ await input.open()
+    this._stateChangeHandler = null;
     this._keyboardBound = false;
 
     this._bindKeyboardListeners();
@@ -186,6 +188,18 @@ export class UnifiedMidiController {
     return Array.from(out).sort((a, b) => a - b);
   }
 
+  _isSecondaryPortName(name = '') {
+    return /^(midiin2|midiout|2-\s|microsoft gs|loopbe)/i.test(String(name || '').trim());
+  }
+
+  _sortPortEntriesPrimaryFirst(entries) {
+    return [...entries].sort((a, b) => {
+      const aSec = this._isSecondaryPortName(a.name) ? 1 : 0;
+      const bSec = this._isSecondaryPortName(b.name) ? 1 : 0;
+      return aSec - bSec;
+    });
+  }
+
   _getAllMergedInputs() {
     const map = new Map();
     this._simulatedInputs.forEach((inp) => {
@@ -197,7 +211,7 @@ export class UnifiedMidiController {
     this.connectedInputs.forEach((inp) => {
       if (inp && inp.id) map.set(inp.id, inp);
     });
-    return Array.from(map.values());
+    return this._sortPortEntriesPrimaryFirst(Array.from(map.values()));
   }
 
   setSelectedInputId(inputId) {
@@ -226,7 +240,7 @@ export class UnifiedMidiController {
       if (effectiveSelectedId === 'all') {
         label =
           inputs.length > 1
-            ? `Tất cả MIDI (${inputs.length} cổng)`
+            ? `Đã kết nối MIDI: ${primaryDevice} (+${inputs.length - 1} cổng)`
             : `Đã kết nối MIDI: ${primaryDevice}`;
       } else {
         label = `MIDI: ${primaryDevice}`;
@@ -301,11 +315,11 @@ export class UnifiedMidiController {
   }
 
   // ==========================================================================
-  // Web MIDI Plug & Play — Lắng nghe đồng thời TẤT CẢ cổng Input
+  // Web MIDI Plug & Play — Tách biệt phần cứng khỏi DOM, mở & gắn từng cổng độc lập
   // ==========================================================================
   async initWebMidi() {
     if (this.midiAccess) {
-      this._syncMidiInputs();
+      await this._syncMidiInputs();
       return true;
     }
     if (this.midiInitPromise) return this.midiInitPromise;
@@ -315,10 +329,19 @@ export class UnifiedMidiController {
       try {
         const access = await navigator.requestMIDIAccess({ sysex: false });
         this.midiAccess = access;
-        this._syncMidiInputs();
-        access.onstatechange = () => {
-          this._syncMidiInputs();
-        };
+
+        if (!this._stateChangeHandler) {
+          this._stateChangeHandler = () => {
+            this._syncMidiInputs().catch(() => {});
+          };
+        }
+        if (typeof access.addEventListener === 'function') {
+          access.addEventListener('statechange', this._stateChangeHandler);
+        } else {
+          access.onstatechange = this._stateChangeHandler;
+        }
+
+        await this._syncMidiInputs();
         return true;
       } catch (_) {
         // Không hiển thị thông báo lỗi gây hoang mang nếu trình duyệt chặn/không hỗ trợ Web MIDI
@@ -331,10 +354,52 @@ export class UnifiedMidiController {
     return this.midiInitPromise;
   }
 
-  _syncMidiInputs() {
+  async refreshInputs() {
+    if (!this.midiAccess) {
+      return this.initWebMidi();
+    }
+    await this._syncMidiInputs();
+    return true;
+  }
+
+  async _bindInputPort(input, id, name) {
+    if (!input) return false;
+    try {
+      if (!this._portHandlers.has(input)) {
+        const handler = (evt) => {
+          if (!evt || !evt.data || evt.data.length === 0) return;
+          const status = evt.data[0];
+          const data1 = evt.data.length > 1 ? evt.data[1] : 0;
+          const data2 = evt.data.length > 2 ? evt.data[2] : 0;
+          this.handleRawMidiMessage(status, data1, data2, name, id);
+        };
+        const usesAddEventListener = typeof input.addEventListener === 'function';
+        if (usesAddEventListener) {
+          input.addEventListener('midimessage', handler);
+        } else {
+          input.onmidimessage = handler;
+        }
+        this._portHandlers.set(input, { id, name, handler, usesAddEventListener });
+      }
+
+      if (typeof input.open === 'function' && input.connection !== 'open' && !this._openingPorts.has(input)) {
+        this._openingPorts.add(input);
+        try {
+          await input.open();
+        } finally {
+          this._openingPorts.delete(input);
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async _syncMidiInputs() {
     if (!this.midiAccess) return;
     const prevPrimary = this.getDeviceStatus().primaryDevice;
-    const nextInputs = [];
+    const rawEntries = [];
     const activeSet = new Set();
 
     try {
@@ -350,41 +415,36 @@ export class UnifiedMidiController {
         if (!input || input.state !== 'connected') return;
         const id = String(input.id || `midi-in-${idx}`);
         const name = String(input.name || input.manufacturer || `Thiết bị MIDI ${idx + 1}`).trim();
-        nextInputs.push({
+        activeSet.add(input);
+        rawEntries.push({
+          input,
           id,
           name,
           manufacturer: String(input.manufacturer || '').trim(),
           state: input.state,
         });
-        activeSet.add(input);
-
-        if (typeof input.open === 'function' && input.connection !== 'open') {
-          try {
-            const p = input.open();
-            if (p && typeof p.catch === 'function') p.catch(() => {});
-          } catch (_) {}
-        }
-
-        if (!this._boundInputs.has(input)) {
-          this._boundInputs.add(input);
-        }
-        // Luôn gắn/cập nhật listener cho toàn bộ cổng kết nối (tránh dính cổng MIDI ảo trên Windows)
-        input.onmidimessage = (evt) => {
-          if (!evt || !evt.data || evt.data.length === 0) return;
-          const status = evt.data[0];
-          const data1 = evt.data.length > 1 ? evt.data[1] : 0;
-          const data2 = evt.data.length > 2 ? evt.data[2] : 0;
-          this.handleRawMidiMessage(status, data1, data2, name, id);
-        };
       });
     } catch (_) {}
 
-    this._boundInputs.forEach((inp) => {
+    const sortedEntries = this._sortPortEntriesPrimaryFirst(rawEntries);
+    const nextInputs = sortedEntries.map(({ id, name, manufacturer, state }) => ({
+      id,
+      name,
+      manufacturer,
+      state,
+    }));
+
+    // Gỡ listener chỉ khỏi các cổng đã rút ra
+    this._portHandlers.forEach((entry, inp) => {
       if (!activeSet.has(inp)) {
         try {
-          inp.onmidimessage = null;
+          if (entry.usesAddEventListener && typeof inp.removeEventListener === 'function') {
+            inp.removeEventListener('midimessage', entry.handler);
+          } else {
+            inp.onmidimessage = null;
+          }
         } catch (_) {}
-        this._boundInputs.delete(inp);
+        this._portHandlers.delete(inp);
       }
     });
 
@@ -408,6 +468,11 @@ export class UnifiedMidiController {
         newlyConnected: Boolean(status.primaryDevice && status.primaryDevice !== prevPrimary),
       });
     }
+
+    // Mở & gắn trình lắng nghe độc lập cho TỪNG cổng (SE61 & MIDIIN2 (SE61) không ghi đè hoặc làm hỏng nhau)
+    await Promise.allSettled(
+      sortedEntries.map(({ input, id, name }) => this._bindInputPort(input, id, name))
+    );
   }
 
   simulateMidiPorts(ports = []) {
@@ -696,4 +761,10 @@ export class UnifiedMidiController {
   }
 }
 
-export const midiController = new UnifiedMidiController();
+const GLOBAL_MIDI_KEY = '__HEVOS_UNIFIED_MIDI_CONTROLLER__';
+export const midiController =
+  (typeof globalThis !== 'undefined' && globalThis[GLOBAL_MIDI_KEY]) ||
+  new UnifiedMidiController();
+if (typeof globalThis !== 'undefined') {
+  globalThis[GLOBAL_MIDI_KEY] = midiController;
+}

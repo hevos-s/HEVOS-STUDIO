@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=34';
-import { getQwertyLabelForMidi } from './midiController.js?v=34';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=35';
+import { getQwertyLabelForMidi } from './midiController.js?v=35';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=34';
+} from './musicTheory.js?v=35';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=34';
+} from './earTraining.js?v=35';
 import {
   ALL_LESSONS,
   CURRICULUM_STAGES,
@@ -30,9 +30,9 @@ import {
   recordLessonExerciseScore,
   resetTheoryProgress,
   setLastLessonId,
-} from './curriculumData.js?v=34';
-import { TheoryExerciseRunner } from './theoryExercises.js?v=34';
-import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=34';
+} from './curriculumData.js?v=35';
+import { TheoryExerciseRunner } from './theoryExercises.js?v=35';
+import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=35';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -49,12 +49,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=34';
+} from './trainerData.js?v=35';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=34';
+} from './staffRenderer.js?v=35';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -244,8 +244,12 @@ export class MusicTrainer {
     if (!active) {
       this.stopActiveSession();
     } else {
-      if (this.midi && !this.midi.midiAccess) {
-        this.midi.initWebMidi();
+      if (this.midi) {
+        if (typeof this.midi.refreshInputs === 'function') {
+          this.midi.refreshInputs().catch(() => {});
+        } else if (!this.midi.midiAccess) {
+          this.midi.initWebMidi();
+        }
       }
       if (
         this.view === 'academy' ||
@@ -255,6 +259,7 @@ export class MusicTrainer {
       ) {
         this.render();
       }
+      this._updateDeviceBarStatus();
     }
   }
 
@@ -1864,12 +1869,20 @@ export class MusicTrainer {
           this.stopActiveSession();
           this.view = 'academy';
           this.render();
+          this._updateDeviceBarStatus();
+          if (this.midi && typeof this.midi.refreshInputs === 'function') {
+            this.midi.refreshInputs().catch(() => {});
+          }
         } else {
           if (this.view !== 'academy') return;
           this.stopActiveSession();
           this.view = 'piano-room';
           this.pianoSubMode = 'free';
           this.render();
+          this._updateDeviceBarStatus();
+          if (this.midi && typeof this.midi.refreshInputs === 'function') {
+            this.midi.refreshInputs().catch(() => {});
+          }
         }
       });
     });
@@ -1988,6 +2001,19 @@ export class MusicTrainer {
       latchBtn.classList.toggle('active', Boolean(this.midi.chordLatchEnabled));
       latchBtn.setAttribute('aria-pressed', String(Boolean(this.midi.chordLatchEnabled)));
     }
+
+    const mon = this.root.querySelector('#midi-live-monitor');
+    const monText = this.root.querySelector('#midi-live-monitor-text');
+    const sigLabel = this._lastMidiMonitorText || (st.lastSignal && st.lastSignal.label) || '';
+    if (sigLabel && st.lastSignal && !this._lastMidiMonitorText) {
+      this._lastMidiMonitorText = sigLabel;
+    }
+    if (monText) {
+      monText.textContent = sigLabel || 'Tín hiệu MIDI: Chờ phím đàn...';
+    }
+    if (mon) {
+      mon.classList.toggle('has-signal', Boolean(sigLabel));
+    }
   }
 
   _flashMidiSignalLed(sig = null) {
@@ -2090,7 +2116,16 @@ export class MusicTrainer {
     this._bindPianoRoomEvents();
     this._bindMinimapEvents();
     this._bindHybridKeyboardEvents();
+    this._updateDeviceBarStatus();
     this._syncKeyboardScaleAndTargets();
+    if (this.midi) {
+      this._onUnifiedActiveChange({
+        activeMidis: this.midi.getActiveMidis(),
+        latchedMidis: Array.from(this.midi.latchedNotes),
+        sustainedMidis: Array.from(this.midi.sustainedNotes),
+        sustainDown: this.midi.sustainDown,
+      });
+    }
 
     if (this.pianoSubMode === 'free') {
       this._updateLiveChordHud();

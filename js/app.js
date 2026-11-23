@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=34';
+} from './theory.js?v=35';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=34';
+} from './audioEngine.js?v=35';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=34';
-import { PianoRoll } from './pianoRoll.js?v=34';
-import { downloadMidiFile } from './midiExport.js?v=34';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=34';
-import { MusicTrainer } from './musicTrainer.js?v=34';
-import { VocalStudio } from './vocalStudio.js?v=34';
-import { ArrangementStudio } from './arrangementStudio.js?v=34';
-import { createAmbientScene } from './ambientScene.js?v=34';
-import { midiController } from './midiController.js?v=34';
+} from './pitchToMidi.js?v=35';
+import { PianoRoll } from './pianoRoll.js?v=35';
+import { downloadMidiFile } from './midiExport.js?v=35';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=35';
+import { MusicTrainer } from './musicTrainer.js?v=35';
+import { VocalStudio } from './vocalStudio.js?v=35';
+import { ArrangementStudio } from './arrangementStudio.js?v=35';
+import { createAmbientScene } from './ambientScene.js?v=35';
+import { midiController } from './midiController.js?v=35';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=34';
+} from './stepSequencer.js?v=35';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -2183,6 +2183,13 @@ function setupHubScrollReveal() {
 // Khởi chạy ứng dụng
 // ============================================================================
 function init() {
+  // Mở Web MIDI độc lập ngay khi trang tải xong, tách rời hoàn toàn khỏi tiến trình vẽ DOM lười
+  midiController.setAudioUnlockHandler(() => {
+    audioEngine.unlockSync();
+    audioEngine.ensureReady().catch(() => {});
+  });
+  midiController.initWebMidi();
+
   populateSelects();
   recomputeVoicings();
 
@@ -2374,11 +2381,14 @@ function init() {
     },
   });
 
-  midiController.setAudioUnlockHandler(() => {
-    audioEngine.unlockSync();
-    audioEngine.ensureReady().catch(() => {});
-  });
-  midiController.initWebMidi();
+  // Đồng bộ trạng thái nút Ghi MIDI nếu thiết bị (vd: SE61) đã kết nối trước khi subscribe
+  const initMidiStatus = midiController.getDeviceStatus();
+  if (el.btnMidiRecordArm) {
+    el.btnMidiRecordArm.classList.toggle('has-device', Boolean(initMidiStatus.primaryDevice));
+    el.btnMidiRecordArm.title = initMidiStatus.primaryDevice
+      ? `Thiết bị MIDI: ${initMidiStatus.primaryDevice} · Bật để ghi trực tiếp vào Piano Roll`
+      : 'Bật để ghi từng nốt bấm từ đàn Piano MIDI USB vào Piano Roll';
+  }
 
   // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist, Mastering & Tách Stems)
   if (el.arrangementRoot) {
