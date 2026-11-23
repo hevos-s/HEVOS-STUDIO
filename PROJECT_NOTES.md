@@ -17,9 +17,9 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
    - Thuần HTML5, CSS3 và JavaScript ES6+ Modules (`<script type="module">`).
    - Tuyệt đối không dùng React, Vite, Webpack, TypeScript build hay Node packages (`package.json` / `node_modules`).
 2. **Đường dẫn Tương đối**:
-   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=36`, `./js/app.js?v=36`, `./theory.js?v=36`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
+   - Mọi đường dẫn CSS, JS, asset phải viết dạng tương đối (`./style.css?v=37`, `./js/app.js?v=37`, `./theory.js?v=37`) để hoạt động ổn định trên subpath `/HEVOS-STUDIO/` của GitHub Pages.
 3. **Cache-Busting Đồng Nhất**:
-   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=36`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine` và `midiController`).
+   - Toàn bộ query string `?v=...` trên `index.html` và tất cả import giữa các file trong `js/` phải đồng nhất cùng một phiên bản (`?v=37`) nhằm tránh trình duyệt tải thành 2 module instance khác nhau (đặc biệt với singleton `audioEngine` và `midiController`).
 4. **Bảo toàn ID & Luồng Tính năng**:
    - Giữ nguyên toàn bộ `id`, `data-*` attributes, modal (`#chord-modal`, `#projects-modal`, `#toast-container`) và luồng hoạt động của 6 phân khu:
      - `hub` (**Tổng quan**): Không gian 3D tương tác nhạc, Editorial Showcase & Creator Spotlight (Facebook `@hevos05` · Instagram `@_hevos`).
@@ -46,7 +46,7 @@ Sổ tay kỹ thuật và bản đồ kiến trúc cho nền tảng âm nhạc *
 | `js/arrangementStudio.js` | Phân khu `Dựng bài & Master`: Kho Clip, Playlist đa kênh (di chuyển, Trim, Fade-In/Out, Split, Duplicate), chuỗi Mastering `buildMasteringChain` (EQ 3 dải · Stereo Width · Glue Comp · Limiter `-0.3dBFS`) & xuất `.wav` 16/24-bit bằng `OfflineAudioContext` |
 | `js/audioEngine.js` | Bộ máy âm thanh `Tone.js` (`maxPolyphony: 12` cho mọi `PolySynth`, headroom gốc `-13 dB` PolySynth / `-10 dB` đơn âm & bass, ADSR chống nổ `attack >= 15ms` · `release >= 350ms`, bỏ WaveShaper, lọc ấm `Tone.Filter(lowpass, 4800Hz, -12dB/oct, Q=0.7)`, `Master Gain 0 dB (1.0) -> Compressor(-18 dB / 2.2:1 / 25ms / 250ms) -> Limiter -2.5 dBFS`, `renderBeatOffline` đồng mức & xuất loop audio) |
 | `js/autoTune.js` | Bộ máy Auto-Tune khóa tông TD-PSOLA liên tục & đồng cực: Khử lệch DC -> Zero-Phase Butterworth `75–850Hz` -> FFT-YIN (`2048/256`) + Parabol -> Tách Pitch Trend & Vibrato + Exponential Glide (`±2.5` bán cung) -> Pitch Marks đồng cực toàn cục -> Overlap-Add chuẩn hóa `weightSum[i]` trên cửa sổ Hann `max(2*T0, 2*T1)` (khớp 1:1 cho cả nguyên âm & phụ âm) -> Warm Comp & Soft Limiter `0.92` |
-| `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 (`.mid`, PPQ = 480, tối đa 4 track) |
+| `js/midiExport.js` | Bộ mã hóa nhị phân Standard MIDI File Format 1 tối ưu FL Studio (`.mid`, PPQ = 480, tách tối đa 10 track độc lập: `Chords`, `Bass`, `Melody MIDI`, `Vocal MIDI`, `Kick 808`, `Snare`, `Clap`, `Hi-Hat`, `Open Hat`, `Rim & Crash`; các track trống dùng cao độ gốc `C5 / MIDI 60` trên kênh riêng tránh Ch 10 GM `0x99`, tự lọc track rỗng) |
 | `js/midiController.js` | Bộ điều khiển nhập liệu hợp nhất (`globalThis.__HEVOS_UNIFIED_MIDI_CONTROLLER__` singleton): khởi tạo Web MIDI Plug & Play độc lập ngay khi tải trang tách khỏi DOM, `await input.open()` + gắn listener từng cổng riêng biệt (hỗ trợ đồng thời `SE61` + `MIDIIN2 (SE61)`, phân giải `status & 0xf0` đủ 16 kênh `Note On`/`0x80`/`vel=0`/CC 64 Sustain, mở khóa AudioContext ngay khi nhận `Note On`), bàn phím PC QWERTY (`Z–M`, `Q–U`), cảm ứng đa điểm & Chord Latch |
 | `js/earTraining.js` | Ngân hàng câu hỏi & quản lý thống kê Luyện cảm âm (Hợp âm 3 cấp độ + Đảo bass, Quãng nhạc M2–P8, Bậc hòa âm I–vi theo tông mẫu) |
 | `js/musicTheory.js` | Bộ nhận diện hợp âm thời gian thực (`detectChordFromMidis`), gợi ý âm giai Scale Guide (Trưởng, Thứ, Ngũ cung), lưu tiến độ Học viện (`hevos_theory_progress_v1`), vòng hợp âm Wait Mode & kho Giai điệu Nốt Rơi |

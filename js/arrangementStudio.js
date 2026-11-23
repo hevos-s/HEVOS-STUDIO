@@ -8,7 +8,7 @@
 // - Tích hợp StemAnalyzerStudio: Tách 4 Stems & Phân tích hợp âm/BPM tự động
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=36';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=37';
 
 export const MASTERING_PRESETS = [
   {

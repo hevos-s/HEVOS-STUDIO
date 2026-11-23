@@ -1,10 +1,16 @@
 // ============================================================================
 // midiExport.js — Bộ mã hóa nhị phân chuẩn Standard MIDI File Format 1 (.mid)
-// Xuất trọn bộ beat đa track (tối đa 4 track chuẩn General MIDI, PPQ = 480):
-//   Track 1: Chords (Hop am)    — Channel 0
-//   Track 2: Bass (Bass nen)    — Channel 1
-//   Track 3: Melody (Giai dieu) — Channel 2
-//   Track 4: Drums (Trong)      — Channel 9 (Kênh 10 GM Drums)
+// Tối ưu nhập trực tiếp vào FL Studio & DAW chuyên nghiệp (PPQ = 480, lọc track rỗng):
+//   - Chords       (Channel 0)  — Hợp âm đệm
+//   - Bass         (Channel 1)  — Nốt trầm nền
+//   - Melody MIDI  (Channel 2)  — Giai điệu Piano Roll
+//   - Vocal MIDI   (Channel 3)  — Giai điệu thu Ngân nga -> MIDI
+//   - Kick 808     (Channel 4)  — Cao độ gốc C5 (MIDI 60)
+//   - Snare        (Channel 5)  — Cao độ gốc C5 (MIDI 60)
+//   - Clap         (Channel 6)  — Cao độ gốc C5 (MIDI 60)
+//   - Hi-Hat       (Channel 7)  — Cao độ gốc C5 (MIDI 60)
+//   - Open Hat     (Channel 8)  — Cao độ gốc C5 (MIDI 60)
+//   - Rim & Crash  (Channel 10) — Cao độ gốc C5 (MIDI 60) [tránh Kênh 10 GM 0x99]
 // Dùng chung nguồn sinh tiết tấu Swing/Humanize với audioEngine.js
 // ============================================================================
 
@@ -13,9 +19,34 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=36';
+} from './audioEngine.js?v=37';
 
 export const MIDI_PPQ = 480;
+export const FL_SAMPLER_ROOT_MIDI = 60; // C5 mặc định của Sampler trong FL Studio
+
+export const DRUM_TRACK_SPECS = [
+  { lane: 'kick',    name: 'Kick 808',    shortVi: 'Kick 808',    channel: 4 },
+  { lane: 'snare',   name: 'Snare',       shortVi: 'Snare',       channel: 5 },
+  { lane: 'clap',    name: 'Clap',        shortVi: 'Clap',        channel: 6 },
+  { lane: 'hat',     name: 'Hi-Hat',      shortVi: 'Hi-Hat',      channel: 7 },
+  { lane: 'openHat', name: 'Open Hat',    shortVi: 'Open Hat',    channel: 8 },
+  { lane: 'perc',    name: 'Rim & Crash', shortVi: 'Rim & Crash', channel: 10 }, // Bỏ qua Ch 9 (Kênh 10 GM) để FL Studio không gộp FPC
+];
+
+const VOCAL_MIDI_GM_PROGRAM = 52; // Choir Aahs / Voice Lead nhẹ
+
+export function isVocalMidiNote(note) {
+  return Boolean(note && (note.source === 'vocal' || String(note.id || '').startsWith('v_')));
+}
+
+export function classifyDrumEventLane(ev) {
+  if (!ev) return 'perc';
+  if (ev.drumType === 'kick') return 'kick';
+  if (ev.drumType === 'snare') return 'snare';
+  if (ev.drumType === 'clap') return 'clap';
+  if (ev.drumType === 'hat') return ev.openHat ? 'openHat' : 'hat';
+  return 'perc'; // rim, crash, clickAccent, click
+}
 
 const CHORD_GM_PROGRAM = {
   dark_brass: 62,  // SynthBrass 1
@@ -142,8 +173,10 @@ function appendNoteEvents(targetEvents, notes, channel, maxTick) {
 }
 
 /**
- * Tạo dữ liệu nhị phân Standard MIDI File Format 1 trọn beat (tối đa 4 track GM),
- * tôn trọng trạng thái Mute/Solo của Mixer và đồng bộ 100% Swing/Humanize với trình phát.
+ * Tạo dữ liệu nhị phân Standard MIDI File Format 1 trọn beat cho FL Studio / DAW chuyên nghiệp:
+ * - Tách riêng từng thành phần: Chords, Bass, Melody MIDI, Vocal MIDI, Kick 808, Snare, Clap, Hi-Hat, Open Hat, Rim & Crash
+ * - Các track trống dùng kênh MIDI độc lập (tránh Kênh 10 GM 0x99) ở cao độ gốc MIDI 60 (C5 FL Studio)
+ * - Tự động bỏ qua hoàn toàn các track không có nốt nào
  */
 export function buildMidiFile({
   bpm = 84,
@@ -155,6 +188,7 @@ export function buildMidiFile({
   drumPattern = 'lofi',
   customDrumGrid = null,
   melodyNotes = [],
+  vocalNotes = null,
   melodyTimbre = 'bell',
   mixer = null,
 }) {
@@ -162,12 +196,12 @@ export function buildMidiFile({
   const clampedBpm = Math.max(40, Math.min(240, Number(bpm) || 84));
   const usPerQuarter = Math.round(60_000_000 / clampedBpm);
 
-  // Kiểm tra quyền phát theo Mixer Mute / Solo (bỏ qua kênh Giọng thu nháp vì là audio)
   const chordsAudible = isMixerChannelAudible(mixer, 'chords');
   const melodyAudible = isMixerChannelAudible(mixer, 'melody');
+  const vocalAudible = isMixerChannelAudible(mixer, 'vocal');
   const drumsAudible = isMixerChannelAudible(mixer, 'drums');
 
-  if (!chordsAudible && !melodyAudible && !drumsAudible) {
+  if (!chordsAudible && !melodyAudible && !vocalAudible && !drumsAudible) {
     return {
       ok: false,
       bytes: null,
@@ -191,7 +225,7 @@ export function buildMidiFile({
 
     if (chordEvents.length > 0) {
       trackSpecs.push({
-        name: 'Chords (Hop am)',
+        name: 'Chords',
         shortVi: 'Hợp âm',
         channel: 0,
         program: CHORD_GM_PROGRAM[chordTimbre] ?? 4,
@@ -201,7 +235,7 @@ export function buildMidiFile({
 
     if (bassEvents.length > 0) {
       trackSpecs.push({
-        name: 'Bass (Bass nen)',
+        name: 'Bass',
         shortVi: 'Bass',
         channel: 1,
         program: BASS_GM_PROGRAM,
@@ -210,17 +244,25 @@ export function buildMidiFile({
     }
   }
 
-  // --- Track 3: Melody (Ch 2) ---
-  if (melodyAudible) {
+  // --- Track 3 & Track 4: Melody MIDI (Ch 2) & Vocal MIDI (Ch 3) ---
+  const safeMelodyInput = Array.isArray(melodyNotes) ? melodyNotes : [];
+  const rawVocalNotes = Array.isArray(vocalNotes)
+    ? vocalNotes
+    : safeMelodyInput.filter((n) => isVocalMidiNote(n));
+  const rawMelodyNotes = Array.isArray(vocalNotes)
+    ? safeMelodyInput
+    : safeMelodyInput.filter((n) => !isVocalMidiNote(n));
+
+  if (melodyAudible && rawMelodyNotes.length > 0) {
     const melEvents = generateMelodyEvents({
-      melodyNotes,
+      melodyNotes: rawMelodyNotes,
       totalBars,
       bpm: clampedBpm,
       humanize,
     });
     if (melEvents.length > 0) {
       trackSpecs.push({
-        name: 'Melody (Giai dieu)',
+        name: 'Melody MIDI',
         shortVi: 'Giai điệu',
         channel: 2,
         program: MELODY_GM_PROGRAM[melodyTimbre] ?? 11,
@@ -229,7 +271,25 @@ export function buildMidiFile({
     }
   }
 
-  // --- Track 4: Drums (BẮT BUỘC Channel 9 = Kênh 10 GM Drums) ---
+  if ((melodyAudible || vocalAudible) && rawVocalNotes.length > 0) {
+    const vocalEvents = generateMelodyEvents({
+      melodyNotes: rawVocalNotes,
+      totalBars,
+      bpm: clampedBpm,
+      humanize,
+    });
+    if (vocalEvents.length > 0) {
+      trackSpecs.push({
+        name: 'Vocal MIDI',
+        shortVi: 'Vocal MIDI',
+        channel: 3,
+        program: VOCAL_MIDI_GM_PROGRAM,
+        notes: vocalEvents,
+      });
+    }
+  }
+
+  // --- Tracks 5..10: Tách riêng từng thành phần Trống & Bộ gõ ở MIDI 60 (C5 FL Studio) ---
   if (drumsAudible && drumPattern && drumPattern !== 'off') {
     const drumEvents = generateDrumEvents({
       totalBars,
@@ -239,15 +299,31 @@ export function buildMidiFile({
       humanize,
       customDrumGrid,
     });
-    if (drumEvents.length > 0) {
-      trackSpecs.push({
-        name: 'Drums (Trong)',
-        shortVi: 'Trống',
-        channel: 9,
-        program: 0, // Standard GM Drum Kit trên kênh 10
-        notes: drumEvents,
+
+    const laneBuckets = new Map();
+    DRUM_TRACK_SPECS.forEach((spec) => laneBuckets.set(spec.lane, []));
+
+    drumEvents.forEach((ev) => {
+      const lane = classifyDrumEventLane(ev);
+      const bucket = laneBuckets.get(lane);
+      if (!bucket) return;
+      bucket.push({
+        ...ev,
+        midi: FL_SAMPLER_ROOT_MIDI, // C5 (MIDI 60) chuẩn Sampler mặc định của FL Studio
       });
-    }
+    });
+
+    DRUM_TRACK_SPECS.forEach((spec) => {
+      const bucket = laneBuckets.get(spec.lane);
+      if (!bucket || bucket.length === 0) return; // Tự động lọc bỏ track trống
+      trackSpecs.push({
+        name: spec.name,
+        shortVi: spec.shortVi,
+        channel: spec.channel,
+        program: 0,
+        notes: bucket,
+      });
+    });
   }
 
   if (trackSpecs.length === 0) {
@@ -291,7 +367,7 @@ export function buildMidiFile({
       });
     }
 
-    // Program Change chuẩn General MIDI cho kênh tương ứng
+    // Program Change chuẩn cho kênh độc lập của track này
     events.push({
       tick: 0,
       order: 1,
@@ -302,7 +378,7 @@ export function buildMidiFile({
     return buildTrackChunk(events);
   });
 
-  // Header Chunk ('MThd'): Format 1, số track thực tế (1..4), PPQ = 480
+  // Header Chunk ('MThd'): Format 1, số track thực tế (không có track rỗng), PPQ = 480
   const header = [
     ...asciiBytes('MThd'),
     ...uint32BE(6),

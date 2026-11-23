@@ -3,7 +3,7 @@
 // trực tiếp & thuật toán McLeod Pitch Method (NSDF) chuyển giọng thành MIDI
 // ============================================================================
 
-import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=36';
+import { freqToMidi, midiToNoteName, snapMidiToScale } from './theory.js?v=37';
 
 const MIN_VOCAL_HZ = 75;    // ~D2 (hỗ trợ cả giọng nam trầm)
 const MAX_VOCAL_HZ = 1050;  // ~C6
@@ -571,6 +571,7 @@ export function transcribeAudioBufferToMidi(vocalSource, options) {
 
     rawNotes.push({
       id: `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      source: 'vocal',
       midi: finalMidi,
       startBeat,
       durationBeats: durBeats,
