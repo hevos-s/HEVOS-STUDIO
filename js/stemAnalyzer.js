@@ -3,9 +3,9 @@
 // + Phân tích Tự động Tông, BPM & Vòng Hợp Âm theo dòng thời gian ngay trên trình duyệt
 // ============================================================================
 
-import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=32';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=32';
-import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=32';
+import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=33';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=33';
+import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=33';
 
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
 

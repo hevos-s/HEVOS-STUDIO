@@ -2900,6 +2900,53 @@ body.piano-roll-open .toast-container {
   transform: scale(1.35);
 }
 
+.midi-port-select {
+  max-width: 210px;
+  height: 30px;
+  min-height: 30px;
+  font-size: 11px;
+  padding: 0 24px 0 9px;
+}
+
+.midi-live-monitor {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(11, 13, 21, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 11px;
+  color: #94A3B8;
+  transition: border-color 0.14s ease, color 0.14s ease, background-color 0.14s ease;
+}
+.midi-live-monitor.has-signal {
+  color: #E2E8F0;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+.midi-live-monitor.is-flash {
+  border-color: rgba(34, 211, 238, 0.85);
+  color: #A5F3FC;
+  background: rgba(34, 211, 238, 0.14);
+}
+.midi-mon-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  flex-shrink: 0;
+  transition: background-color 0.1s ease, box-shadow 0.1s ease, transform 0.1s ease;
+}
+.midi-live-monitor.has-signal .midi-mon-led {
+  background: #10B981;
+}
+.midi-mon-led.is-pulse {
+  background: #22D3EE !important;
+  box-shadow: 0 0 10px #22D3EE;
+  transform: scale(1.4);
+}
+
 .device-ctrl-item {
   display: inline-flex;
   align-items: center;
@@ -2982,6 +3029,7 @@ body.piano-roll-open .toast-container {
 .piano-room-wrap {
   width: 100%;
   max-width: 1220px;
+  min-width: 0;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -3319,7 +3367,21 @@ body.piano-roll-open .toast-container {
   pointer-events: none;
 }
 
-/* 3-Octave Hybrid Multi-Touch Piano Keyboard */
+.falling-status-bar {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+}
+.falling-status-bar .falling-hit-hint {
+  position: static;
+  transform: none;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+/* Hybrid Multi-Touch Piano Keyboard Container */
 .hybrid-kb-shell {
   background: var(--glass-surface);
   border: 1px solid var(--border);
@@ -3329,6 +3391,8 @@ body.piano-roll-open .toast-container {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .hybrid-kb-viewport {
@@ -3490,6 +3554,202 @@ body.piano-roll-open .toast-container {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+}
+
+/* ==========================================================================
+   PHÒNG TẬP TỰ DO — TRỌN BỘ 88 PHÍM PIANO CHUẨN (A0–C8) & MINIMAP
+   ========================================================================== */
+.kb-88-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kb-88-jump-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.kb-88-kicker {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #FCD34D;
+  margin-right: 3px;
+}
+
+.kb-jump-btn {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.kb-88-view-group {
+  display: inline-flex;
+  align-items: center;
+}
+.kb-88-view-group .seg-btn {
+  min-height: 28px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+
+/* Bản đồ thu nhỏ 88 phím (Interactive Draggable Minimap) */
+.piano-88-minimap {
+  position: relative;
+  width: 100%;
+  height: 48px;
+  border-radius: 9px;
+  background: #08090F;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.minimap-keys-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.minimap-w {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  background: rgba(244, 244, 245, 0.78);
+  border-right: 1px solid rgba(9, 9, 11, 0.7);
+  border-radius: 0 0 2px 2px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 1px;
+}
+.minimap-w.is-middle-c {
+  background: rgba(251, 191, 36, 0.85);
+}
+
+.minimap-b {
+  position: absolute;
+  top: 2px;
+  height: 54%;
+  background: #0F111A;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-top: none;
+  border-radius: 0 0 2px 2px;
+  z-index: 2;
+}
+
+.minimap-tick {
+  font-size: 8px;
+  font-weight: 800;
+  color: #09090B;
+  line-height: 1;
+}
+
+.minimap-w.in-scale {
+  background: rgba(125, 211, 252, 0.92);
+}
+.minimap-w.scale-root {
+  background: #38BDF8;
+}
+.minimap-b.in-scale {
+  background: #0369A1;
+}
+.minimap-b.scale-root {
+  background: #7C3AED;
+}
+.minimap-key.is-target {
+  background: #22D3EE !important;
+}
+.minimap-key.is-active,
+.minimap-key.is-latched {
+  background: #F59E0B !important;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.9);
+  z-index: 3;
+}
+
+.minimap-viewport-box {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 30%;
+  width: 35%;
+  border: 2px solid #F59E0B;
+  background: rgba(245, 158, 11, 0.14);
+  box-shadow: inset 0 0 8px rgba(245, 158, 11, 0.22);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Bề rộng 52 phím trắng chuẩn (Desktop scroll mặc định 2080px, hoặc thu gọn vừa 1 màn hình) */
+.hybrid-kb-shell.is-piano-88 .kb-88-inner {
+  width: 2080px;
+  min-width: 2080px;
+}
+.hybrid-kb-shell.is-piano-88 .kb-88-inner.is-fit-88 {
+  width: 100%;
+  min-width: 0;
+}
+.hybrid-kb-viewport.is-fit-88 {
+  overflow-x: hidden;
+}
+
+.h-whites-layer.whites-52 {
+  grid-template-columns: repeat(52, minmax(0, 1fr));
+  gap: 1px;
+}
+
+.h-key.white.is-middle-c {
+  background: linear-gradient(180deg, #FFFBEB 0%, #FDE68A 100%);
+  border-color: #F59E0B;
+}
+
+.h-key-mid-tag {
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #92400E;
+  background: rgba(245, 158, 11, 0.24);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.h-key-lbl.is-landmark {
+  font-weight: 900;
+  opacity: 1;
+  color: #09090B;
+}
+
+.piano-88-keyboard.is-fit-88 .h-key-lbl.is-sub-note,
+.piano-88-keyboard.is-fit-88 .h-key-mid-tag,
+.piano-88-keyboard.is-fit-88 .h-key-kbd {
+  display: none;
+}
+
+.piano-88-keyboard.is-fit-88 .h-key-lbl.is-c,
+.piano-88-keyboard.is-fit-88 .h-key-lbl.is-landmark {
+  font-size: 8.5px;
+  letter-spacing: -0.04em;
+}
+
+.piano-88-keyboard.is-fit-88 .h-key.in-scale::before {
+  width: 4px;
+  height: 4px;
+  bottom: 20px;
+}
+.piano-88-keyboard.is-fit-88 .h-key.black.in-scale::before {
+  bottom: 10px;
 }
 
 /* 5. End-of-Session Report Screen */
@@ -9378,6 +9638,12 @@ body.piano-roll-open .toast-container {
     gap: 8px;
   }
 
+  .midi-port-select,
+  .midi-live-monitor {
+    max-width: 100%;
+    font-size: 10.5px;
+  }
+
   .free-play-hud {
     grid-template-columns: 1fr;
   }
@@ -9394,8 +9660,36 @@ body.piano-roll-open .toast-container {
     padding: 8px;
   }
 
+  .kb-88-jump-group {
+    flex-wrap: nowrap;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .kb-88-jump-group::-webkit-scrollbar { display: none; }
+
+  .kb-jump-btn {
+    flex-shrink: 0;
+    min-height: 32px;
+  }
+
+  .piano-88-minimap {
+    height: 42px;
+  }
+
+  .minimap-tick {
+    font-size: 7.5px;
+  }
+
   .hybrid-piano-scroll-inner {
     min-width: 780px;
+  }
+
+  .hybrid-kb-shell.is-piano-88 .kb-88-inner {
+    width: 1872px;
+    min-width: 1872px;
   }
 
   .hybrid-piano-keyboard {

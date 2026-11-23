@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=32';
+} from './theory.js?v=33';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=32';
+} from './audioEngine.js?v=33';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=32';
-import { PianoRoll } from './pianoRoll.js?v=32';
-import { downloadMidiFile } from './midiExport.js?v=32';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=32';
-import { MusicTrainer } from './musicTrainer.js?v=32';
-import { VocalStudio } from './vocalStudio.js?v=32';
-import { ArrangementStudio } from './arrangementStudio.js?v=32';
-import { createAmbientScene } from './ambientScene.js?v=32';
-import { midiController } from './midiController.js?v=32';
+} from './pitchToMidi.js?v=33';
+import { PianoRoll } from './pianoRoll.js?v=33';
+import { downloadMidiFile } from './midiExport.js?v=33';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=33';
+import { MusicTrainer } from './musicTrainer.js?v=33';
+import { VocalStudio } from './vocalStudio.js?v=33';
+import { ArrangementStudio } from './arrangementStudio.js?v=33';
+import { createAmbientScene } from './ambientScene.js?v=33';
+import { midiController } from './midiController.js?v=33';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=32';
+} from './stepSequencer.js?v=33';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -2284,6 +2284,7 @@ function init() {
     },
     onNoteOn: ({ midi, velocity, source }) => {
       if (state.activeSection !== 'studio' || source !== 'midi') return;
+      audioEngine.unlockSync();
       audioEngine.studioMidiNoteOn(midi, velocity).catch(() => {});
       if (!audioEngine.isPlaying && !state.midiRecordArmed) return;
 
@@ -2344,6 +2345,10 @@ function init() {
     },
   });
 
+  midiController.setAudioUnlockHandler(() => {
+    audioEngine.unlockSync();
+    audioEngine.ensureReady().catch(() => {});
+  });
   midiController.initWebMidi();
 
   // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist, Mastering & Tách Stems)

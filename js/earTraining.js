@@ -3,7 +3,7 @@
 // Hỗ trợ 3 chế độ: Loại Hợp Âm (Cơ bản -> Nâng cao), Quãng Nhạc & Bậc Hợp Âm (I-vi)
 // ============================================================================
 
-import { midiToNoteName, pcToNoteName } from './theory.js?v=32';
+import { midiToNoteName, pcToNoteName } from './theory.js?v=33';
 
 const EAR_STORAGE_KEY = 'hevos_ear_training_v1';
 

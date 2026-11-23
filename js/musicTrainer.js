@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=32';
-import { getQwertyLabelForMidi } from './midiController.js?v=32';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=33';
+import { getQwertyLabelForMidi } from './midiController.js?v=33';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=32';
+} from './musicTheory.js?v=33';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=32';
+} from './earTraining.js?v=33';
 import {
   ALL_LESSONS,
   CURRICULUM_STAGES,
@@ -30,9 +30,9 @@ import {
   recordLessonExerciseScore,
   resetTheoryProgress,
   setLastLessonId,
-} from './curriculumData.js?v=32';
-import { TheoryExerciseRunner } from './theoryExercises.js?v=32';
-import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=32';
+} from './curriculumData.js?v=33';
+import { TheoryExerciseRunner } from './theoryExercises.js?v=33';
+import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=33';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -49,12 +49,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=32';
+} from './trainerData.js?v=33';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=32';
+} from './staffRenderer.js?v=33';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
@@ -98,6 +98,7 @@ export class MusicTrainer {
       scaleKeyPc: 3, // Eb Trưởng mặc định
       scaleType: 'major',
       showScaleGuide: true,
+      viewMode: 'scroll', // 'scroll' | 'fit' cho bàn phím 88 phím trong Phòng tập Tự do
     };
 
     this.chordPractice = {
@@ -132,7 +133,11 @@ export class MusicTrainer {
 
     this._keyGeometry = new Map();
     this._keyElByMidi = new Map();
+    this._minimapElByMidi = new Map();
+    this._lastAutoScrollAt = 0;
     this._signalLedTimer = null;
+    this._midiMonitorTimer = null;
+    this._lastMidiMonitorText = '';
 
     this.earState = {
       mode: 'chord', // 'chord' | 'interval' | 'degree'
@@ -190,10 +195,21 @@ export class MusicTrainer {
     };
     document.addEventListener('visibilitychange', this._onVisibilityChange);
 
+    this._onWindowResize = () => {
+      if (!this.isSectionActive) return;
+      if (this.view === 'piano-room') {
+        this._updateMinimapViewport();
+        if (this.pianoSubMode === 'falling') {
+          this._drawFallingNotesFrame();
+        }
+      }
+    };
+    window.addEventListener('resize', this._onWindowResize);
+
     if (this.midi) {
       this._unsubMidi = this.midi.subscribe({
         onDeviceChange: () => this._updateDeviceBarStatus(),
-        onSignal: () => this._flashMidiSignalLed(),
+        onSignal: (sig) => this._flashMidiSignalLed(sig),
         onOctaveChange: () => {
           if (this.view === 'piano-room') this._rebuildHybridKeyboard();
           if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
@@ -227,13 +243,18 @@ export class MusicTrainer {
     this.isSectionActive = Boolean(active);
     if (!active) {
       this.stopActiveSession();
-    } else if (
-      this.view === 'academy' ||
-      this.view === 'home' ||
-      this.view === 'piano-room' ||
-      this.view === 'ear-training'
-    ) {
-      this.render();
+    } else {
+      if (this.midi && !this.midi.midiAccess) {
+        this.midi.initWebMidi();
+      }
+      if (
+        this.view === 'academy' ||
+        this.view === 'home' ||
+        this.view === 'piano-room' ||
+        this.view === 'ear-training'
+      ) {
+        this.render();
+      }
     }
   }
 
@@ -1721,12 +1742,25 @@ export class MusicTrainer {
   _renderDeviceBarHtml() {
     const devStatus = this.midi
       ? this.midi.getDeviceStatus()
-      : { connected: false, label: 'Chế độ: Phím ảo & Bàn phím PC' };
+      : { connected: false, inputs: [], selectedInputId: 'all', lastSignal: null, label: 'Chế độ: Phím ảo & Bàn phím PC' };
     const rangeLbl = this.midi ? this.midi.getOctaveRangeLabel() : 'C3–B5';
     const octShift = this.midi ? this.midi.octaveShift : 0;
     const qwertyOn = this.midi ? this.midi.qwertyEnabled : true;
     const latchOn = this.midi ? this.midi.chordLatchEnabled : false;
     const latchedCount = this.midi ? this.midi.latchedNotes.size : 0;
+    const inputs = Array.isArray(devStatus.inputs) ? devStatus.inputs : [];
+    const selId = devStatus.selectedInputId || 'all';
+    const portOptsHtml = [
+      `<option value="all"${selId === 'all' ? ' selected' : ''}>Tất cả thiết bị MIDI đang cắm</option>`,
+      ...inputs.map(
+        (inp) => `<option value="${escapeHtml(inp.id)}"${selId === inp.id ? ' selected' : ''}>${escapeHtml(inp.name)}</option>`
+      ),
+    ].join('');
+    const monitorText =
+      this._lastMidiMonitorText ||
+      (devStatus.lastSignal && devStatus.lastSignal.label) ||
+      'Tín hiệu MIDI: Chờ phím đàn...';
+    const hasMonSignal = Boolean(this._lastMidiMonitorText || devStatus.lastSignal);
 
     return `
       <div class="trainer-device-bar">
@@ -1734,6 +1768,15 @@ export class MusicTrainer {
           <div id="midi-status-pill" class="midi-status-pill${devStatus.connected ? ' connected' : ''}">
             <span id="midi-signal-led" class="midi-signal-led" aria-hidden="true"></span>
             <span id="midi-status-text">${escapeHtml(devStatus.label)}</span>
+          </div>
+
+          <select id="midi-port-select" class="studio-select compact midi-port-select${inputs.length > 0 ? '' : ' hidden'}" aria-label="Chọn cổng MIDI Input">
+            ${portOptsHtml}
+          </select>
+
+          <div id="midi-live-monitor" class="midi-live-monitor mono-val${hasMonSignal ? ' has-signal' : ''}" title="Đèn & thông số tín hiệu MIDI phần cứng theo thời gian thực">
+            <span id="midi-mon-led" class="midi-mon-led" aria-hidden="true"></span>
+            <span id="midi-live-monitor-text">${escapeHtml(monitorText)}</span>
           </div>
         </div>
 
@@ -1747,10 +1790,10 @@ export class MusicTrainer {
             </select>
           </label>
 
-          <div class="octave-ctrl-group" role="group" aria-label="Dịch quãng tám bàn phím">
-            <button type="button" id="btn-oct-down" class="btn-mini-pill" ${octShift <= -1 ? 'disabled' : ''} title="Dịch xuống 1 quãng tám">Oct -1</button>
+          <div class="octave-ctrl-group" role="group" aria-label="Dịch quãng tám bàn phím PC QWERTY">
+            <button type="button" id="btn-oct-down" class="btn-mini-pill" ${octShift <= -1 ? 'disabled' : ''} title="Dịch quãng phím PC xuống 1 quãng tám">Oct -1</button>
             <span id="trainer-octave-badge" class="octave-badge mono-val">${rangeLbl}</span>
-            <button type="button" id="btn-oct-up" class="btn-mini-pill" ${octShift >= 1 ? 'disabled' : ''} title="Dịch lên 1 quãng tám">Oct +1</button>
+            <button type="button" id="btn-oct-up" class="btn-mini-pill" ${octShift >= 1 ? 'disabled' : ''} title="Dịch quãng phím PC lên 1 quãng tám">Oct +1</button>
           </div>
 
           <button type="button" id="btn-qwerty-toggle" class="toggle-pill desktop-only${qwertyOn ? ' active' : ''}" aria-pressed="${qwertyOn}" title="Bật/Tắt gõ phím máy tính Z-M & Q-U">
@@ -1853,6 +1896,13 @@ export class MusicTrainer {
   }
 
   _bindDeviceBarEvents() {
+    const portSel = this.root.querySelector('#midi-port-select');
+    if (portSel && this.midi) {
+      portSel.addEventListener('change', (e) => {
+        this.midi.setSelectedInputId(e.target.value);
+      });
+    }
+
     const timbreSel = this.root.querySelector('#trainer-timbre-select');
     if (timbreSel) {
       timbreSel.addEventListener('change', (e) => {
@@ -1907,6 +1957,7 @@ export class MusicTrainer {
   _updateDeviceBarStatus() {
     const statusPill = this.root.querySelector('#midi-status-pill');
     const statusText = this.root.querySelector('#midi-status-text');
+    const portSel = this.root.querySelector('#midi-port-select');
     const octBadge = this.root.querySelector('#trainer-octave-badge');
     const octDown = this.root.querySelector('#btn-oct-down');
     const octUp = this.root.querySelector('#btn-oct-up');
@@ -1916,6 +1967,20 @@ export class MusicTrainer {
     const st = this.midi.getDeviceStatus();
     if (statusPill) statusPill.classList.toggle('connected', st.connected);
     if (statusText) statusText.textContent = st.label;
+
+    if (portSel) {
+      const inputs = Array.isArray(st.inputs) ? st.inputs : [];
+      portSel.classList.toggle('hidden', inputs.length === 0);
+      const selId = st.selectedInputId || 'all';
+      portSel.innerHTML = [
+        `<option value="all"${selId === 'all' ? ' selected' : ''}>Tất cả thiết bị MIDI đang cắm</option>`,
+        ...inputs.map(
+          (inp) => `<option value="${escapeHtml(inp.id)}"${selId === inp.id ? ' selected' : ''}>${escapeHtml(inp.name)}</option>`
+        ),
+      ].join('');
+      portSel.value = selId;
+    }
+
     if (octBadge) octBadge.textContent = this.midi.getOctaveRangeLabel();
     if (octDown) octDown.disabled = this.midi.octaveShift <= -1;
     if (octUp) octUp.disabled = this.midi.octaveShift >= 1;
@@ -1925,14 +1990,27 @@ export class MusicTrainer {
     }
   }
 
-  _flashMidiSignalLed() {
+  _flashMidiSignalLed(sig = null) {
     const led = this.root.querySelector('#midi-signal-led');
-    if (!led) return;
-    led.classList.add('is-pulse');
+    const mon = this.root.querySelector('#midi-live-monitor');
+    const monLed = this.root.querySelector('#midi-mon-led');
+    const monText = this.root.querySelector('#midi-live-monitor-text');
+
+    if (sig && sig.label) {
+      this._lastMidiMonitorText = sig.label;
+      if (monText) monText.textContent = sig.label;
+      if (mon) mon.classList.add('has-signal');
+    }
+
+    if (led) led.classList.add('is-pulse');
+    if (monLed) monLed.classList.add('is-pulse');
+    if (mon) mon.classList.add('is-flash');
     clearTimeout(this._signalLedTimer);
     this._signalLedTimer = setTimeout(() => {
-      if (led.isConnected) led.classList.remove('is-pulse');
-    }, 150);
+      if (led && led.isConnected) led.classList.remove('is-pulse');
+      if (monLed && monLed.isConnected) monLed.classList.remove('is-pulse');
+      if (mon && mon.isConnected) mon.classList.remove('is-flash');
+    }, 170);
   }
 
   _renderPianoRoom() {
@@ -1947,17 +2025,27 @@ export class MusicTrainer {
           ? this._renderFallingControlsHtml()
           : this._renderFreePlayHudHtml();
 
-    const fallingCanvasHtml =
+    const fallingStatusBarHtml =
       this.pianoSubMode === 'falling'
         ? `
-          <div class="falling-stage-wrap">
-            <canvas id="falling-notes-canvas" aria-label="Sân khấu nốt rơi luyện giai điệu"></canvas>
+          <div class="falling-status-bar">
             <div class="falling-hit-hint" id="falling-status-overlay">
               Bấm <strong>Bắt đầu</strong> rồi chạm phím đàn đúng thời điểm nốt rơi chạm vạch
             </div>
           </div>
         `
         : '';
+
+    const fallingCanvasHtml =
+      this.pianoSubMode === 'falling'
+        ? `
+          <div class="falling-stage-wrap">
+            <canvas id="falling-notes-canvas" aria-label="Sân khấu nốt rơi luyện giai điệu trên 88 phím"></canvas>
+          </div>
+        `
+        : '';
+
+    const isFit = this.pianoConfig.viewMode === 'fit';
 
     this.root.innerHTML = `
       <div class="trainer-shell">
@@ -1981,18 +2069,13 @@ export class MusicTrainer {
 
           <div class="piano-mode-stage">${subModeHtml}</div>
 
-          <div class="hybrid-kb-shell">
-            <div class="mobile-kb-nav mobile-only" aria-label="Chuyển quãng trên Mobile">
-              <div class="mobile-kb-oct-pills">
-                <button type="button" class="btn-mini-pill" data-mobile-kb-jump="0">Quãng thấp</button>
-                <button type="button" class="btn-mini-pill active" data-mobile-kb-jump="0.45">Quãng giữa</button>
-                <button type="button" class="btn-mini-pill" data-mobile-kb-jump="1">Quãng cao</button>
-              </div>
-              <input type="range" id="mobile-kb-scroll" class="studio-range" min="0" max="100" value="35" aria-label="Cuộn ngang dải phím Piano" />
-            </div>
+          <div class="hybrid-kb-shell is-piano-88">
+            ${this._render88KeyToolbarHtml()}
+            ${this._renderMinimap88Html()}
+            ${fallingStatusBarHtml}
 
-            <div class="hybrid-kb-viewport" id="hybrid-kb-viewport">
-              <div class="hybrid-piano-scroll-inner" id="hybrid-piano-scroll-inner">
+            <div class="hybrid-kb-viewport${isFit ? ' is-fit-88' : ''}" id="hybrid-kb-viewport">
+              <div class="hybrid-piano-scroll-inner kb-88-inner${isFit ? ' is-fit-88' : ''}" id="hybrid-piano-scroll-inner">
                 ${fallingCanvasHtml}
                 ${this._renderHybridKeyboardHtml()}
               </div>
@@ -2005,6 +2088,7 @@ export class MusicTrainer {
     this._bindDeviceBarEvents();
     this._bindTopSectionTabsEvents();
     this._bindPianoRoomEvents();
+    this._bindMinimapEvents();
     this._bindHybridKeyboardEvents();
     this._syncKeyboardScaleAndTargets();
 
@@ -2014,19 +2098,23 @@ export class MusicTrainer {
       this._syncChordWaitUI();
     } else if (this.pianoSubMode === 'falling') {
       this._prepareFallingSong(this.falling.song, false);
-      requestAnimationFrame(() => this._drawFallingNotesFrame());
     }
 
-    // Tự căn giữa nhẹ dải phím trên Mobile để thấy ngay quãng C4 giữa đàn
-    const vp = this.root.querySelector('#hybrid-kb-viewport');
-    const scroller = this.root.querySelector('#mobile-kb-scroll');
-    if (vp && window.innerWidth <= 768) {
-      requestAnimationFrame(() => {
-        const maxScroll = Math.max(0, vp.scrollWidth - vp.clientWidth);
-        vp.scrollLeft = Math.round(maxScroll * 0.36);
-        if (scroller) scroller.value = '36';
-      });
-    }
+    // Mặc định mở vùng trung tâm C3–C6 (tâm gần D4 = MIDI 62) & đồng bộ khung nhìn Minimap
+    requestAnimationFrame(() => {
+      if (this.view !== 'piano-room') return;
+      if (this.pianoSubMode === 'falling' && this.falling.notes.length > 0 && this.pianoConfig.viewMode === 'scroll') {
+        const sortedMidis = this.falling.notes.map((n) => n.midi).sort((a, b) => a - b);
+        const medianMidi = sortedMidis[Math.floor(sortedMidis.length / 2)] || 62;
+        this._scrollKeyboardToMidi(medianMidi, false, 'center');
+      } else {
+        this._scrollKeyboardToMidi(62, false, 'center');
+      }
+      this._updateMinimapViewport();
+      if (this.pianoSubMode === 'falling') {
+        this._drawFallingNotesFrame();
+      }
+    });
   }
 
   _renderFreePlayHudHtml() {
@@ -2197,20 +2285,112 @@ export class MusicTrainer {
     `;
   }
 
+  _render88KeyToolbarHtml() {
+    const jumps = [
+      { midi: 21, label: 'A0 Trầm', align: 'left' },
+      { midi: 36, label: 'C2', align: 'left' },
+      { midi: 48, label: 'C3', align: 'center' },
+      { midi: 60, label: 'C4 (Tâm)', align: 'center' },
+      { midi: 72, label: 'C5', align: 'center' },
+      { midi: 96, label: 'C7 Cao', align: 'right' },
+    ];
+    const jumpsHtml = jumps
+      .map(
+        (j) =>
+          `<button type="button" class="btn-mini-pill kb-jump-btn${j.midi === 60 ? ' active' : ''}" data-oct-jump-midi="${j.midi}" data-oct-align="${j.align}">${j.label}</button>`
+      )
+      .join('');
+    const isFit = this.pianoConfig.viewMode === 'fit';
+
+    return `
+      <div class="kb-88-toolbar">
+        <div class="kb-88-jump-group" role="group" aria-label="Nhảy nhanh tới quãng tám 88 phím">
+          <span class="kb-88-kicker desktop-only">88 Phím (A0–C8):</span>
+          ${jumpsHtml}
+        </div>
+        <div class="kb-88-view-group desktop-only" role="group" aria-label="Chế độ hiển thị 88 phím">
+          <button type="button" class="seg-btn${!isFit ? ' active' : ''}" data-kb-view-mode="scroll">
+            Phím chuẩn dễ bấm (Cuộn mượt)
+          </button>
+          <button type="button" class="seg-btn${isFit ? ' active' : ''}" data-kb-view-mode="fit">
+            Thu gọn đủ 88 phím trên 1 màn hình
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderMinimap88Html() {
+    const whites = [];
+    const blacks = [];
+    let whiteCount = 0;
+
+    for (let midi = 21; midi <= 108; midi++) {
+      const pc = ((midi % 12) + 12) % 12;
+      const isBlack = pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10;
+      const isC = pc === 0;
+      const label = midi === 21 ? 'A0' : isC ? midiToNoteName(midi, false) : '';
+      if (!isBlack) {
+        whites.push({ midi, pc, whiteIndex: whiteCount, label, isC });
+        whiteCount += 1;
+      } else {
+        blacks.push({ midi, pc, anchor: whiteCount });
+      }
+    }
+
+    const whiteW = 1 / whiteCount;
+    const blackW = whiteW * 0.62;
+
+    const whiteMiniHtml = whites
+      .map((w) => {
+        const leftPct = (w.whiteIndex * whiteW * 100).toFixed(4);
+        const widthPct = (whiteW * 100).toFixed(4);
+        const cls = ['minimap-key minimap-w', w.isC ? 'is-c' : '', w.midi === 60 ? 'is-middle-c' : '']
+          .filter(Boolean)
+          .join(' ');
+        return `
+          <div class="${cls}" data-mini-midi="${w.midi}" data-pc="${w.pc}" style="left: ${leftPct}%; width: ${widthPct}%">
+            ${w.label ? `<span class="minimap-tick mono-val">${w.label}</span>` : ''}
+          </div>
+        `;
+      })
+      .join('');
+
+    const blackMiniHtml = blacks
+      .map((b) => {
+        const leftPct = ((b.anchor - 0.31) * whiteW * 100).toFixed(4);
+        const widthPct = (blackW * 100).toFixed(4);
+        return `<div class="minimap-key minimap-b" data-mini-midi="${b.midi}" data-pc="${b.pc}" style="left: ${leftPct}%; width: ${widthPct}%"></div>`;
+      })
+      .join('');
+
+    return `
+      <div class="piano-88-minimap" id="piano-88-minimap" role="slider" aria-label="Bản đồ thu nhỏ 88 phím (bấm hoặc kéo để trượt nhanh)">
+        <div class="minimap-keys-track">
+          ${whiteMiniHtml}
+          ${blackMiniHtml}
+        </div>
+        <div id="minimap-viewport-box" class="minimap-viewport-box"></div>
+      </div>
+    `;
+  }
+
   _renderHybridKeyboardHtml() {
-    const baseMidi = this.midi ? this.midi.baseMidi : 48;
-    const totalSemis = 36; // 3 quãng tám (C..B x 3)
+    const pcBaseMidi = this.midi ? this.midi.baseMidi : 48;
     const keys = [];
     let whiteCount = 0;
 
-    for (let i = 0; i < totalSemis; i++) {
-      const midi = baseMidi + i;
+    // Trọn bộ 88 phím Piano chuẩn: A0 (MIDI 21) -> C8 (MIDI 108) = 52 phím trắng + 36 phím đen
+    for (let midi = 21; midi <= 108; midi++) {
       const pc = ((midi % 12) + 12) % 12;
       const isBlack = pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10;
-      const kbd = getQwertyLabelForMidi(midi, baseMidi);
-      const noteLabel = pc === 0 ? midiToNoteName(midi, false) : midiToNoteName(midi, false).replace(/\d+$/, '');
+      const kbd = getQwertyLabelForMidi(midi, pcBaseMidi);
+      const isLandmark = midi === 21 || pc === 0;
+      const isMiddleC = midi === 60;
+      const fullName = midiToNoteName(midi, false);
+      const noteLabel = isLandmark ? fullName : fullName.replace(/\d+$/, '');
       if (!isBlack) {
-        keys.push({ midi, pc, isBlack: false, whiteIndex: whiteCount, kbd, noteLabel });
+        keys.push({ midi, pc, isBlack: false, whiteIndex: whiteCount, kbd, noteLabel, isLandmark, isMiddleC });
         whiteCount += 1;
       } else {
         keys.push({ midi, pc, isBlack: true, leftWhiteAnchor: whiteCount, kbd, noteLabel });
@@ -2218,7 +2398,7 @@ export class MusicTrainer {
     }
 
     this._keyGeometry.clear();
-    const whiteW = 1 / whiteCount;
+    const whiteW = 1 / whiteCount; // 1 / 52
     const blackW = whiteW * 0.62;
 
     const whiteHtml = keys
@@ -2229,10 +2409,19 @@ export class MusicTrainer {
           wRatio: whiteW,
           isBlack: false,
         });
+        const lblCls = [
+          'h-key-lbl',
+          k.pc === 0 ? 'is-c' : '',
+          k.midi === 21 ? 'is-landmark' : '',
+          k.isLandmark ? '' : 'is-sub-note',
+        ]
+          .filter(Boolean)
+          .join(' ');
         return `
-          <button type="button" class="h-key white" data-midi="${k.midi}" data-pc="${k.pc}" aria-label="${midiToNoteName(k.midi, false)}">
+          <button type="button" class="h-key white${k.isMiddleC ? ' is-middle-c' : ''}" data-midi="${k.midi}" data-pc="${k.pc}" aria-label="${midiToNoteName(k.midi, false)}">
             ${k.kbd ? `<span class="h-key-kbd desktop-only">${k.kbd}</span>` : ''}
-            <span class="h-key-lbl${k.pc === 0 ? ' is-c' : ''}">${k.noteLabel}</span>
+            ${k.isMiddleC ? `<span class="h-key-mid-tag">Tâm</span>` : ''}
+            <span class="${lblCls}">${k.noteLabel}</span>
           </button>
         `;
       })
@@ -2256,9 +2445,10 @@ export class MusicTrainer {
       })
       .join('');
 
+    const isFit = this.pianoConfig.viewMode === 'fit';
     return `
-      <div class="hybrid-piano-keyboard" id="hybrid-piano-keyboard" role="group" aria-label="Bàn phím Piano tương tác 3 quãng tám">
-        <div class="h-whites-layer">${whiteHtml}</div>
+      <div class="hybrid-piano-keyboard piano-88-keyboard${isFit ? ' is-fit-88' : ''}" id="hybrid-piano-keyboard" role="group" aria-label="Bàn phím Piano chuẩn 88 phím A0 đến C8">
+        <div class="h-whites-layer whites-52">${whiteHtml}</div>
         <div class="h-blacks-layer">${blackHtml}</div>
       </div>
     `;
@@ -2267,13 +2457,154 @@ export class MusicTrainer {
   _rebuildHybridKeyboard() {
     const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
     const oldKb = this.root.querySelector('#hybrid-piano-keyboard');
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
     if (!inner || !oldKb) return;
+    const prevScroll = vp ? vp.scrollLeft : 0;
     oldKb.outerHTML = this._renderHybridKeyboardHtml();
     this._bindHybridKeyboardEvents();
     this._syncKeyboardScaleAndTargets();
+    if (vp) vp.scrollLeft = prevScroll;
+    this._updateMinimapViewport();
     if (this.pianoSubMode === 'falling') {
       this._drawFallingNotesFrame();
     }
+  }
+
+  _setKeyboardViewMode(mode, recenter = true) {
+    const next = mode === 'fit' ? 'fit' : 'scroll';
+    this.pianoConfig.viewMode = next;
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
+    const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
+    const kb = this.root.querySelector('#hybrid-piano-keyboard');
+    if (vp) vp.classList.toggle('is-fit-88', next === 'fit');
+    if (inner) inner.classList.toggle('is-fit-88', next === 'fit');
+    if (kb) kb.classList.toggle('is-fit-88', next === 'fit');
+
+    this.root.querySelectorAll('[data-kb-view-mode]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.kbViewMode === next);
+    });
+
+    if (recenter && next === 'scroll') {
+      this._scrollKeyboardToMidi(62, false, 'center');
+    }
+    requestAnimationFrame(() => {
+      this._updateMinimapViewport();
+      if (this.pianoSubMode === 'falling') {
+        this._drawFallingNotesFrame();
+      }
+    });
+  }
+
+  _scrollKeyboardToMidi(midi, smooth = true, align = 'center') {
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
+    const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
+    const g = this._keyGeometry.get(Math.max(21, Math.min(108, Math.round(midi))));
+    if (!vp || !inner || !g) return;
+
+    const totalW = Math.max(vp.clientWidth, inner.scrollWidth || inner.clientWidth);
+    const maxScroll = Math.max(0, totalW - vp.clientWidth);
+    if (maxScroll <= 0) {
+      this._updateMinimapViewport();
+      return;
+    }
+
+    const keyLeftPx = g.xRatio * totalW;
+    const keyCenterPx = (g.xRatio + g.wRatio / 2) * totalW;
+    let targetLeft = keyCenterPx - vp.clientWidth / 2;
+    if (align === 'left') {
+      targetLeft = keyLeftPx - 12;
+    } else if (align === 'right') {
+      targetLeft = totalW;
+    }
+    targetLeft = Math.max(0, Math.min(maxScroll, Math.round(targetLeft)));
+
+    if (smooth && typeof vp.scrollTo === 'function') {
+      vp.scrollTo({ left: targetLeft, behavior: 'smooth' });
+    } else {
+      vp.scrollLeft = targetLeft;
+    }
+    this._updateMinimapViewport(targetLeft);
+  }
+
+  _maybeAutoScrollToMidi(midi) {
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
+    const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
+    const g = this._keyGeometry.get(Math.max(21, Math.min(108, Math.round(midi))));
+    if (!vp || !inner || !g) return;
+    const totalW = Math.max(vp.clientWidth, inner.scrollWidth || inner.clientWidth);
+    if (totalW <= vp.clientWidth + 8) return;
+
+    const keyX = (g.xRatio + g.wRatio / 2) * totalW;
+    const visLeft = vp.scrollLeft + 28;
+    const visRight = vp.scrollLeft + vp.clientWidth - 28;
+    if (keyX >= visLeft && keyX <= visRight) return;
+
+    const now = performance.now();
+    if (now - this._lastAutoScrollAt < 180) return;
+    this._lastAutoScrollAt = now;
+    this._scrollKeyboardToMidi(midi, true, 'center');
+  }
+
+  _updateMinimapViewport(overrideScrollLeft = null) {
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
+    const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
+    const box = this.root.querySelector('#minimap-viewport-box');
+    if (!vp || !inner || !box) return;
+
+    const totalW = Math.max(1, inner.scrollWidth || inner.clientWidth);
+    const visW = Math.min(totalW, vp.clientWidth || totalW);
+    const curLeft = overrideScrollLeft !== null ? overrideScrollLeft : vp.scrollLeft;
+    const leftPct = Math.max(0, Math.min(100, (curLeft / totalW) * 100));
+    const widthPct = Math.max(6, Math.min(100 - leftPct, (visW / totalW) * 100));
+
+    box.style.left = `${leftPct.toFixed(2)}%`;
+    box.style.width = `${widthPct.toFixed(2)}%`;
+  }
+
+  _bindMinimapEvents() {
+    const minimap = this.root.querySelector('#piano-88-minimap');
+    this._minimapElByMidi.clear();
+    if (!minimap) return;
+
+    minimap.querySelectorAll('[data-mini-midi]').forEach((el) => {
+      const m = Number(el.dataset.miniMidi);
+      if (Number.isFinite(m)) this._minimapElByMidi.set(m, el);
+    });
+
+    const panToClientX = (clientX) => {
+      if (this.pianoConfig.viewMode === 'fit' && window.innerWidth > 768) {
+        this._setKeyboardViewMode('scroll', false);
+      }
+      const rect = minimap.getBoundingClientRect();
+      const vp = this.root.querySelector('#hybrid-kb-viewport');
+      const inner = this.root.querySelector('#hybrid-piano-scroll-inner');
+      if (!vp || !inner || rect.width <= 0) return;
+
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const totalW = Math.max(vp.clientWidth, inner.scrollWidth || inner.clientWidth);
+      const maxScroll = Math.max(0, totalW - vp.clientWidth);
+      const targetLeft = Math.max(0, Math.min(maxScroll, Math.round(ratio * totalW - vp.clientWidth / 2)));
+      vp.scrollLeft = targetLeft;
+      this._updateMinimapViewport(targetLeft);
+    };
+
+    let dragging = false;
+    minimap.addEventListener('pointerdown', (e) => {
+      if (e.cancelable) e.preventDefault();
+      dragging = true;
+      try { minimap.setPointerCapture(e.pointerId); } catch (_) {}
+      panToClientX(e.clientX);
+    });
+    minimap.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      panToClientX(e.clientX);
+    });
+    const endDrag = () => {
+      dragging = false;
+    };
+    minimap.addEventListener('pointerup', endDrag);
+    minimap.addEventListener('pointercancel', endDrag);
+    minimap.addEventListener('lostpointercapture', endDrag);
   }
 
   _bindPianoRoomEvents() {
@@ -2290,35 +2621,37 @@ export class MusicTrainer {
       });
     });
 
-    // Mobile octave jump & scroll slider
-    const vp = this.root.querySelector('#hybrid-kb-viewport');
-    const scroller = this.root.querySelector('#mobile-kb-scroll');
-    if (vp && scroller) {
-      scroller.addEventListener('input', (e) => {
-        const ratio = Number(e.target.value) / 100;
-        const maxScroll = Math.max(0, vp.scrollWidth - vp.clientWidth);
-        vp.scrollLeft = Math.round(maxScroll * ratio);
+    // Nút nhảy quãng tám 88 phím
+    this.root.querySelectorAll('[data-oct-jump-midi]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetMidi = Number(btn.dataset.octJumpMidi) || 60;
+        const align = btn.dataset.octAlign || 'center';
+        if (this.pianoConfig.viewMode === 'fit' && window.innerWidth > 768) {
+          this._setKeyboardViewMode('scroll', false);
+        }
+        this._scrollKeyboardToMidi(targetMidi, true, align);
+        this.root.querySelectorAll('[data-oct-jump-midi]').forEach((b) =>
+          b.classList.toggle('active', b === btn)
+        );
       });
+    });
+
+    // Nút chuyển chế độ xem trên Desktop (Cuộn mượt vs Thu gọn 88 phím)
+    this.root.querySelectorAll('[data-kb-view-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this._setKeyboardViewMode(btn.dataset.kbViewMode, true);
+      });
+    });
+
+    const vp = this.root.querySelector('#hybrid-kb-viewport');
+    if (vp) {
       vp.addEventListener(
         'scroll',
         () => {
-          const maxScroll = Math.max(1, vp.scrollWidth - vp.clientWidth);
-          scroller.value = String(Math.round((vp.scrollLeft / maxScroll) * 100));
+          this._updateMinimapViewport();
         },
         { passive: true }
       );
-      this.root.querySelectorAll('[data-mobile-kb-jump]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const ratio = Number(btn.dataset.mobileKbJump) || 0;
-          const maxScroll = Math.max(0, vp.scrollWidth - vp.clientWidth);
-          const targetLeft = Math.round(maxScroll * ratio);
-          vp.scrollLeft = targetLeft;
-          scroller.value = String(maxScroll > 0 ? Math.round((targetLeft / maxScroll) * 100) : 0);
-          this.root.querySelectorAll('[data-mobile-kb-jump]').forEach((b) =>
-            b.classList.toggle('active', b === btn)
-          );
-        });
-      });
     }
 
     if (this.pianoSubMode === 'free') {
@@ -2533,6 +2866,13 @@ export class MusicTrainer {
       el.classList.toggle('in-scale', inScale);
       el.classList.toggle('scale-root', isRoot);
       el.classList.toggle('is-target', isTarget);
+
+      const mEl = this._minimapElByMidi.get(midi);
+      if (mEl) {
+        mEl.classList.toggle('in-scale', inScale);
+        mEl.classList.toggle('scale-root', isRoot);
+        mEl.classList.toggle('is-target', isTarget);
+      }
     });
   }
 
@@ -2540,13 +2880,20 @@ export class MusicTrainer {
     if (!evt || !Number.isFinite(evt.midi)) return;
     if (!this.isSectionActive) return;
 
-    if (this.view === 'academy' && this.academySubView === 'exercise' && this.exerciseRunner) {
-      this.exerciseRunner.handleNoteOn(evt.midi, evt.velocity);
+    if (this.view === 'academy') {
+      if (this.academySubView === 'exercise' && this.exerciseRunner) {
+        this.exerciseRunner.handleNoteOn(evt.midi, evt.velocity);
+      } else if (evt.source === 'midi') {
+        this.audio.trainerNoteOn(evt.midi, evt.velocity, this.pianoConfig.timbre).catch(() => {});
+      }
       return;
     }
 
     if (this.view === 'piano-room') {
       this.audio.trainerNoteOn(evt.midi, evt.velocity, this.pianoConfig.timbre).catch(() => {});
+      if (evt.source === 'midi' && this.pianoConfig.viewMode === 'scroll') {
+        this._maybeAutoScrollToMidi?.(evt.midi);
+      }
       if (this.pianoSubMode === 'falling' && this.falling.playing) {
         this._handleFallingNoteInput(evt.midi);
       }
@@ -2555,6 +2902,7 @@ export class MusicTrainer {
 
     // Trong các bài Đọc Khuông Nhạc cũ -> bàn phím USB-MIDI thật vẫn hoạt động mượt mà
     if (evt.source === 'midi') {
+      this.audio.trainerNoteOn(evt.midi, evt.velocity, this.pianoConfig.timbre).catch(() => {});
       const pc = ((Math.round(evt.midi) % 12) + 12) % 12;
       this._handlePianoKeyInput(pc);
     }
@@ -2589,8 +2937,15 @@ export class MusicTrainer {
     if (this.view !== 'piano-room') return;
 
     this._keyElByMidi.forEach((el, midi) => {
-      el.classList.toggle('is-active', activeSet.has(midi));
-      el.classList.toggle('is-latched', latchSet.has(midi));
+      const isAct = activeSet.has(midi);
+      const isLat = latchSet.has(midi);
+      el.classList.toggle('is-active', isAct);
+      el.classList.toggle('is-latched', isLat);
+      const mEl = this._minimapElByMidi.get(midi);
+      if (mEl) {
+        mEl.classList.toggle('is-active', isAct);
+        mEl.classList.toggle('is-latched', isLat);
+      }
     });
 
     if (this.pianoSubMode === 'free') {
@@ -2813,6 +3168,11 @@ export class MusicTrainer {
 
     this._updateFallingHudUI();
     this._syncKeyboardScaleAndTargets();
+    if (this.falling.notes.length > 0 && this.pianoConfig.viewMode === 'scroll') {
+      const sortedMidis = this.falling.notes.map((n) => n.midi).sort((a, b) => a - b);
+      const medianMidi = sortedMidis[Math.floor(sortedMidis.length / 2)] || 62;
+      this._scrollKeyboardToMidi(medianMidi, false, 'center');
+    }
     if (redraw) this._drawFallingNotesFrame();
   }
 
@@ -2882,6 +3242,9 @@ export class MusicTrainer {
             fn.waitingForNote = nextTarget;
             this._syncKeyboardScaleAndTargets();
             this._updateFallingHudUI();
+            if (this.pianoConfig.viewMode === 'scroll') {
+              this._maybeAutoScrollToMidi(nextTarget.midi);
+            }
           }
         } else if (fn.waitingForNote) {
           fn.waitingForNote = null;
@@ -2994,8 +3357,9 @@ export class MusicTrainer {
     if (!canvas) return;
     const wrap = canvas.parentElement;
     if (!wrap) return;
+    const kb = this.root.querySelector('#hybrid-piano-keyboard');
 
-    const cssW = Math.max(240, wrap.clientWidth);
+    const cssW = Math.max(240, kb && kb.clientWidth > 0 ? kb.clientWidth : wrap.clientWidth);
     const cssH = Math.max(150, wrap.clientHeight);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const pxW = Math.round(cssW * dpr);
@@ -3013,11 +3377,11 @@ export class MusicTrainer {
     ctx.fillStyle = 'rgba(7, 8, 13, 0.94)';
     ctx.fillRect(0, 0, cssW, cssH);
 
-    // Đường kẻ dọc ngăn các quãng tám
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    // Đường kẻ dọc ngăn các quãng tám chuẩn 88 phím
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.lineWidth = 1;
     this._keyGeometry.forEach((g, midi) => {
-      if (midi % 12 === 0) {
+      if (midi % 12 === 0 || midi === 21) {
         const x = Math.round(g.xRatio * cssW) + 0.5;
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -3048,14 +3412,11 @@ export class MusicTrainer {
     ctx.fillStyle = 'rgba(34, 211, 238, 0.25)';
     ctx.fillRect(0, hitY - 2, cssW, 4);
 
-    // Vẽ từng thanh nốt rơi thẳng hàng tuyệt đối với phím bên dưới
-    const baseMidi = this.midi ? this.midi.baseMidi : 48;
+    // Vẽ từng thanh nốt rơi thẳng hàng tuyệt đối 1:1 với 88 phím (A0=21 .. C8=108) bên dưới
     this.falling.notes.forEach((n) => {
-      let drawMidi = n.midi;
-      if (!this._keyGeometry.has(drawMidi)) {
-        while (drawMidi < baseMidi) drawMidi += 12;
-        while (drawMidi > baseMidi + 35) drawMidi -= 12;
-      }
+      let drawMidi = Math.round(n.midi);
+      while (drawMidi < 21) drawMidi += 12;
+      while (drawMidi > 108) drawMidi -= 12;
       const g = this._keyGeometry.get(drawMidi);
       if (!g) return;
 

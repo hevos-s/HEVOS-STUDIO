@@ -1,7 +1,16 @@
 // ============================================================================
 // midiController.js — Bộ Điều Khiển Nhập Liệu Hợp Nhất (Web MIDI + QWERTY + Cảm ứng Đa điểm + Chord Latch)
-// Hoạt động hoàn hảo 100% không cần phần cứng ngoài; tự động Plug & Play khi cắm đàn USB-MIDI.
+// Hoạt động hoàn hảo 100% không cần phần cứng ngoài; tự động Plug & Play đa cổng khi cắm USB-MIDI.
 // ============================================================================
+
+const NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+function midiToNoteLabel(midi) {
+  const m = Math.max(0, Math.min(127, Math.round(Number(midi) || 60)));
+  const pc = ((m % 12) + 12) % 12;
+  const oct = Math.floor(m / 12) - 1;
+  return `${NOTE_NAMES_SHARP[pc]}${oct}`;
+}
 
 export const QWERTY_NOTE_MAP = {
   // Hàng dưới: Quãng 1 (0..11) — Z X C V B N M & phím đen S D G H J
@@ -52,9 +61,13 @@ export class UnifiedMidiController {
       typeof navigator !== 'undefined' && typeof navigator.requestMIDIAccess === 'function';
     this.midiInitPromise = null;
 
-    // Thiết bị phần cứng đang kết nối (hoặc mô phỏng khi test)
+    // Thiết bị phần cứng đang kết nối (lắng nghe đồng thời tất cả cổng mặc định)
+    this.connectedInputs = []; // [{ id, name, manufacturer, state }]
     this.connectedDevices = [];
+    this.selectedInputId = 'all';
+    this._simulatedInputs = [];
     this._simulatedDeviceName = null;
+    this.lastMidiSignal = null;
 
     // Quãng nốt & cấu hình nhập liệu
     this.octaveShift = 0; // -1 | 0 | +1
@@ -64,14 +77,15 @@ export class UnifiedMidiController {
     this.sustainDown = false;
 
     // Trạng thái nốt đang giữ theo từng nguồn để không xung đột nhả phím
-    this.heldMidi = new Map();         // midi -> { velocity, deviceName }
+    this.heldMidi = new Map();            // midi -> { velocity, deviceName, channel }
     this.heldQwertyKeyToMidi = new Map(); // key -> midi
-    this.heldPointers = new Map();     // pointerId -> midi
-    this.sustainedNotes = new Set();   // midi giữ bởi Sustain Pedal (CC 64)
-    this.latchedNotes = new Set();     // midi giữ bởi Chord Latch (chuột đơn điểm)
+    this.heldPointers = new Map();        // pointerId -> midi
+    this.sustainedNotes = new Set();      // midi giữ bởi Sustain Pedal (CC 64)
+    this.latchedNotes = new Set();        // midi giữ bởi Chord Latch (chuột đơn điểm)
 
     this._listeners = new Set();
     this._qwertyActiveCheck = () => false;
+    this._audioUnlockHandler = null;
     this._boundInputs = new Set();
     this._keyboardBound = false;
 
@@ -80,6 +94,38 @@ export class UnifiedMidiController {
 
   setQwertyActiveCheck(fn) {
     this._qwertyActiveCheck = typeof fn === 'function' ? fn : () => false;
+  }
+
+  setAudioUnlockHandler(fn) {
+    this._audioUnlockHandler = typeof fn === 'function' ? fn : null;
+  }
+
+  _unlockAudioOnMidi() {
+    try {
+      if (this._audioUnlockHandler) {
+        this._audioUnlockHandler();
+      }
+    } catch (_) {}
+
+    if (typeof window === 'undefined' || typeof window.Tone === 'undefined') return;
+    const Tone = window.Tone;
+    try {
+      if (typeof Tone.start === 'function') {
+        const res = Tone.start();
+        if (res && typeof res.catch === 'function') res.catch(() => {});
+      }
+      const ctx = typeof Tone.getContext === 'function' ? Tone.getContext() : Tone.context;
+      if (ctx && ctx.state !== 'running' && typeof ctx.resume === 'function') {
+        const p = ctx.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+      if (ctx && ctx.rawContext && ctx.rawContext !== ctx && ctx.rawContext.state !== 'running') {
+        if (typeof ctx.rawContext.resume === 'function') {
+          const rp = ctx.rawContext.resume();
+          if (rp && typeof rp.catch === 'function') rp.catch(() => {});
+        }
+      }
+    } catch (_) {}
   }
 
   subscribe(listenerObj) {
@@ -140,19 +186,61 @@ export class UnifiedMidiController {
     return Array.from(out).sort((a, b) => a - b);
   }
 
+  _getAllMergedInputs() {
+    const map = new Map();
+    this._simulatedInputs.forEach((inp) => {
+      if (inp && inp.id) map.set(inp.id, inp);
+    });
+    if (this._simulatedDeviceName && !this._simulatedInputs.length) {
+      map.set('sim-virtual-0', { id: 'sim-virtual-0', name: this._simulatedDeviceName, state: 'connected' });
+    }
+    this.connectedInputs.forEach((inp) => {
+      if (inp && inp.id) map.set(inp.id, inp);
+    });
+    return Array.from(map.values());
+  }
+
+  setSelectedInputId(inputId) {
+    const nextId = inputId && inputId !== 'all' ? String(inputId) : 'all';
+    if (nextId === this.selectedInputId) return this.selectedInputId;
+    this.selectedInputId = nextId;
+    this._emit('onDeviceChange', {
+      ...this.getDeviceStatus(),
+      newlyConnected: false,
+    });
+    return this.selectedInputId;
+  }
+
   getDeviceStatus() {
-    const devices = this._simulatedDeviceName
-      ? [this._simulatedDeviceName, ...this.connectedDevices.filter((d) => d !== this._simulatedDeviceName)]
-      : [...this.connectedDevices];
-    const connected = devices.length > 0;
-    const primaryDevice = connected ? devices[0] : null;
+    const inputs = this._getAllMergedInputs();
+    const devices = inputs.map((i) => i.name);
+    const connected = inputs.length > 0;
+    const validSelected =
+      this.selectedInputId !== 'all' && inputs.some((i) => i.id === this.selectedInputId);
+    const effectiveSelectedId = validSelected ? this.selectedInputId : 'all';
+    const chosen = validSelected ? inputs.find((i) => i.id === effectiveSelectedId) : inputs[0];
+    const primaryDevice = chosen ? chosen.name : null;
+
+    let label = 'Chế độ: Phím ảo & Bàn phím PC';
+    if (connected) {
+      if (effectiveSelectedId === 'all') {
+        label =
+          inputs.length > 1
+            ? `Tất cả MIDI (${inputs.length} cổng)`
+            : `Đã kết nối MIDI: ${primaryDevice}`;
+      } else {
+        label = `MIDI: ${primaryDevice}`;
+      }
+    }
+
     return {
       connected,
       devices,
+      inputs,
+      selectedInputId: effectiveSelectedId,
       primaryDevice,
-      label: connected
-        ? `Đã kết nối MIDI: ${primaryDevice}`
-        : 'Chế độ: Phím ảo & Bàn phím PC',
+      lastSignal: this.lastMidiSignal,
+      label,
     };
   }
 
@@ -213,10 +301,13 @@ export class UnifiedMidiController {
   }
 
   // ==========================================================================
-  // Web MIDI Plug & Play (Tùy chọn tự động, không báo lỗi khi thiếu phần cứng)
+  // Web MIDI Plug & Play — Lắng nghe đồng thời TẤT CẢ cổng Input
   // ==========================================================================
   async initWebMidi() {
-    if (this.midiAccess) return true;
+    if (this.midiAccess) {
+      this._syncMidiInputs();
+      return true;
+    }
     if (this.midiInitPromise) return this.midiInitPromise;
     if (!this.midiSupported) return false;
 
@@ -243,41 +334,74 @@ export class UnifiedMidiController {
   _syncMidiInputs() {
     if (!this.midiAccess) return;
     const prevPrimary = this.getDeviceStatus().primaryDevice;
-    const names = [];
+    const nextInputs = [];
     const activeSet = new Set();
 
     try {
-      this.midiAccess.inputs.forEach((input) => {
+      const rawInputs =
+        typeof this.midiAccess.inputs?.values === 'function'
+          ? Array.from(this.midiAccess.inputs.values())
+          : [];
+      if (rawInputs.length === 0 && typeof this.midiAccess.inputs?.forEach === 'function') {
+        this.midiAccess.inputs.forEach((inp) => rawInputs.push(inp));
+      }
+
+      rawInputs.forEach((input, idx) => {
         if (!input || input.state !== 'connected') return;
-        const name = (input.name || input.manufacturer || 'Thiết bị MIDI USB').trim();
-        names.push(name);
+        const id = String(input.id || `midi-in-${idx}`);
+        const name = String(input.name || input.manufacturer || `Thiết bị MIDI ${idx + 1}`).trim();
+        nextInputs.push({
+          id,
+          name,
+          manufacturer: String(input.manufacturer || '').trim(),
+          state: input.state,
+        });
         activeSet.add(input);
+
+        if (typeof input.open === 'function' && input.connection !== 'open') {
+          try {
+            const p = input.open();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+          } catch (_) {}
+        }
+
         if (!this._boundInputs.has(input)) {
           this._boundInputs.add(input);
-          input.onmidimessage = (evt) => {
-            if (!evt || !evt.data || evt.data.length < 2) return;
-            const status = evt.data[0];
-            const data1 = evt.data[1];
-            const data2 = evt.data.length > 2 ? evt.data[2] : 0;
-            this.handleRawMidiMessage(status, data1, data2, name);
-          };
         }
+        // Luôn gắn/cập nhật listener cho toàn bộ cổng kết nối (tránh dính cổng MIDI ảo trên Windows)
+        input.onmidimessage = (evt) => {
+          if (!evt || !evt.data || evt.data.length === 0) return;
+          const status = evt.data[0];
+          const data1 = evt.data.length > 1 ? evt.data[1] : 0;
+          const data2 = evt.data.length > 2 ? evt.data[2] : 0;
+          this.handleRawMidiMessage(status, data1, data2, name, id);
+        };
       });
     } catch (_) {}
 
     this._boundInputs.forEach((inp) => {
       if (!activeSet.has(inp)) {
-        try { inp.onmidimessage = null; } catch (_) {}
+        try {
+          inp.onmidimessage = null;
+        } catch (_) {}
         this._boundInputs.delete(inp);
       }
     });
 
-    const changed =
-      names.length !== this.connectedDevices.length ||
-      names.some((n, i) => this.connectedDevices[i] !== n);
-    this.connectedDevices = names;
+    const nextSig = nextInputs.map((i) => `${i.id}:${i.name}`).join('|');
+    const prevSig = this.connectedInputs.map((i) => `${i.id}:${i.name}`).join('|');
+    this.connectedInputs = nextInputs;
+    this.connectedDevices = nextInputs.map((i) => i.name);
 
-    if (changed) {
+    if (
+      this.selectedInputId !== 'all' &&
+      !nextInputs.some((i) => i.id === this.selectedInputId) &&
+      !this._simulatedInputs.some((i) => i.id === this.selectedInputId)
+    ) {
+      this.selectedInputId = 'all';
+    }
+
+    if (nextSig !== prevSig) {
       const status = this.getDeviceStatus();
       this._emit('onDeviceChange', {
         ...status,
@@ -286,11 +410,19 @@ export class UnifiedMidiController {
     }
   }
 
-  simulateDeviceState(connected, deviceName = 'Virtual MIDI Keyboard') {
-    const nextName = connected ? String(deviceName || 'Virtual MIDI Keyboard').trim() : null;
-    if (this._simulatedDeviceName === nextName) return this.getDeviceStatus();
+  simulateMidiPorts(ports = []) {
     const prevPrimary = this.getDeviceStatus().primaryDevice;
-    this._simulatedDeviceName = nextName;
+    this._simulatedInputs = Array.isArray(ports)
+      ? ports.map((p, idx) => ({
+          id: String(p.id || `sim-${idx}`),
+          name: String(p.name || `Virtual MIDI ${idx + 1}`).trim(),
+          state: 'connected',
+        }))
+      : [];
+    this._simulatedDeviceName = this._simulatedInputs.length ? this._simulatedInputs[0].name : null;
+    if (this.selectedInputId !== 'all' && !this._simulatedInputs.some((i) => i.id === this.selectedInputId)) {
+      this.selectedInputId = 'all';
+    }
     const status = this.getDeviceStatus();
     this._emit('onDeviceChange', {
       ...status,
@@ -299,57 +431,130 @@ export class UnifiedMidiController {
     return status;
   }
 
-  injectMidiMessage(status, data1, data2 = 0, deviceName = 'Virtual MIDI Keyboard') {
-    if (!this._simulatedDeviceName && !this.connectedDevices.length && deviceName) {
-      this.simulateDeviceState(true, deviceName);
+  simulateDeviceState(connected, deviceName = 'Virtual MIDI Keyboard') {
+    const nextName = connected ? String(deviceName || 'Virtual MIDI Keyboard').trim() : null;
+    if (this._simulatedDeviceName === nextName && this._simulatedInputs.length <= 1) {
+      return this.getDeviceStatus();
     }
-    this.handleRawMidiMessage(status, data1, data2, deviceName);
+    const prevPrimary = this.getDeviceStatus().primaryDevice;
+    this._simulatedDeviceName = nextName;
+    this._simulatedInputs = nextName
+      ? [{ id: 'sim-virtual-0', name: nextName, state: 'connected' }]
+      : [];
+    const status = this.getDeviceStatus();
+    this._emit('onDeviceChange', {
+      ...status,
+      newlyConnected: Boolean(status.primaryDevice && status.primaryDevice !== prevPrimary),
+    });
+    return status;
   }
 
-  handleRawMidiMessage(status, data1, data2 = 0, deviceName = 'MIDI Keyboard') {
-    const cmd = status & 0xf0;
-    const channel = status & 0x0f;
+  injectMidiMessage(status, data1, data2 = 0, deviceName = 'Virtual MIDI Keyboard', inputId = null) {
+    if (!this._simulatedDeviceName && !this.connectedInputs.length && deviceName) {
+      this.simulateDeviceState(true, deviceName);
+    }
+    this.handleRawMidiMessage(status, data1, data2, deviceName, inputId);
+  }
 
-    // 0x90 với velocity > 0 là Note On
-    if (cmd === 0x90 && data2 > 0) {
+  handleRawMidiMessage(status, data1 = 0, data2 = 0, deviceName = 'MIDI Keyboard', inputId = null) {
+    if (!Number.isFinite(status)) return;
+    // Bỏ qua các bản tin đồng bộ xung nhịp / active sensing (0xF8, 0xFE, SysEx >= 0xF0)
+    if (status >= 0xf0) return;
+
+    // Lọc theo cổng đang chọn nếu người dùng không để chế độ "Tất cả thiết bị MIDI"
+    if (this.selectedInputId !== 'all' && inputId && inputId !== this.selectedInputId) {
+      return;
+    }
+
+    const command = status & 0xf0;
+    const channel = (status & 0x0f) + 1; // Kênh MIDI 1..16
+
+    // Note On: 0x90..0x9F với velocity > 0
+    if (command === 0x90 && data2 > 0) {
+      // Mở khóa Web Audio ngay lập tức khi nhận Note On từ đàn cứng dù chưa click chuột vào web
+      this._unlockAudioOnMidi();
+
       const midi = clampMidi(data1);
       const velocity = Math.max(0.05, Math.min(1, data2 / 127));
-      this.heldMidi.set(midi, { velocity, rawVelocity: data2, deviceName });
+      const noteName = midiToNoteLabel(midi);
+      this.heldMidi.set(midi, { velocity, rawVelocity: data2, channel, deviceName });
       this.sustainedNotes.delete(midi);
-      this._emit('onSignal', { source: 'midi', type: 'noteOn', midi, velocity, deviceName });
+
+      const signalPayload = {
+        source: 'midi',
+        type: 'noteOn',
+        channel,
+        midi,
+        noteName,
+        velocity,
+        rawVelocity: data2,
+        deviceName,
+        inputId,
+        label: `Tín hiệu MIDI: Ch${channel} · ${noteName} · Lực ${data2}`,
+        at: Date.now(),
+      };
+      this.lastMidiSignal = signalPayload;
+      this._emit('onSignal', signalPayload);
       this._emit('onNoteOn', {
         midi,
         velocity,
         rawVelocity: data2,
         channel,
+        noteName,
         source: 'midi',
         deviceName,
+        inputId,
       });
       this._emitActiveSnapshot();
       return;
     }
 
-    // 0x80 hoặc 0x90 với velocity === 0 là Note Off
-    if (cmd === 0x80 || (cmd === 0x90 && data2 === 0)) {
+    // Note Off: 0x80..0x8F HOẶC 0x90..0x9F với velocity === 0
+    if (command === 0x80 || (command === 0x90 && data2 === 0)) {
       const midi = clampMidi(data1);
+      const noteName = midiToNoteLabel(midi);
       this.heldMidi.delete(midi);
       if (this.sustainDown) {
         this.sustainedNotes.add(midi);
       } else if (!this._isSounding(midi)) {
-        this._emit('onNoteOff', { midi, channel, source: 'midi', deviceName });
+        this._emit('onNoteOff', { midi, channel, noteName, source: 'midi', deviceName, inputId });
       }
-      this._emit('onSignal', { source: 'midi', type: 'noteOff', midi, deviceName });
+      const signalPayload = {
+        source: 'midi',
+        type: 'noteOff',
+        channel,
+        midi,
+        noteName,
+        deviceName,
+        inputId,
+        label: `Tín hiệu MIDI: Ch${channel} · ${noteName} · Nhả`,
+        at: Date.now(),
+      };
+      this.lastMidiSignal = signalPayload;
+      this._emit('onSignal', signalPayload);
       this._emitActiveSnapshot();
       return;
     }
 
-    // 0xB0 Control Change: CC 64 là Sustain Pedal (bàn đạp vang)
-    if (cmd === 0xb0 && data1 === 64) {
+    // Control Change 64: Sustain Pedal (0xB0..0xBF, data1 === 64)
+    if (command === 0xb0 && data1 === 64) {
       const isDown = data2 >= 64;
-      this._emit('onSignal', { source: 'midi', type: 'cc64', down: isDown, deviceName });
+      const signalPayload = {
+        source: 'midi',
+        type: 'cc64',
+        channel,
+        down: isDown,
+        deviceName,
+        inputId,
+        label: `Tín hiệu MIDI: Ch${channel} · Sustain ${isDown ? 'ON' : 'OFF'}`,
+        at: Date.now(),
+      };
+      this.lastMidiSignal = signalPayload;
+      this._emit('onSignal', signalPayload);
+
       if (isDown === this.sustainDown) return;
       this.sustainDown = isDown;
-      this._emit('onSustainChange', { sustainDown: this.sustainDown, source: 'midi' });
+      this._emit('onSustainChange', { sustainDown: this.sustainDown, channel, source: 'midi' });
       if (!isDown && this.sustainedNotes.size > 0) {
         const toRelease = Array.from(this.sustainedNotes);
         this.sustainedNotes.clear();
