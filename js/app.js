@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=33';
+} from './theory.js?v=34';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=33';
+} from './audioEngine.js?v=34';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=33';
-import { PianoRoll } from './pianoRoll.js?v=33';
-import { downloadMidiFile } from './midiExport.js?v=33';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=33';
-import { MusicTrainer } from './musicTrainer.js?v=33';
-import { VocalStudio } from './vocalStudio.js?v=33';
-import { ArrangementStudio } from './arrangementStudio.js?v=33';
-import { createAmbientScene } from './ambientScene.js?v=33';
-import { midiController } from './midiController.js?v=33';
+} from './pitchToMidi.js?v=34';
+import { PianoRoll } from './pianoRoll.js?v=34';
+import { downloadMidiFile } from './midiExport.js?v=34';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=34';
+import { MusicTrainer } from './musicTrainer.js?v=34';
+import { VocalStudio } from './vocalStudio.js?v=34';
+import { ArrangementStudio } from './arrangementStudio.js?v=34';
+import { createAmbientScene } from './ambientScene.js?v=34';
+import { midiController } from './midiController.js?v=34';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=33';
+} from './stepSequencer.js?v=34';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -99,7 +99,7 @@ const state = {
   editingBarIndex: null,
   activeMobileTab: 'chords', // 'chords' | 'melody' | 'mixer'
   studioCenterView: 'melody', // 'melody' | 'sequencer'
-  activeSection: 'hub',      // 'hub' | 'studio' | 'vocal' | 'trainer'
+  activeSection: 'hub',      // 'hub' | 'studio' | 'vocal' | 'arrangement' | 'trainer' | 'vision'
 };
 
 const vocalCapture = new VocalCapture();
@@ -134,6 +134,7 @@ const el = {
   arrangementRoot: $('#arrangement-root'),
   arrangementPresenceDot: $('#arrangement-presence-dot'),
   trainerRoot: $('#trainer-root'),
+  visionRoot: $('#vision-root'),
   btnPlay: $('#btn-play'),
   btnPlayLabel: $('#btn-play-label'),
   btnRecord: $('#btn-record'),
@@ -1360,7 +1361,7 @@ function setPianoRollFullscreen(open) {
 }
 
 function setAppSection(section) {
-  const valid = ['hub', 'studio', 'vocal', 'arrangement', 'trainer'];
+  const valid = ['hub', 'studio', 'vocal', 'arrangement', 'trainer', 'vision'];
   const target = valid.includes(section) ? section : 'hub';
   if (state.activeSection === target) return;
 
@@ -1398,6 +1399,7 @@ function setAppSection(section) {
       vocal: 'Phòng thu Vocal',
       arrangement: 'Dựng bài & Master',
       trainer: 'Học nhạc lý',
+      vision: 'Tính năng & Ý tưởng',
     };
     el.mobileSectionBadge.textContent = sectionNames[target] || 'Tổng quan';
   }
@@ -1407,6 +1409,9 @@ function setAppSection(section) {
       const isAct = btn.dataset.sectionTarget === target;
       btn.classList.toggle('active', isAct);
       btn.setAttribute('aria-selected', String(isAct));
+      if (isAct && window.innerWidth <= 768 && typeof btn.scrollIntoView === 'function') {
+        btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
     });
   }
 
@@ -1421,6 +1426,12 @@ function setAppSection(section) {
   }
   if (el.trainerRoot) {
     el.trainerRoot.classList.toggle('hidden', target !== 'trainer');
+  }
+  if (el.visionRoot) {
+    el.visionRoot.classList.toggle('hidden', target !== 'vision');
+    if (target === 'vision') {
+      el.visionRoot.scrollTop = 0;
+    }
   }
   if (pianoRoll) {
     pianoRoll.setActive(target === 'studio');
@@ -1596,6 +1607,24 @@ function bindEvents() {
       if (!el.globalBar) return;
       el.globalBar.classList.toggle('is-scrolled', el.hubRoot.scrollTop > 24);
     }, { passive: true });
+  }
+
+  // Điều hướng nhanh trong phân khu Tính năng & Ý tưởng (chuyển tab hoặc cuộn tới khối nội dung)
+  if (el.visionRoot) {
+    el.visionRoot.addEventListener('click', (e) => {
+      const scrollBtn = e.target.closest('[data-scroll-to]');
+      if (scrollBtn) {
+        const sel = scrollBtn.dataset.scrollTo;
+        const anchor = sel ? $(sel, el.visionRoot) : null;
+        if (anchor) {
+          anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+      }
+      const targetEl = e.target.closest('[data-goto-section]');
+      if (!targetEl) return;
+      setAppSection(targetEl.dataset.gotoSection);
+    });
   }
 
   // Phát / Dừng bên Sáng tác Beat (có khóa chống bấm đúp khi Tone.start() đang chạy)

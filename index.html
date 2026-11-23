@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=33" />
+  <link rel="stylesheet" href="./style.css?v=34" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" defer></script>
@@ -19,7 +19,7 @@
   <div id="app" class="studio-app" data-section="hub" data-active-tab="chords">
     <!-- ====================================================================
          TẦNG 1: THANH ĐIỀU HƯỚNG TỔNG (FLOATING NAVBAR DESKTOP / HEADER 46px + FIXED BOTTOM BAR MOBILE)
-         5 Phân khu: Tổng quan | Sáng tác Beat | Phòng thu Vocal | Dựng bài & Master | Học nhạc lý
+         6 Phân khu: Tổng quan | Sáng tác Beat | Phòng thu Vocal | Dựng bài & Master | Học nhạc lý | Tính năng & Ý tưởng
          ==================================================================== -->
     <header class="global-app-bar" aria-label="Điều hướng tổng HEVOS STUDIO">
       <button type="button" id="btn-logo-home" class="brand brand-btn" title="Về màn hình Tổng quan">
@@ -94,6 +94,16 @@
           </svg>
           <span class="gnav-label-desktop">Học nhạc lý</span>
           <span class="gnav-label-mobile">Học nhạc</span>
+        </button>
+
+        <button type="button" class="global-nav-tab" data-section-target="vision" role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 18h6" />
+            <path d="M10 22h4" />
+            <path d="M12 2a7 7 0 0 0-4 12.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26A7 7 0 0 0 12 2z" />
+          </svg>
+          <span class="gnav-label-desktop">Tính năng &amp; Ý tưởng</span>
+          <span class="gnav-label-mobile">Ý tưởng</span>
         </button>
       </nav>
 
@@ -232,12 +242,22 @@
           </div>
 
           <div class="creator-action-col">
-            <a href="https://github.com/hevos-s" target="_blank" rel="noopener" class="creator-github-btn" title="Mở trang GitHub chính thức của Lê Trọng Hiếu (@hevos-s)">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 0.3C5.37 0.3 0 5.67 0 12.3c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.05-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.48 5.92.43.37.81 1.1.81 2.22 0 1.6-.01 2.89-.01 3.29 0 .32.22.7.83.58C20.57 22.1 24 17.6 24 12.3 24 5.67 18.63 0.3 12 0.3z" />
-              </svg>
-              <span>GitHub @hevos-s</span>
-            </a>
+            <div class="creator-social-group" aria-label="Mạng xã hội chính thức của Lê Trọng Hiếu (HEVOS)">
+              <a href="https://www.facebook.com/hevos05" target="_blank" rel="noopener noreferrer" class="creator-social-btn creator-social-fb" title="Mở trang Facebook chính thức của Lê Trọng Hiếu (HEVOS)">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M13.5 22v-8.2h2.76l.41-3.2H13.5V8.56c0-.93.26-1.56 1.59-1.56h1.7V4.14c-.3-.04-1.31-.13-2.49-.13-2.46 0-4.15 1.5-4.15 4.26v2.33H7.35v3.2h2.8V22h3.35z" />
+                </svg>
+                <span>Facebook @hevos05</span>
+              </a>
+              <a href="https://www.instagram.com/_hevos/" target="_blank" rel="noopener noreferrer" class="creator-social-btn creator-social-ig" title="Mở trang Instagram chính thức của Lê Trọng Hiếu (@_hevos)">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+                </svg>
+                <span>Instagram @_hevos</span>
+              </a>
+            </div>
           </div>
         </aside>
 
@@ -861,6 +881,282 @@
          PHÂN KHU 5: HỌC NHẠC LÝ (LUYỆN ĐỌC NỐT & PHẢN XẠ NHẠC LÝ)
          ==================================================================== -->
     <section id="trainer-root" class="trainer-workspace hidden" aria-label="Học nhạc — Luyện đọc nốt và phản xạ nhạc lý"></section>
+
+    <!-- ====================================================================
+         PHÂN KHU 6: TÍNH NĂNG & Ý TƯỞNG (TRIẾT LÝ KIẾN TẠO & BẢN ĐỒ HỆ THỐNG)
+         ==================================================================== -->
+    <section id="vision-root" class="vision-workspace hidden" aria-label="Tính năng và Ý tưởng kiến tạo HEVOS STUDIO">
+      <div class="vision-shell">
+        <!-- Khối 1: Tuyên ngôn & Triết lý Kiến tạo -->
+        <header class="vision-manifesto">
+          <div class="vision-manifesto-top">
+            <span class="vision-kicker">TRIẾT LÝ KIẾN TẠO · TÍNH NĂNG &amp; Ý TƯỞNG</span>
+            <span class="vision-founder-tag">Sáng lập bởi Lê Trọng Hiếu (HEVOS)</span>
+          </div>
+          <h1 class="vision-hero-title">Từ Một Giai Điệu Chợt Vang Lên Đến Bản Thu Hoàn Chỉnh Trên Trình Duyệt</h1>
+          <p class="vision-hero-lead">
+            Rào cản lớn nhất của người yêu nhạc và nghệ sĩ độc lập chưa bao giờ là thiếu cảm xúc — mà là <strong>khoảng cách kỹ thuật</strong> ngăn giữa khoảnh khắc một câu hát vang lên trong đầu cho tới khi trở thành một bản thu trọn vẹn.
+          </p>
+          <p class="vision-hero-story">
+            Để tự làm một bài hát hoàn chỉnh theo cách truyền thống, người mới thường phải đối mặt với phần mềm cài đặt nặng máy, chi phí thiết bị thu âm đắt đỏ, và lạc lối giữa hàng trăm nút bấm kỹ thuật của các DAW phức tạp. <strong>HEVOS STUDIO</strong> được kiến tạo để xóa bỏ rào cản đó: biến chính trình duyệt web quen thuộc thành một phòng thu khép kín chuẩn mực, trực quan bằng tiếng Việt và luôn sẵn sàng bắt trọn cảm hứng ở bất cứ đâu.
+          </p>
+          <div class="vision-manifesto-footer">
+            <div class="vision-meta-pills" aria-label="Giá trị cốt lõi HEVOS STUDIO">
+              <span class="vision-meta-pill">100% Trình duyệt · Không cần cài đặt</span>
+              <span class="vision-meta-pill">Khép kín 4 công đoạn làm nhạc</span>
+              <span class="vision-meta-pill">Desktop, Mobile &amp; USB Web MIDI</span>
+            </div>
+            <button type="button" class="vision-anchor-btn" data-scroll-to="#vision-pillars">
+              <span>Giải mã 4 trụ cột tính năng</span>
+              <span aria-hidden="true">↓</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- Khối 2: Sơ đồ Quy trình Sáng tạo Khép kín 4 Bước -->
+        <section class="vision-workflow-section" aria-label="Quy trình sáng tạo khép kín 4 bước">
+          <div class="vision-section-head">
+            <span class="vision-section-eyebrow">END-TO-END WORKFLOW</span>
+            <h2 class="vision-section-title">Quy trình Sáng tạo Khép kín 4 Bước</h2>
+            <p class="vision-section-sub">Dữ liệu hòa âm, giai điệu và giọng hát được kết nối trực tiếp giữa các phân khu — chạm vào từng bước để chuyển nhanh sang không gian làm việc tương ứng.</p>
+          </div>
+
+          <div class="vision-workflow-track">
+            <button type="button" class="vision-flow-card is-amber" data-goto-section="trainer">
+              <div class="vision-flow-top">
+                <span class="vision-flow-num">01</span>
+                <span class="vision-flow-arrow" aria-hidden="true">→</span>
+              </div>
+              <h3 class="vision-flow-title">Học nhạc lý</h3>
+              <p class="vision-flow-tag">Nắm tư duy &amp; cảm âm</p>
+              <p class="vision-flow-desc">Hiểu bản chất quãng, hợp âm, dấu thanh tiếng Việt và phản xạ trên đàn 88 phím để tự tin viết câu hát đầu tiên.</p>
+            </button>
+
+            <button type="button" class="vision-flow-card is-indigo" data-goto-section="studio">
+              <div class="vision-flow-top">
+                <span class="vision-flow-num">02</span>
+                <span class="vision-flow-arrow" aria-hidden="true">→</span>
+              </div>
+              <h3 class="vision-flow-title">Sáng tác Beat</h3>
+              <p class="vision-flow-tag">Dựng hòa âm &amp; giai điệu</p>
+              <p class="vision-flow-desc">Chọn vòng hợp âm thông minh có đảo thế mượt, vẽ Piano Roll hoặc ngân nga micro ra MIDI, gõ trống Step Sequencer.</p>
+            </button>
+
+            <button type="button" class="vision-flow-card is-magenta" data-goto-section="vocal">
+              <div class="vision-flow-top">
+                <span class="vision-flow-num">03</span>
+                <span class="vision-flow-arrow" aria-hidden="true">→</span>
+              </div>
+              <h3 class="vision-flow-title">Phòng thu Vocal</h3>
+              <p class="vision-flow-tag">Ghi giọng &amp; Auto-Tune</p>
+              <p class="vision-flow-desc">Nạp beat vừa làm hoặc file MP3/WAV ngoài, thu 2 lớp giọng sạch ngay trên thiết bị với TD-PSOLA Auto-Tune &amp; FX.</p>
+            </button>
+
+            <button type="button" class="vision-flow-card is-cyan" data-goto-section="arrangement">
+              <div class="vision-flow-top">
+                <span class="vision-flow-num">04</span>
+                <span class="vision-flow-check" aria-hidden="true">✓</span>
+              </div>
+              <h3 class="vision-flow-title">Dựng bài &amp; Master</h3>
+              <p class="vision-flow-tag">Cắt ghép &amp; hoàn thiện đĩa nhạc</p>
+              <p class="vision-flow-desc">Sắp xếp Intro – Verse – Chorus đa kênh, xử lý Master EQ · Stereo Width · Glue Comp · Limiter và xuất bản .WAV.</p>
+            </button>
+          </div>
+        </section>
+
+        <!-- Khối 3: Giải mã Chi tiết 4 Trụ cột Tính năng & Ý tưởng Ra đời -->
+        <section id="vision-pillars" class="vision-pillars-section" aria-label="Chi tiết 4 trụ cột tính năng và ý tưởng ra đời">
+          <div class="vision-section-head">
+            <span class="vision-section-eyebrow">KIẾN TRÚC 4 TRỤ CỘT</span>
+            <h2 class="vision-section-title">Giải mã Công năng &amp; Ý tưởng Đằng sau Từng Phân khu</h2>
+            <p class="vision-section-sub">Mỗi công cụ trong HEVOS STUDIO đều bắt nguồn từ một vướng mắc thật trong quá trình tự sáng tác và thu âm của nghệ sĩ độc lập.</p>
+          </div>
+
+          <div class="vision-pillars-list">
+            <!-- Trụ cột 01 -->
+            <article class="vision-pillar-card is-indigo">
+              <header class="vision-pillar-head">
+                <div class="vision-pillar-heading">
+                  <span class="vision-pillar-badge">TRỤ CỘT 01 · SMART COMPOSITION STUDIO</span>
+                  <h3 class="vision-pillar-title">Sáng tác Beat &amp; MIDI</h3>
+                </div>
+                <button type="button" class="vision-cta-btn" data-goto-section="studio">
+                  <span>Mở trải nghiệm ngay</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </header>
+
+              <div class="vision-pillar-grid">
+                <div class="vision-idea-box">
+                  <h4 class="vision-box-label">Ý tưởng &amp; Bài toán thực tế</h4>
+                  <p>
+                    Giải quyết dứt điểm nỗi sợ “trang giấy trắng” trên Piano Roll của người mới và sự đứt gãy mạch cảm hứng khi phải dò từng phím để mò thế bấm hợp âm. Thay vì loay hoay với lý thuyết khô cứng, người sáng tác cần nghe ngay vòng hòa âm mượt mà để giai điệu tự nhiên tuôn chảy.
+                  </p>
+                </div>
+
+                <div class="vision-features-box">
+                  <h4 class="vision-box-label">Hệ thống Công năng nổi bật</h4>
+                  <ul class="vision-feature-list">
+                    <li><strong>Hợp âm &amp; Smart Voice Leading:</strong> Kho vòng hòa âm R&amp;B, Pop Ballad, Lo-Fi, US-UK &amp; K-Pop tự động đảo thế bấm giữ nốt chung êm mượt như nghệ sĩ chơi đàn thật, kèm biến thể đệm đa dạng qua từng ô nhịp.</li>
+                    <li><strong>Piano Roll 60fps &amp; Scale Lock:</strong> Lưới vẽ giai điệu mượt mà có chế độ <em>Khóa đúng tông</em> chống bấm nhầm nốt phô, hỗ trợ thu trực tiếp từ đàn MIDI USB hoặc phóng to toàn màn hình trên mọi thiết bị.</li>
+                    <li><strong>Ngân nga → MIDI &amp; Step Sequencer 16 bước:</strong> Hát thử một câu ngân nga qua micro để tách cao độ thành nốt MIDI tức thì; dựng nhịp trống 6 kênh với độ lơi <em>Swing / Humanize</em> tự nhiên.</li>
+                    <li><strong>Xuất bản linh hoạt:</strong> Xuất file <code>.mid</code> 4 track riêng biệt để tiếp tục phát triển trên DAW chuyên nghiệp, xuất thẳng audio <code>.wav</code>/<code>.mp3</code> hoặc gửi Beat sang phân khu <em>Dựng bài &amp; Master</em>.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <!-- Trụ cột 02 -->
+            <article class="vision-pillar-card is-magenta">
+              <header class="vision-pillar-head">
+                <div class="vision-pillar-heading">
+                  <span class="vision-pillar-badge">TRỤ CỘT 02 · BROWSER VOCAL BOOTH</span>
+                  <h3 class="vision-pillar-title">Phòng thu Vocal &amp; Auto-Tune</h3>
+                </div>
+                <button type="button" class="vision-cta-btn" data-goto-section="vocal">
+                  <span>Mở trải nghiệm ngay</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </header>
+
+              <div class="vision-pillar-grid">
+                <div class="vision-idea-box">
+                  <h4 class="vision-box-label">Ý tưởng &amp; Bài toán thực tế</h4>
+                  <p>
+                    Những câu hát giàu cảm xúc nhất thường đến bất chợt khi trước mặt chỉ có chiếc điện thoại hoặc tai nghe phổ thông. Tuy nhiên, thu âm trực tiếp trên trình duyệt thường gặp tiếng nhỏ, lọt vọng loa và chênh phô cao độ. Phòng thu Vocal ra đời để biến micro sẵn có thành buồng thu sạch sẽ và nịnh tai.
+                  </p>
+                </div>
+
+                <div class="vision-features-box">
+                  <h4 class="vision-box-label">Hệ thống Công năng nổi bật</h4>
+                  <ul class="vision-feature-list">
+                    <li><strong>Beat đa nguồn &amp; Thu 2 lớp giọng độc lập:</strong> Nhập beat ngoài <code>.mp3</code>/<code>.wav</code>, nạp beat vừa làm ở Sáng tác hoặc thu mộc tự do trên 2 kênh riêng (<em>Lead Vocal</em> + <em>Hát Bè / Ad-lib</em>) có cân chỉnh Sync Offset.</li>
+                    <li><strong>Mic Preamp &amp; Khử vọng thông minh:</strong> Bộ khuếch đại đầu vào tối ưu riêng cho micro điện thoại, giúp tín hiệu giọng rõ dày mà vẫn hạn chế nhiễu nền.</li>
+                    <li><strong>Auto-Tune TD-PSOLA &amp; Dò Tông tự động:</strong> Khóa tông giọng tự nhiên giữ nguyên rung cảm (vibrato) và sắc thái tiếng Việt, tự nhận diện tông từ Beat hoặc giọng hát.</li>
+                    <li><strong>Chuỗi FX phòng thu &amp; Xuất audio sạch:</strong> Trang bị sẵn Preset và kệ xử lý EQ, Compressor, Reverb, Delay thời gian thực; xuất file Mix hoặc giọng sạch <code>.wav</code>/<code>.mp3</code> và đẩy từng kênh sang Dựng bài.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <!-- Trụ cột 03 -->
+            <article class="vision-pillar-card is-cyan">
+              <header class="vision-pillar-head">
+                <div class="vision-pillar-heading">
+                  <span class="vision-pillar-badge">TRỤ CỘT 03 · ARRANGEMENT &amp; MASTERING SUITE</span>
+                  <h3 class="vision-pillar-title">Dựng bài Đa kênh &amp; Master</h3>
+                </div>
+                <button type="button" class="vision-cta-btn" data-goto-section="arrangement">
+                  <span>Mở trải nghiệm ngay</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </header>
+
+              <div class="vision-pillar-grid">
+                <div class="vision-idea-box">
+                  <h4 class="vision-box-label">Ý tưởng &amp; Bài toán thực tế</h4>
+                  <p>
+                    Rất nhiều công cụ làm nhạc trực tuyến chỉ dừng ở mức tạo đoạn loop 4 ô nhịp, buộc người làm nhạc lại phải tải xuống phần mềm khác mới cắt ghép được thành cấu trúc một ca khúc hoàn chỉnh và kéo độ lớn đạt chuẩn phát hành trên nền tảng số.
+                  </p>
+                </div>
+
+                <div class="vision-features-box">
+                  <h4 class="vision-box-label">Hệ thống Công năng nổi bật</h4>
+                  <ul class="vision-feature-list">
+                    <li><strong>Playlist Đa kênh hợp nhất:</strong> Tập hợp Beat từ Sáng tác, các lớp Vocal phòng thu và file âm thanh ngoài lên cùng một dòng thời gian trực quan theo cấu trúc <em>Intro – Verse – Chorus – Bridge</em>.</li>
+                    <li><strong>Dao cắt chuẩn xác &amp; Fade-In/Out mượt:</strong> Hỗ trợ kéo thả vị trí, cắt đoạn (Split), co hai đầu clip (Trim), nhân bản và tạo đường dốc âm lượng tránh tiếng nổ chuyển đoạn.</li>
+                    <li><strong>Tách Stems &amp; Phân tích hợp âm cục bộ:</strong> Bộ phân tách 4 dải <em>Vocals / Nhạc cụ / Bass / Trống</em> chạy ngay trên trình duyệt kèm dò Tông, BPM và dòng hợp âm tham chiếu.</li>
+                    <li><strong>Mastering chuẩn streaming:</strong> Chuỗi xử lý gồm Master EQ 3 dải, Stereo Width mở rộng không gian, Glue Compressor gắn kết nhạc cụ và Brickwall Limiter <code>-0.3 dBFS</code> xuất file <code>.wav</code> sẵn sàng phát hành.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <!-- Trụ cột 04 -->
+            <article class="vision-pillar-card is-amber">
+              <header class="vision-pillar-head">
+                <div class="vision-pillar-heading">
+                  <span class="vision-pillar-badge">TRỤ CỘT 04 · ZERO-TO-SONGWRITER ACADEMY</span>
+                  <h3 class="vision-pillar-title">Học viện Nhạc lý 6 Chặng &amp; Phòng luyện Đàn 88 Phím</h3>
+                </div>
+                <button type="button" class="vision-cta-btn" data-goto-section="trainer">
+                  <span>Mở trải nghiệm ngay</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </header>
+
+              <div class="vision-pillar-grid">
+                <div class="vision-idea-box">
+                  <h4 class="vision-box-label">Ý tưởng &amp; Bài toán thực tế</h4>
+                  <p>
+                    Các ứng dụng học nhạc lý truyền thống thường nhồi nhét ký hiệu cổ điển khô khan hoặc chỉ mở ra một bàn phím trống trơn không lời giải thích, khiến người mới không hiểu mối liên hệ giữa hợp âm với cách đặt lời sao cho thuận thanh điệu một bài hát tiếng Việt thực thụ.
+                  </p>
+                </div>
+
+                <div class="vision-features-box">
+                  <h4 class="vision-box-label">Hệ thống Công năng nổi bật</h4>
+                  <ul class="vision-feature-list">
+                    <li><strong>Giáo trình thực chiến 6 Chặng · 18 Bài:</strong> Dẫn dắt bài bản từ con số 0 (nhận mặt phím, quãng, hợp âm) tới tự viết vòng hòa âm, giai điệu Pop Ballad / R&amp;B / V-Pop hiện đại.</li>
+                    <li><strong>Sơ đồ SVG nội tuyến &amp; Luật Dấu thanh Tiếng Việt:</strong> Từng mục bài học đính kèm hình minh họa bấm nghe <code>Tone.js</code> trực tiếp; chuyên đề chống <em>cưỡng âm</em> giúp ghép ca từ ăn khớp cao độ tự nhiên.</li>
+                    <li><strong>6 Dạng bài tập tương tác &amp; Liên thông Beat:</strong> Từ gõ nhịp <em>Groove Tapper</em>, săn nốt lạc tông, tự ghép hợp âm tới <em>Phòng Hỏi - Đáp</em> đẩy thẳng ý tưởng sang khu <em>Sáng tác Beat</em>.</li>
+                    <li><strong>Phòng tập Tự do 88 phím chuẩn (<code>A0–C8</code>):</strong> Tích hợp Minimap trượt nhanh, nhận diện hợp âm sống, Luyện đệm, Nốt rơi Synthesia, Cảm âm và cắm đàn <strong>Web MIDI</strong> thật song song cảm ứng đa điểm &amp; bàn phím PC.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- Khối 4: Giá trị Công nghệ Cốt lõi -->
+        <section class="vision-tech-section" aria-label="Nền tảng công nghệ cốt lõi của HEVOS STUDIO">
+          <div class="vision-section-head">
+            <span class="vision-section-eyebrow">DƯỚI NẮP CAPO · ARCHITECTURE</span>
+            <h2 class="vision-section-title">Giá trị Công nghệ Cốt lõi</h2>
+            <p class="vision-section-sub">Kiến trúc thuần web gọn nhẹ nhưng đảm bảo chất lượng âm thanh phòng thu, độ ổn định cao và tôn trọng quyền riêng tư dữ liệu của người dùng.</p>
+          </div>
+
+          <div class="vision-tech-grid">
+            <article class="vision-tech-card">
+              <div class="vision-tech-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2v20M6 6v12M18 6v12M2 10v4M22 10v4" />
+                </svg>
+              </div>
+              <h3 class="vision-tech-title">100% Browser-Native Web Audio</h3>
+              <p class="vision-tech-desc">
+                Không cần tải bộ cài nặng hàng gigabyte hay plugin rời. Mọi thao tác tổng hợp tiếng, Auto-Tune TD-PSOLA, tách Stems và kết xuất Master đều xử lý độ trễ thấp bằng Web Audio API &amp; <code>OfflineAudioContext</code> ngay trên trình duyệt, chuẩn hóa đầu ra sạch sẽ mức <code>-14 LUFS</code>.
+              </p>
+            </article>
+
+            <article class="vision-tech-card">
+              <div class="vision-tech-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="5" width="20" height="14" rx="2" />
+                  <path d="M6 5v9M10 5v9M14 5v9M18 5v9" />
+                </svg>
+              </div>
+              <h3 class="vision-tech-title">Hybrid Hardware &amp; Touch</h3>
+              <p class="vision-tech-desc">
+                Tự động nhận diện nóng đàn Piano / MIDI Keyboard cắm qua USB qua chuẩn <strong>Web MIDI API</strong> (hỗ trợ đa cổng 16 kênh, lực nhấn Velocity và Sustain Pedal), đồng thời vận hành trọn vẹn bằng cảm ứng đa điểm trên điện thoại hoặc bàn phím máy tính QWERTY.
+              </p>
+            </article>
+
+            <article class="vision-tech-card">
+              <div class="vision-tech-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </div>
+              <h3 class="vision-tech-title">Lưu trữ Cục bộ An toàn</h3>
+              <p class="vision-tech-desc">
+                Không yêu cầu đăng ký tài khoản hay đẩy bản thu nháp lên máy chủ trung gian. Toàn bộ tiến độ học 6 chặng, bản nháp hợp âm và giai điệu được lưu giữ an toàn ngay trên bộ nhớ cục bộ của thiết bị qua <code>LocalStorage</code>.
+              </p>
+            </article>
+          </div>
+        </section>
+      </div>
+    </section>
   </div>
 
   <!-- ====================================================================
@@ -932,6 +1228,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=33"></script>
+  <script type="module" src="./js/app.js?v=34"></script>
 </body>
 </html>

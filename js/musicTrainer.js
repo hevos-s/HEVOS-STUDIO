@@ -3,8 +3,8 @@
 // 4 Chế độ: Luyện từng nốt · Luyện nốt chạy · Ôn tập nốt sai · Tra cứu nốt
 // ============================================================================
 
-import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=33';
-import { getQwertyLabelForMidi } from './midiController.js?v=33';
+import { KEY_OPTIONS, SCALES, generateVoicedProgression, midiToFreq, midiToNoteName } from './theory.js?v=34';
+import { getQwertyLabelForMidi } from './midiController.js?v=34';
 import {
   FALLING_NOTES_SONGS,
   PIANO_CHORD_PROGRESSIONS,
@@ -13,12 +13,12 @@ import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=33';
+} from './musicTheory.js?v=34';
 import {
   generateEarQuestion,
   loadEarStats,
   saveEarOutcome,
-} from './earTraining.js?v=33';
+} from './earTraining.js?v=34';
 import {
   ALL_LESSONS,
   CURRICULUM_STAGES,
@@ -30,9 +30,9 @@ import {
   recordLessonExerciseScore,
   resetTheoryProgress,
   setLastLessonId,
-} from './curriculumData.js?v=33';
-import { TheoryExerciseRunner } from './theoryExercises.js?v=33';
-import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=33';
+} from './curriculumData.js?v=34';
+import { TheoryExerciseRunner } from './theoryExercises.js?v=34';
+import { bindTheoryDiagrams, renderTheoryDiagramHtml } from './theoryDiagrams.js?v=34';
 import {
   CLEF_META,
   KEYBOARD_MAP,
@@ -49,12 +49,12 @@ import {
   pickRandomNote,
   recordTrainerOutcome,
   saveTrainerSessionSummary,
-} from './trainerData.js?v=33';
+} from './trainerData.js?v=34';
 import {
   ScrollingStaffView,
   renderReferenceStaff,
   renderSingleNoteStaff,
-} from './staffRenderer.js?v=33';
+} from './staffRenderer.js?v=34';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({

@@ -9,13 +9,13 @@ import {
   midiToNoteName,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=33';
-import { getQwertyLabelForMidi } from './midiController.js?v=33';
+} from './theory.js?v=34';
+import { getQwertyLabelForMidi } from './midiController.js?v=34';
 import {
   detectChordFromMidis,
   doesActiveMatchChord,
   getScaleGuideInfo,
-} from './musicTheory.js?v=33';
+} from './musicTheory.js?v=34';
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, (c) => ({
