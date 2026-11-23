@@ -3,7 +3,7 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=35';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=36';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -574,6 +574,7 @@ class AudioEngine {
     this.masterLimiter = null;
     this.masterComp = null;
     this.masterLoudnessGain = null;
+    this.masterWarmFilter = null;
     this.masterEQ = null;
     this.masterBus = null;
     this.reverbSend = null;
@@ -788,37 +789,35 @@ class AudioEngine {
       } catch (_) {}
     }
 
-    // Mạch Master Loudness (-14 LUFS tự nhiên) & Bảo vệ đỉnh (-1.5 dBFS):
-    // MasterBus -> EQ3 -> Loudness Gain (+2.5 dB) -> Compressor (-14 dB / 2.5:1) -> Limiter (-1.5 dBFS) -> Safety Ceiling (-1.5 dBFS) -> Destination
-    this.masterCeiling = new Tone.WaveShaper((x) => {
-      const ceiling = 0.841; // -1.5 dBFS
-      const knee = 0.78;
-      const ax = Math.abs(x);
-      if (ax <= knee) return x;
-      const head = ceiling - knee;
-      return Math.sign(x) * (knee + head * Math.tanh((ax - knee) / head));
-    }, 2048).toDestination();
+    // Chuỗi Master phòng thu chống rè nốt cao & méo đỉnh sóng:
+    // MasterBus -> EQ3 -> Warm Low-Pass Filter (4800Hz, -12dB/oct, Q=0.7) -> Gain (0 dB / 1.0) -> Compressor (-18 dB / 2.2:1 / 25ms / 250ms) -> Limiter (-2.5 dBFS) -> Destination
+    this.masterCeiling = null;
+    this.masterLimiter = new Tone.Limiter(-2.5).toDestination();
     this.masterPeakMeter = new Tone.Meter({ normalRange: false, smoothing: 0.12 });
-    this.masterCeiling.connect(this.masterPeakMeter);
+    this.masterLimiter.connect(this.masterPeakMeter);
 
-    this.masterLimiter = new Tone.Limiter(-1.5).connect(this.masterCeiling);
     this.masterComp = new Tone.Compressor({
-      threshold: -14,
-      ratio: 2.5,
+      threshold: -18,
+      ratio: 2.2,
       knee: 12,
-      attack: 0.012,
-      release: 0.2,
+      attack: 0.025,
+      release: 0.25,
     }).connect(this.masterLimiter);
-    const boostAmp = typeof Tone.dbToGain === 'function' ? Tone.dbToGain(2.5) : Math.pow(10, 2.5 / 20);
-    this.masterLoudnessGain = new Tone.Gain(boostAmp).connect(this.masterComp);
-    this.masterEQ = new Tone.EQ3({
-      low: 0.8,
-      mid: 0,
-      high: -0.5,
-      lowFrequency: 180,
-      highFrequency: 4600,
+    this.masterLoudnessGain = new Tone.Gain(1.0).connect(this.masterComp);
+    this.masterWarmFilter = new Tone.Filter({
+      type: 'lowpass',
+      frequency: 4800,
+      rolloff: -12,
+      Q: 0.7,
     }).connect(this.masterLoudnessGain);
-    this.masterBus = new Tone.Gain(0.95).connect(this.masterEQ);
+    this.masterEQ = new Tone.EQ3({
+      low: 0.5,
+      mid: 0,
+      high: -1.0,
+      lowFrequency: 180,
+      highFrequency: 4200,
+    }).connect(this.masterWarmFilter);
+    this.masterBus = new Tone.Gain(1.0).connect(this.masterEQ);
 
     // Reverb chung song song (tạo headroom sạch, không dồn rè)
     this.reverbSend = new Tone.Gain(1);
@@ -835,13 +834,13 @@ class AudioEngine {
       wet: 0.25,
     }).start();
 
-    // 5 Kênh Mixer độc lập cân bằng headroom dễ nghe ngang YouTube -14 LUFS
+    // 5 Kênh Mixer độc lập giữ headroom tổng gọn gàng (-6 dBFS an toàn)
     this.channels = {
-      chords: new Tone.Gain(0.78).connect(this.masterBus),
-      melody: new Tone.Gain(0.78).connect(this.masterBus),
-      drums:  new Tone.Gain(0.78).connect(this.masterBus),
-      vocal:  new Tone.Gain(0.85).connect(this.masterBus),
-      vocal2: new Tone.Gain(0.85).connect(this.masterBus),
+      chords: new Tone.Gain(0.85).connect(this.masterBus),
+      melody: new Tone.Gain(0.85).connect(this.masterBus),
+      drums:  new Tone.Gain(0.85).connect(this.masterBus),
+      vocal:  new Tone.Gain(0.90).connect(this.masterBus),
+      vocal2: new Tone.Gain(0.90).connect(this.masterBus),
     };
 
     // Đồng hồ đo mức tín hiệu từng kênh (Post-fader Level Meters)
@@ -1016,28 +1015,28 @@ class AudioEngine {
     const filter = new Tone.Filter(2800, 'lowpass');
     const revSend = new Tone.Gain(0.22).connect(this.reverbSend);
     this.trainerPiano = new Tone.PolySynth(Tone.Synth, {
-      volume: -5,
+      volume: -13,
       oscillator: {
         type: 'custom',
         partials: [1, 0.42, 0.2, 0.09, 0.04],
       },
-      envelope: { attack: 0.006, decay: 1.4, sustain: 0.14, release: 0.65 },
+      envelope: { attack: 0.015, decay: 1.4, sustain: 0.14, release: 0.65 },
     });
-    this.trainerPiano.maxPolyphony = 32;
+    this.trainerPiano.maxPolyphony = 12;
     this.trainerPiano.connect(filter);
     filter.connect(this.masterBus);
     filter.connect(revSend);
 
     this.trainerWrongSynth = new Tone.Synth({
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.004, decay: 0.09, sustain: 0, release: 0.05 },
+      envelope: { attack: 0.008, decay: 0.09, sustain: 0, release: 0.08 },
       volume: -10,
     }).connect(this.masterBus);
 
     this.trainerClickSynth = new Tone.Synth({
       oscillator: { type: 'sine' },
-      envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
-      volume: -7,
+      envelope: { attack: 0.004, decay: 0.03, sustain: 0, release: 0.04 },
+      volume: -10,
     }).connect(this.masterBus);
   }
 
@@ -1049,51 +1048,49 @@ class AudioEngine {
 
     let synth;
     let filter;
-    const revSend = new Tone.Gain(key === 'pad' ? 0.34 : 0.22).connect(this.reverbSend);
+    const revSend = new Tone.Gain(key === 'pad' ? 0.30 : 0.20).connect(this.reverbSend);
 
     if (key === 'rhodes') {
       filter = new Tone.Filter(2500, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        volume: -8.5,
+        volume: -13,
         harmonicity: 2,
         modulationIndex: 1.35,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.008, decay: 1.35, sustain: 0.28, release: 0.60 },
+        envelope: { attack: 0.015, decay: 1.35, sustain: 0.28, release: 0.60 },
         modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.008, decay: 0.38, sustain: 0.06, release: 0.24 },
+        modulationEnvelope: { attack: 0.015, decay: 0.38, sustain: 0.06, release: 0.35 },
       });
       synth.connect(filter);
-      if (this.chordChorus) filter.connect(this.chordChorus);
       filter.connect(this.masterBus);
       filter.connect(revSend);
     } else if (key === 'pad') {
       filter = new Tone.Filter(1550, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -11.5,
+        volume: -13,
         oscillator: { type: 'fatsawtooth', count: 2, spread: 16 },
         envelope: { attack: 0.14, decay: 0.70, sustain: 0.65, release: 0.68 },
       });
       synth.connect(filter);
-      if (this.chordChorus) filter.connect(this.chordChorus);
       filter.connect(this.masterBus);
       filter.connect(revSend);
     } else {
-      // Grand Piano sáng ấm rõ nét
+      // Grand Piano sáng ấm rõ nét, không chói gắt quãng C5–C8
       filter = new Tone.Filter(2800, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -7.5,
+        volume: -13,
         oscillator: {
           type: 'custom',
           partials: [1, 0.48, 0.22, 0.09, 0.035, 0.012],
         },
-        envelope: { attack: 0.006, decay: 1.5, sustain: 0.22, release: 0.65 },
+        envelope: { attack: 0.015, decay: 1.5, sustain: 0.22, release: 0.65 },
       });
       synth.connect(filter);
       filter.connect(this.masterBus);
       filter.connect(revSend);
     }
 
-    synth.maxPolyphony = 48;
+    synth.maxPolyphony = 12;
     this.trainerSynths[key] = synth;
     return synth;
   }
@@ -1110,29 +1107,29 @@ class AudioEngine {
     const Tone = window.Tone;
     const drumBus = this.channels.drums;
 
-    // Kick sâu gọn có transient click giúp đục rõ qua loa laptop/điện thoại (chuẩn loudness -14 LUFS)
+    // Bộ trống giữ headroom sạch (-10..-14 dB)
     const kick = new Tone.MembraneSynth({
       pitchDecay: 0.042,
       octaves: 5.8,
       oscillator: { type: 'sine' },
-      envelope: { attack: 0.002, decay: 0.30, sustain: 0.01, release: 0.22 },
-      volume: -5,
+      envelope: { attack: 0.004, decay: 0.30, sustain: 0.01, release: 0.22 },
+      volume: -10,
     }).connect(drumBus);
 
     const kickClick = new Tone.MembraneSynth({
       pitchDecay: 0.012,
       octaves: 2.0,
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.001, decay: 0.022, sustain: 0, release: 0.01 },
-      volume: -11,
+      envelope: { attack: 0.002, decay: 0.022, sustain: 0, release: 0.02 },
+      volume: -13,
     }).connect(drumBus);
 
     // Snare noise (lọc bandpass gọn)
     const snareFilter = new Tone.Filter({ type: 'bandpass', frequency: 1900, Q: 0.9 }).connect(drumBus);
     const snareNoise = new Tone.NoiseSynth({
       noise: { type: 'pink' },
-      envelope: { attack: 0.002, decay: 0.14, sustain: 0, release: 0.05 },
-      volume: -8.5,
+      envelope: { attack: 0.003, decay: 0.14, sustain: 0, release: 0.05 },
+      volume: -10,
     }).connect(snareFilter);
     snareFilter.connect(new Tone.Gain(0.18).connect(this.reverbSend));
 
@@ -1140,14 +1137,14 @@ class AudioEngine {
     const clapFilter = new Tone.Filter({ type: 'bandpass', frequency: 1400, Q: 1.1 }).connect(drumBus);
     const clap = new Tone.NoiseSynth({
       noise: { type: 'white' },
-      envelope: { attack: 0.002, decay: 0.065, sustain: 0, release: 0.03 },
-      volume: -8.5,
+      envelope: { attack: 0.003, decay: 0.065, sustain: 0, release: 0.04 },
+      volume: -10,
     }).connect(clapFilter);
     const clapTailFilter = new Tone.Filter({ type: 'bandpass', frequency: 1750, Q: 0.85 }).connect(drumBus);
     const clapTail = new Tone.NoiseSynth({
       noise: { type: 'white' },
-      envelope: { attack: 0.003, decay: 0.13, sustain: 0, release: 0.06 },
-      volume: -10.5,
+      envelope: { attack: 0.004, decay: 0.13, sustain: 0, release: 0.06 },
+      volume: -12,
     }).connect(clapTailFilter);
     clapTailFilter.connect(new Tone.Gain(0.24).connect(this.reverbSend));
 
@@ -1156,32 +1153,32 @@ class AudioEngine {
       pitchDecay: 0.015,
       octaves: 2.2,
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.001, decay: 0.075, sustain: 0, release: 0.04 },
-      volume: -8.5,
+      envelope: { attack: 0.002, decay: 0.075, sustain: 0, release: 0.04 },
+      volume: -10,
     }).connect(drumBus);
 
     // Hi-hat mượt (white noise lọc highpass, không bị chói gắt)
     const hatFilter = new Tone.Filter({ type: 'highpass', frequency: 7200 }).connect(drumBus);
     const hat = new Tone.NoiseSynth({
       noise: { type: 'white' },
-      envelope: { attack: 0.001, decay: 0.042, sustain: 0, release: 0.02 },
-      volume: -13,
+      envelope: { attack: 0.002, decay: 0.042, sustain: 0, release: 0.02 },
+      volume: -14,
     }).connect(hatFilter);
 
     // Crash cymbal mở đầu đoạn drop sân khấu
     const crashFilter = new Tone.Filter({ type: 'highpass', frequency: 4800 }).connect(drumBus);
     const crash = new Tone.NoiseSynth({
       noise: { type: 'white' },
-      envelope: { attack: 0.004, decay: 0.55, sustain: 0, release: 0.25 },
-      volume: -13,
+      envelope: { attack: 0.005, decay: 0.55, sustain: 0, release: 0.25 },
+      volume: -14,
     }).connect(crashFilter);
     crashFilter.connect(new Tone.Gain(0.28).connect(this.reverbSend));
 
     // Metronome click đi qua kênh trống
     const click = new Tone.Synth({
       oscillator: { type: 'sine' },
-      envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 },
-      volume: -7.5,
+      envelope: { attack: 0.003, decay: 0.04, sustain: 0, release: 0.02 },
+      volume: -10,
     }).connect(drumBus);
 
     this.drums = { kick, kickClick, snareNoise, clap, clapTail, rim, hat, crash, click };
@@ -1192,7 +1189,7 @@ class AudioEngine {
     if (this.bassSynth) return this.bassSynth;
 
     const eq = new Tone.EQ3({
-      low: 2.8,
+      low: 2.2,
       mid: -1.0,
       high: -6,
       lowFrequency: 140,
@@ -1200,11 +1197,11 @@ class AudioEngine {
     });
     const filter = new Tone.Filter(460, 'lowpass');
     const synth = new Tone.PolySynth(Tone.Synth, {
-      volume: -9.5,
+      volume: -10,
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.012, decay: 0.68, sustain: 0.36, release: 0.34 },
+      envelope: { attack: 0.015, decay: 0.68, sustain: 0.36, release: 0.35 },
     });
-    synth.maxPolyphony = 16;
+    synth.maxPolyphony = 12;
     synth.connect(eq);
     eq.connect(filter);
     filter.connect(this.channels.chords);
@@ -1219,13 +1216,13 @@ class AudioEngine {
 
     let synth;
     let filter;
-    const revSend = new Tone.Gain(0.24).connect(this.reverbSend);
+    const revSend = new Tone.Gain(0.22).connect(this.reverbSend);
 
     if (timbreId === 'dark_brass') {
-      // Dark Synth Brass (YG / K-Pop / US-UK Stage): Fatsawtooth dày uy lực, ngắt gọn khi đánh staccato
+      // Dark Synth Brass (YG / K-Pop / US-UK Stage): Fatsawtooth dày uy lực, nới ADSR chống nổ
       const punchEq = new Tone.EQ3({
         low: 2.0,
-        mid: 1.8,
+        mid: 1.5,
         high: -2.0,
         lowFrequency: 210,
         highFrequency: 3400,
@@ -1233,9 +1230,9 @@ class AudioEngine {
       const chorusSend = new Tone.Gain(0.20).connect(this.chordChorus);
       filter = new Tone.Filter(1950, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -11.5,
+        volume: -13,
         oscillator: { type: 'fatsawtooth', count: 2, spread: 18 },
-        envelope: { attack: 0.014, decay: 0.48, sustain: 0.48, release: 0.28 },
+        envelope: { attack: 0.015, decay: 0.48, sustain: 0.48, release: 0.35 },
       });
       revSend.gain.value = 0.22;
       synth.connect(punchEq);
@@ -1244,13 +1241,13 @@ class AudioEngine {
       filter.connect(chorusSend);
       filter.connect(revSend);
     } else if (timbreId === 'stage_pluck') {
-      // Stage Pluck / Lead (G-Dragon / Trap Soul): Nảy đanh dứt khoát, sáng rõ hợp với beat nhiều khoảng thở
+      // Stage Pluck / Lead (G-Dragon / Trap Soul)
       const chorusSend = new Tone.Gain(0.18).connect(this.chordChorus);
       filter = new Tone.Filter(2850, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -10.5,
+        volume: -13,
         oscillator: { type: 'fatsawtooth', count: 2, spread: 11 },
-        envelope: { attack: 0.004, decay: 0.34, sustain: 0.08, release: 0.22 },
+        envelope: { attack: 0.015, decay: 0.34, sustain: 0.08, release: 0.35 },
       });
       revSend.gain.value = 0.24;
       synth.connect(filter);
@@ -1258,10 +1255,10 @@ class AudioEngine {
       filter.connect(chorusSend);
       filter.connect(revSend);
     } else if (timbreId === 'modern_piano') {
-      // Piano Pop Hiện Đại Trầm Ấm (Felt / Modern Upright Piano: thân ấm dày, dải cao êm không chói)
+      // Piano Pop Hiện Đại Trầm Ấm
       const warmEq = new Tone.EQ3({
-        low: 3.2,
-        mid: 0.6,
+        low: 2.8,
+        mid: 0.5,
         high: -3.5,
         lowFrequency: 230,
         highFrequency: 2800,
@@ -1269,14 +1266,14 @@ class AudioEngine {
       const chorusSend = new Tone.Gain(0.16).connect(this.chordChorus);
       filter = new Tone.Filter(1650, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -9.5,
+        volume: -13,
         oscillator: {
           type: 'custom',
           partials: [1, 0.56, 0.22, 0.08, 0.025, 0.008],
         },
-        envelope: { attack: 0.011, decay: 1.55, sustain: 0.20, release: 0.68 },
+        envelope: { attack: 0.015, decay: 1.55, sustain: 0.20, release: 0.68 },
       });
-      revSend.gain.value = 0.30;
+      revSend.gain.value = 0.28;
       synth.connect(warmEq);
       warmEq.connect(filter);
       filter.connect(this.channels.chords);
@@ -1285,61 +1282,61 @@ class AudioEngine {
     } else if (timbreId === 'piano') {
       filter = new Tone.Filter(2600, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -11.5,
+        volume: -13,
         oscillator: {
           type: 'custom',
           partials: [1, 0.45, 0.22, 0.10, 0.045, 0.018],
         },
-        envelope: { attack: 0.007, decay: 1.45, sustain: 0.16, release: 0.65 },
+        envelope: { attack: 0.015, decay: 1.45, sustain: 0.16, release: 0.65 },
       });
-      revSend.gain.value = 0.28;
+      revSend.gain.value = 0.26;
       synth.connect(filter);
       filter.connect(this.channels.chords);
       filter.connect(revSend);
     } else if (timbreId === 'pad') {
       filter = new Tone.Filter(1450, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -14,
+        volume: -13,
         oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
         envelope: { attack: 0.22, decay: 0.8, sustain: 0.62, release: 0.70 },
       });
-      revSend.gain.value = 0.42;
+      revSend.gain.value = 0.36;
       synth.connect(filter);
       filter.connect(this.chordChorus);
       filter.connect(revSend);
     } else if (timbreId === 'guitar') {
       filter = new Tone.Filter(3200, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -10.5,
+        volume: -13,
         oscillator: {
           type: 'custom',
           partials: [1, 0.68, 0.44, 0.28, 0.16, 0.08, 0.035],
         },
-        envelope: { attack: 0.004, decay: 0.85, sustain: 0.04, release: 0.45 },
+        envelope: { attack: 0.015, decay: 0.85, sustain: 0.04, release: 0.45 },
       });
       revSend.gain.value = 0.20;
       synth.connect(filter);
       filter.connect(this.channels.chords);
       filter.connect(revSend);
     } else {
-      // Mặc định: Warm Rhodes / Electric Piano (chuẩn loudness + release <= 0.7s chống nghẽn đa âm)
+      // Mặc định: Warm Rhodes / Electric Piano (-13 dB headroom sạch)
       filter = new Tone.Filter(2600, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        volume: -11.5,
+        volume: -13,
         harmonicity: 2,
         modulationIndex: 1.4,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.010, decay: 1.35, sustain: 0.24, release: 0.62 },
+        envelope: { attack: 0.015, decay: 1.35, sustain: 0.24, release: 0.62 },
         modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.008, decay: 0.40, sustain: 0.05, release: 0.25 },
+        modulationEnvelope: { attack: 0.015, decay: 0.40, sustain: 0.05, release: 0.35 },
       });
-      revSend.gain.value = 0.26;
+      revSend.gain.value = 0.24;
       synth.connect(filter);
       filter.connect(this.chordChorus);
       filter.connect(revSend);
     }
 
-    synth.maxPolyphony = 64;
+    synth.maxPolyphony = 12;
     this.chordSynths[timbreId] = synth;
     return synth;
   }
@@ -1350,61 +1347,61 @@ class AudioEngine {
 
     let synth;
     let filter;
-    const revSend = new Tone.Gain(0.28).connect(this.reverbSend);
+    const revSend = new Tone.Gain(0.26).connect(this.reverbSend);
 
     if (timbreId === 'lead') {
       filter = new Tone.Filter(2350, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -10.5,
+        volume: -13,
         oscillator: { type: 'fatsawtooth', count: 2, spread: 14 },
         envelope: { attack: 0.020, decay: 0.32, sustain: 0.56, release: 0.35 },
       });
-      revSend.gain.value = 0.26;
+      revSend.gain.value = 0.24;
     } else if (timbreId === 'flute') {
       filter = new Tone.Filter(2900, 'lowpass');
       synth = new Tone.PolySynth(Tone.Synth, {
-        volume: -9.5,
+        volume: -13,
         oscillator: { type: 'custom', partials: [1, 0.26, 0.09, 0.03] },
         envelope: { attack: 0.055, decay: 0.28, sustain: 0.68, release: 0.50 },
       });
-      revSend.gain.value = 0.38;
+      revSend.gain.value = 0.34;
     } else if (timbreId === 'ep') {
       filter = new Tone.Filter(3500, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        volume: -9.5,
+        volume: -13,
         harmonicity: 2,
         modulationIndex: 2.0,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.008, decay: 1.0, sustain: 0.22, release: 0.65 },
+        envelope: { attack: 0.015, decay: 1.0, sustain: 0.22, release: 0.65 },
         modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.005, decay: 0.28, sustain: 0.05, release: 0.22 },
+        modulationEnvelope: { attack: 0.015, decay: 0.28, sustain: 0.05, release: 0.35 },
       });
-      revSend.gain.value = 0.26;
+      revSend.gain.value = 0.24;
     } else {
-      // Mặc định: Chuông êm / Pluck
+      // Mặc định: Chuông êm / Pluck (-13 dB headroom sạch)
       filter = new Tone.Filter(3600, 'lowpass');
       synth = new Tone.PolySynth(Tone.FMSynth, {
-        volume: -9.5,
+        volume: -13,
         harmonicity: 3,
         modulationIndex: 1.4,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.005, decay: 0.85, sustain: 0.12, release: 0.60 },
+        envelope: { attack: 0.015, decay: 0.85, sustain: 0.12, release: 0.60 },
         modulation: { type: 'triangle' },
-        modulationEnvelope: { attack: 0.004, decay: 0.22, sustain: 0.02, release: 0.18 },
+        modulationEnvelope: { attack: 0.015, decay: 0.22, sustain: 0.02, release: 0.35 },
       });
-      revSend.gain.value = 0.30;
+      revSend.gain.value = 0.28;
     }
 
     synth.connect(filter);
     filter.connect(this.channels.melody);
     filter.connect(revSend);
-    synth.maxPolyphony = 64;
+    synth.maxPolyphony = 12;
     this.melodySynths[timbreId] = synth;
     return synth;
   }
 
   /**
-   * Cập nhật âm lượng, Mute và Solo cho Mixer (đạt chuẩn loudness -14 LUFS tự nhiên khi chạy mặc định 75–82%)
+   * Cập nhật âm lượng, Mute và Solo cho Mixer (giữ tổng hợp âm gọn gàng dưới -6 dBFS & không rè)
    */
   applyMixer(mixer) {
     this.state.mixer = JSON.parse(JSON.stringify(mixer));
@@ -1416,7 +1413,7 @@ class AudioEngine {
       const isAudible = isMixerChannelAudible(mixer, key);
       const rawVol = Number.isFinite(Number(ch.volume)) ? Number(ch.volume) : 75;
       const norm = Math.max(0, Math.min(100, rawVol)) / 100;
-      const scale = key === 'vocal' || key === 'vocal2' ? 0.85 : 0.78;
+      const scale = key === 'vocal' || key === 'vocal2' ? 0.90 : 0.85;
       const gain = isAudible ? Math.pow(norm, 1.55) * scale : 0;
       if (Number.isFinite(gain)) {
         node.gain.rampTo(gain, 0.03);
@@ -2299,7 +2296,7 @@ class AudioEngine {
     this.stop();
 
     const recorder = new Tone.Recorder();
-    (this.masterCeiling || this.masterLimiter).connect(recorder);
+    (this.masterLimiter || this.masterComp).connect(recorder);
 
     const totalBeats = this.state.totalBars * 4;
     const loopDurationSec = totalBeats * (60 / this.state.bpm);
@@ -2346,7 +2343,7 @@ class AudioEngine {
       return { blob, ext, mime };
     } finally {
       try {
-        (this.masterCeiling || this.masterLimiter).disconnect(recorder);
+        (this.masterLimiter || this.masterComp).disconnect(recorder);
         recorder.dispose();
       } catch (_) {}
       transport.loop = true;
@@ -2583,30 +2580,36 @@ class AudioEngine {
     const offline = new AC(2, totalFrames, sr);
 
     const limiter = offline.createDynamicsCompressor();
-    limiter.threshold.value = -1.5;
+    limiter.threshold.value = -2.5;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.06;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.08;
     limiter.connect(offline.destination);
 
     const masterComp = offline.createDynamicsCompressor();
-    masterComp.threshold.value = -14;
+    masterComp.threshold.value = -18;
     masterComp.knee.value = 12;
-    masterComp.ratio.value = 2.5;
-    masterComp.attack.value = 0.012;
-    masterComp.release.value = 0.2;
+    masterComp.ratio.value = 2.2;
+    masterComp.attack.value = 0.025;
+    masterComp.release.value = 0.25;
     masterComp.connect(limiter);
 
+    const warmFilter = offline.createBiquadFilter();
+    warmFilter.type = 'lowpass';
+    warmFilter.frequency.value = 4800;
+    warmFilter.Q.value = 0.7;
+    warmFilter.connect(masterComp);
+
     const masterBus = offline.createGain();
-    masterBus.gain.value = 1.3335; // +2.5 dB nhẹ nhàng vừa đủ bù headroom mức -14 LUFS
-    masterBus.connect(masterComp);
+    masterBus.gain.value = 1.0; // 0 dB trung tính, không khuếch đại dương
+    masterBus.connect(warmFilter);
 
     const getMixGain = (key) => {
       const ch = mixer[key] || { volume: 80, muted: false, solo: false };
       if (!isMixerChannelAudible(mixer, key)) return 0;
       const norm = Math.max(0, Math.min(100, ch.volume)) / 100;
-      return Math.pow(norm, 1.55) * 0.92;
+      return Math.pow(norm, 1.55) * 0.85;
     };
 
     const chChords = offline.createGain();
@@ -2716,8 +2719,8 @@ class AudioEngine {
         }
 
         filter.type = 'lowpass';
-        const peak = Math.max(0.02, ev.velocity * (isBass ? 0.25 : cTimbre === 'dark_brass' || cTimbre === 'stage_pluck' ? 0.13 : 0.14));
-        const atk = !isBass && cTimbre === 'pad' ? 0.18 : cTimbre === 'stage_pluck' ? 0.004 : 0.009;
+        const peak = Math.max(0.02, ev.velocity * (isBass ? 0.22 : cTimbre === 'dark_brass' || cTimbre === 'stage_pluck' ? 0.11 : 0.12));
+        const atk = !isBass && cTimbre === 'pad' ? 0.18 : 0.015;
         env.gain.setValueAtTime(0.0001, start);
         env.gain.linearRampToValueAtTime(peak, Math.min(end - 0.02, start + atk));
         const midRatio = cTimbre === 'stage_pluck' ? 0.16 : cTimbre === 'dark_brass' ? 0.48 : 0.36;
@@ -2777,8 +2780,8 @@ class AudioEngine {
         }
 
         filter.type = 'lowpass';
-        const peak = Math.max(0.02, ev.velocity * 0.22);
-        const atk = mTimbre === 'flute' ? 0.045 : 0.007;
+        const peak = Math.max(0.02, ev.velocity * 0.18);
+        const atk = mTimbre === 'flute' ? 0.045 : 0.015;
         env.gain.setValueAtTime(0.0001, start);
         env.gain.linearRampToValueAtTime(peak, Math.min(end - 0.015, start + atk));
         env.gain.exponentialRampToValueAtTime(Math.max(0.0005, peak * 0.3), Math.min(end, start + dur));
@@ -2916,16 +2919,17 @@ class AudioEngine {
     const rendered = await offline.startRendering();
     if (rendered && rendered.length > 512) {
       const fadeSamples = Math.min(264, Math.floor(rendered.length * 0.05));
-      const ceiling = 0.841; // -1.5 dBFS
-      const knee = 0.78;
-      const head = ceiling - knee;
+      const ceiling = 0.7498; // -2.5 dBFS transparent peak ceiling
       for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
         const data = rendered.getChannelData(ch);
         for (let i = 0; i < data.length; i++) {
           const x = data[i];
-          const ax = Math.abs(x);
-          if (ax > knee) {
-            data[i] = Math.sign(x) * (knee + head * Math.tanh((ax - knee) / head));
+          if (!Number.isFinite(x)) {
+            data[i] = 0;
+          } else if (x > ceiling) {
+            data[i] = ceiling;
+          } else if (x < -ceiling) {
+            data[i] = -ceiling;
           }
         }
         for (let i = 0; i < fadeSamples; i++) {
@@ -2945,13 +2949,17 @@ class AudioEngine {
 
   getMasterChainSpec() {
     return {
-      loudnessGainDb: 2.5,
-      compThreshold: this.masterComp ? this.masterComp.threshold.value : -14,
-      compRatio: this.masterComp ? this.masterComp.ratio.value : 2.5,
-      compAttack: this.masterComp ? this.masterComp.attack.value : 0.012,
-      compRelease: this.masterComp ? this.masterComp.release.value : 0.2,
-      limiterThreshold: this.masterLimiter ? this.masterLimiter.threshold.value : -1.5,
-      ceilingLinear: 0.841,
+      loudnessGainDb: 0,
+      loudnessGainLinear: this.masterLoudnessGain ? this.masterLoudnessGain.gain.value : 1.0,
+      warmFilterFreq: this.masterWarmFilter ? this.masterWarmFilter.frequency.value : 4800,
+      warmFilterRolloff: this.masterWarmFilter ? this.masterWarmFilter.rolloff : -12,
+      warmFilterQ: this.masterWarmFilter ? this.masterWarmFilter.Q.value : 0.7,
+      compThreshold: this.masterComp ? this.masterComp.threshold.value : -18,
+      compRatio: this.masterComp ? this.masterComp.ratio.value : 2.2,
+      compAttack: this.masterComp ? this.masterComp.attack.value : 0.025,
+      compRelease: this.masterComp ? this.masterComp.release.value : 0.25,
+      limiterThreshold: this.masterLimiter ? this.masterLimiter.threshold.value : -2.5,
+      ceilingLinear: 0.7498,
     };
   }
 
@@ -2959,7 +2967,7 @@ class AudioEngine {
     if (typeof window.Tone !== 'undefined' && typeof window.Tone.getDestination === 'function') {
       return window.Tone.getDestination();
     }
-    return this.initialized ? (this.masterCeiling || this.masterLimiter) : null;
+    return this.initialized ? (this.masterLimiter || this.masterComp) : null;
   }
 }
 
