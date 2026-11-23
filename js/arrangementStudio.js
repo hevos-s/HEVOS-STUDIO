@@ -8,7 +8,7 @@
 // - Tích hợp StemAnalyzerStudio: Tách 4 Stems & Phân tích hợp âm/BPM tự động
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=37';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=38';
 
 export const MASTERING_PRESETS = [
   {
@@ -72,6 +72,7 @@ const SOURCE_META = {
   studio: { label: 'Beat từ Sáng tác', badgeClass: 'src-studio', defaultTrack: 0, color: '#8B5CF6' },
   vocal: { label: 'Vocal từ Phòng thu', badgeClass: 'src-vocal', defaultTrack: 2, color: '#EC4899' },
   'vocal-beat': { label: 'Beat Phòng thu', badgeClass: 'src-vbeat', defaultTrack: 0, color: '#6366F1' },
+  stem: { label: 'Stem tách rời', badgeClass: 'src-file', defaultTrack: 1, color: '#38BDF8' },
   file: { label: 'File nhập ngoài', badgeClass: 'src-file', defaultTrack: 1, color: '#38BDF8' },
 };
 
@@ -861,29 +862,97 @@ export class ArrangementStudio {
       this.stemStudio = new StemAnalyzerStudio(stemsPanel, {
         renderStudioBeat: this.cb.renderStudioBeat,
         onSendStemsToPlaylist: (items) => {
-          if (!Array.isArray(items) || items.length === 0) return;
+          const validItems = Array.isArray(items)
+            ? items.filter((it) => it && it.audioBuffer && it.audioBuffer.length > 0)
+            : [];
+          if (validItems.length === 0) return;
+
+          // Ngắt hoàn toàn mọi nguồn phát cũ trước khi thay thế/cập nhật 4 Stems
+          this.stopAll();
+
+          const nextBpm = Number(validItems[0].bpm);
+          if (Number.isFinite(nextBpm) && nextBpm >= 40 && nextBpm <= 220) {
+            this.bpm = Math.round(nextBpm);
+            const bpmInp = this.root?.querySelector('#arr-bpm-input');
+            if (bpmInp) bpmInp.value = String(this.bpm);
+          }
+
+          // Dọn sạch các placement & clip stem cũ trước khi nạp bộ 4 Stems mới
+          this.placements = this.placements.filter((p) => !p.isStemPlacement);
+          const remainingClipIds = new Set(this.placements.map((p) => p.clipId));
+          this.clipsLibrary = this.clipsLibrary.filter(
+            (c) => !c.isStemClip || remainingClipIds.has(c.id)
+          );
+
+          const stemTracks = validItems.map((item, idx) => ({
+            id: this._nextId('tr'),
+            name: item.trackTitle || item.name || `Stem ${idx + 1}`,
+            color: item.color || EXTRA_TRACK_COLORS[idx % EXTRA_TRACK_COLORS.length],
+            volume: 85,
+            pan: 0,
+            muted: false,
+            solo: false,
+            isStemTrack: true,
+            stemKey: item.stemKey || null,
+          }));
+
+          let trackOffset = 0;
+          if (this.placements.length === 0) {
+            this.tracks = stemTracks;
+          } else {
+            // Giữ các track đang có clip Beat/Vocal riêng, dọn các track stem cũ đã trống
+            const keptTracks = [];
+            const indexMap = new Map();
+            this.tracks.forEach((tr, oldIdx) => {
+              const hasPl = this.placements.some((p) => p.trackIndex === oldIdx);
+              if (!tr.isStemTrack || hasPl) {
+                indexMap.set(oldIdx, keptTracks.length);
+                keptTracks.push(tr);
+              }
+            });
+            this.placements.forEach((p) => {
+              if (indexMap.has(p.trackIndex)) {
+                p.trackIndex = indexMap.get(p.trackIndex);
+              }
+            });
+            trackOffset = keptTracks.length;
+            keptTracks.push(...stemTracks);
+            this.tracks = keptTracks;
+          }
+
+          this._rebuildTrackNodes();
+
           const imported = [];
-          items.forEach((item, idx) => {
+          validItems.forEach((item, idx) => {
+            const targetTrackIdx = trackOffset + idx;
             const clip = this.importClip({
               name: item.name,
-              sourceType: item.sourceType || 'studio',
+              sourceType: item.sourceType || 'stem',
               audioBuffer: item.audioBuffer,
               bpm: item.bpm || this.bpm,
               color: item.color,
-              suggestedTrackIndex: item.suggestedTrackIndex ?? (idx % this.tracks.length),
+              stemKey: item.stemKey || null,
+              isStemClip: true,
+              suggestedTrackIndex: targetTrackIdx,
               autoPlace: false,
             });
             if (clip) {
               this.placeClipOnTimeline(clip.id, {
-                trackIndex: Math.min(this.tracks.length - 1, item.suggestedTrackIndex ?? idx),
+                trackIndex: targetTrackIdx,
                 startSec: 0,
+                isStemPlacement: true,
               });
               imported.push(clip);
             }
           });
+
           if (imported.length > 0) {
+            this._renderTrackHeaders();
+            this._syncSelectionButtons();
+            this._updateStageSize();
             this.setSubView('playlist');
-            this._toast(`Đã đưa ${imported.length} Stems tách rời lên lưới Playlist & Master!`);
+            this.resizeAndRedraw();
+            this._toast(`Đã đưa ${imported.length} Stems tách rời (độc lập từng Track) lên Playlist & Master!`);
           }
         },
         onApplyChordsToStudio: this.cb.onApplyChordsToStudio,
@@ -898,13 +967,14 @@ export class ArrangementStudio {
     if (!container) return;
 
     container.innerHTML = this.tracks.map((tr, idx) => `
-      <div class="arr-tr-header${!this._isTrackAudible(idx) ? ' is-muted' : ''}" data-arr-tr-idx="${idx}">
+      <div class="arr-tr-header${!this._isTrackAudible(idx) ? ' is-muted' : ''}" data-arr-tr-idx="${idx}"${tr.stemKey ? ` data-arr-stem-key="${escapeHtml(tr.stemKey)}"` : ''}>
         <div class="arr-tr-top">
           <span class="arr-tr-dot" style="background:${tr.color}"></span>
           <button type="button" class="arr-tr-name" data-arr-rename="${idx}" title="Bấm để đổi tên Track">${escapeHtml(tr.name)}</button>
           <div class="ms-btns arr-tr-ms">
             <button type="button" class="ms-btn${tr.muted ? ' active-mute' : ''}" data-arr-mute="${idx}" title="Tắt tiếng (Mute)">M</button>
             <button type="button" class="ms-btn${tr.solo ? ' active-solo' : ''}" data-arr-solo="${idx}" title="Nghe riêng (Solo)">S</button>
+            <button type="button" class="ms-btn arr-tr-del-btn" data-arr-del-track="${idx}" title="Xóa hoàn toàn hàng Track này khỏi Playlist" aria-label="Xóa ${escapeHtml(tr.name)}">×</button>
           </div>
         </div>
         <div class="arr-tr-sliders">
@@ -1166,6 +1236,12 @@ export class ArrangementStudio {
             tr.name = nextName.trim().slice(0, 34);
             this._renderTrackHeaders();
           }
+          return;
+        }
+        const delTrackBtn = e.target.closest('[data-arr-del-track]');
+        if (delTrackBtn) {
+          const idx = Number(delTrackBtn.dataset.arrDelTrack);
+          this.removeTrack(idx);
         }
       });
 
@@ -1267,6 +1343,7 @@ export class ArrangementStudio {
         e.preventDefault();
         const clipId = e.dataTransfer && e.dataTransfer.getData('text/hevos-clip-id');
         if (!clipId) return;
+        if (this.tracks.length === 0) this.addTrack();
         const world = this._eventToWorld(e);
         const trackIdx = clamp(Math.floor(world.worldY / ROW_HEIGHT), 0, this.tracks.length - 1);
         const startSec = this._snapSec(world.worldX / this.getPxPerSec());
@@ -1324,7 +1401,7 @@ export class ArrangementStudio {
     const stage = this.root ? this.root.querySelector('#arr-timeline-stage') : null;
     if (!stage) return;
     const totalW = this.getTimelineWidthPx();
-    const totalH = this.tracks.length * ROW_HEIGHT;
+    const totalH = Math.max(ROW_HEIGHT, this.tracks.length * ROW_HEIGHT);
     stage.style.width = `${totalW}px`;
     stage.style.height = `${totalH}px`;
   }
@@ -1400,8 +1477,22 @@ export class ArrangementStudio {
     return this.playCtx;
   }
 
+  _rebuildTrackNodes() {
+    while (this.trackNodes.length > 0) {
+      const node = this.trackNodes.pop();
+      try { node.gain.disconnect(); } catch (_) {}
+      try { node.pan.disconnect(); } catch (_) {}
+    }
+    this._syncTrackNodes();
+  }
+
   _syncTrackNodes() {
     if (!this.playCtx || !this.masterChain) return;
+    while (this.trackNodes.length > this.tracks.length) {
+      const node = this.trackNodes.pop();
+      try { node.gain.disconnect(); } catch (_) {}
+      try { node.pan.disconnect(); } catch (_) {}
+    }
     while (this.trackNodes.length < this.tracks.length) {
       const g = this.playCtx.createGain();
       const pan = this.playCtx.createStereoPanner();
@@ -1423,8 +1514,13 @@ export class ArrangementStudio {
       const val = audible && norm > 0 ? Math.pow(norm, 1.55) * 1.15 : 0;
       try {
         nodes.gain.gain.cancelScheduledValues(now);
-        nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
-        nodes.gain.gain.linearRampToValueAtTime(val, now + 0.015);
+        if (val === 0 || this.playCtx.state !== 'running') {
+          nodes.gain.gain.setValueAtTime(val, now);
+          nodes.gain.gain.value = val;
+        } else {
+          nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
+          nodes.gain.gain.linearRampToValueAtTime(val, now + 0.012);
+        }
       } catch (_) {
         nodes.gain.gain.value = val;
       }
@@ -1461,6 +1557,8 @@ export class ArrangementStudio {
     audioBuffer,
     bpm = null,
     color = null,
+    stemKey = null,
+    isStemClip = false,
     suggestedTrackIndex = null,
     suggestedStartSec = null,
     autoPlace = false,
@@ -1476,6 +1574,8 @@ export class ArrangementStudio {
       durationSec: audioBuffer.duration,
       bpm: bpm || this.bpm,
       color: color || meta.color,
+      stemKey: stemKey || null,
+      isStemClip: Boolean(isStemClip),
       peaks: computeAudioBufferPeaks(audioBuffer, WAVE_BINS),
       suggestedTrackIndex:
         suggestedTrackIndex !== null && suggestedTrackIndex !== undefined
@@ -1493,6 +1593,7 @@ export class ArrangementStudio {
     if (autoPlace) {
       this.placeClipOnTimeline(clip.id);
     } else if (autoPlaceIfEmpty) {
+      if (this.tracks.length === 0) this.addTrack();
       const targetTrackIndex = clamp(
         clip.suggestedTrackIndex ?? 0,
         0,
@@ -1509,6 +1610,7 @@ export class ArrangementStudio {
   }
 
   _deleteClipFromLibrary(clipId) {
+    this._stopSourcesMatching((item) => item.clipId === clipId);
     this.clipsLibrary = this.clipsLibrary.filter((c) => c.id !== clipId);
     const hadPlacements = this.placements.some((p) => p.clipId === clipId);
     if (hadPlacements) {
@@ -1519,7 +1621,10 @@ export class ArrangementStudio {
       this._syncSelectionButtons();
       this._updateStageSize();
       this.resizeAndRedraw();
-      if (this.isPlaying) this._reschedulePlayback();
+      if (this.isPlaying) {
+        if (this.placements.length === 0) this.stopAll();
+        else this._reschedulePlayback();
+      }
     }
     this._renderClipsLibrary();
   }
@@ -1527,6 +1632,7 @@ export class ArrangementStudio {
   placeClipOnTimeline(clipId, opts = {}) {
     const clip = this.clipsLibrary.find((c) => c.id === clipId);
     if (!clip) return null;
+    if (this.tracks.length === 0) this.addTrack();
 
     const trackIndex = clamp(
       opts.trackIndex !== undefined ? opts.trackIndex : clip.suggestedTrackIndex ?? 0,
@@ -1562,6 +1668,8 @@ export class ArrangementStudio {
       fadeOutSec: 0.015,
       label: clip.name,
       color: clip.color,
+      stemKey: clip.stemKey || null,
+      isStemPlacement: Boolean(opts.isStemPlacement || clip.isStemClip),
     };
 
     this.placements.push(placement);
@@ -1590,6 +1698,60 @@ export class ArrangementStudio {
     this.resizeAndRedraw();
   }
 
+  removeTrack(trackIndex) {
+    if (!Number.isInteger(trackIndex) || trackIndex < 0 || trackIndex >= this.tracks.length) {
+      return false;
+    }
+
+    // Dừng và ngắt kết nối ngay lập tức mọi AudioBufferSourceNode & TrackNode của hàng Track bị xóa
+    this._stopSourcesMatching((item) => item.trackIndex === trackIndex);
+
+    if (this.trackNodes[trackIndex]) {
+      const removedNode = this.trackNodes.splice(trackIndex, 1)[0];
+      try { removedNode.gain.disconnect(); } catch (_) {}
+      try { removedNode.pan.disconnect(); } catch (_) {}
+    }
+
+    const removedTrack = this.tracks.splice(trackIndex, 1)[0];
+
+    const removedPls = this.placements.filter((p) => p.trackIndex === trackIndex);
+    if (removedPls.some((p) => p.id === this.selectedPlacementId)) {
+      this.selectedPlacementId = null;
+    }
+
+    this.placements = this.placements.filter((p) => p.trackIndex !== trackIndex);
+    this.placements.forEach((p) => {
+      if (p.trackIndex > trackIndex) p.trackIndex -= 1;
+    });
+    this.activeSources.forEach((item) => {
+      if (item.trackIndex > trackIndex) item.trackIndex -= 1;
+    });
+
+    // Nếu clip stem bị xóa khỏi timeline và không còn placement nào dùng nữa, dọn khỏi Kho Clip để tránh phát lại nhầm
+    const stillUsedClipIds = new Set(this.placements.map((p) => p.clipId));
+    const prevClipLen = this.clipsLibrary.length;
+    this.clipsLibrary = this.clipsLibrary.filter((c) => !c.isStemClip || stillUsedClipIds.has(c.id));
+    if (this.clipsLibrary.length !== prevClipLen) {
+      this._renderClipsLibrary();
+    }
+
+    this._syncSelectionButtons();
+    this._renderTrackHeaders();
+    this._updateStageSize();
+    this.resizeAndRedraw();
+    this._updateLiveTrackGains();
+
+    if (this.isPlaying) {
+      if (this.placements.length === 0) this.stopAll();
+      else this._reschedulePlayback();
+    }
+
+    if (removedTrack) {
+      this._toast(`Đã xóa Track "${removedTrack.name}" khỏi Playlist.`);
+    }
+    return true;
+  }
+
   duplicatePlacement(plId) {
     const src = this.placements.find((p) => p.id === plId);
     if (!src) return null;
@@ -1609,6 +1771,7 @@ export class ArrangementStudio {
 
   removePlacement(plId) {
     const before = this.placements.length;
+    this._stopSourcesMatching((item) => item.placementId === plId);
     this.placements = this.placements.filter((p) => p.id !== plId);
     if (this.placements.length === before) return;
     if (this.selectedPlacementId === plId) {
@@ -1617,7 +1780,10 @@ export class ArrangementStudio {
     this._syncSelectionButtons();
     this._updateStageSize();
     this.resizeAndRedraw();
-    if (this.isPlaying) this._reschedulePlayback();
+    if (this.isPlaying) {
+      if (this.placements.length === 0) this.stopAll();
+      else this._reschedulePlayback();
+    }
   }
 
   _splitPlacementAt(plId, cutWorldSec) {
@@ -1985,8 +2151,8 @@ export class ArrangementStudio {
     if (!canvas) return;
 
     const w = scrollX ? scrollX.clientWidth : 600;
-    const h = this.tracks.length * ROW_HEIGHT;
-    if (w < 10 || h < 10) return;
+    const h = Math.max(ROW_HEIGHT, this.tracks.length * ROW_HEIGHT);
+    if (w < 10) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const sx = scrollX ? scrollX.scrollLeft : 0;
@@ -2302,6 +2468,20 @@ export class ArrangementStudio {
     this._scheduleFrom(pos);
   }
 
+  _stopSourcesMatching(predicate) {
+    const survivors = [];
+    for (const item of this.activeSources) {
+      if (predicate(item)) {
+        try { item.src.stop(); } catch (_) {}
+        try { item.src.disconnect(); } catch (_) {}
+        try { item.gain.disconnect(); } catch (_) {}
+      } else {
+        survivors.push(item);
+      }
+    }
+    this.activeSources = survivors;
+  }
+
   _stopActiveSources() {
     this._scheduleSeq += 1;
     for (const item of this.activeSources) {
@@ -2326,6 +2506,7 @@ export class ArrangementStudio {
     const loopEndSec = this.loopEndBar * this.getBarDurSec();
 
     for (const pl of this.placements) {
+      if (pl.trackIndex < 0 || pl.trackIndex >= this.tracks.length) continue;
       const clip = this.clipsLibrary.find((c) => c.id === pl.clipId);
       const trackNode = this.trackNodes[pl.trackIndex];
       if (!clip || !clip.audioBuffer || !trackNode) continue;
@@ -2382,7 +2563,13 @@ export class ArrangementStudio {
       src.connect(clipGain);
       clipGain.connect(trackNode.gain);
       src.start(whenCtx, offsetInClip, playDur);
-      this.activeSources.push({ src, gain: clipGain });
+      this.activeSources.push({
+        src,
+        gain: clipGain,
+        placementId: pl.id,
+        clipId: pl.clipId,
+        trackIndex: pl.trackIndex,
+      });
     }
   }
 
@@ -2583,8 +2770,9 @@ export class ArrangementStudio {
     const offTrackGains = this.tracks.map((tr, idx) => {
       const g = offline.createGain();
       const pan = offline.createStereoPanner();
-      const audible = this._isTrackAudible(idx);
-      const norm = clamp(tr.volume, 0, 100) / 100;
+      const vol = Number(tr.volume) || 0;
+      const audible = this._isTrackAudible(idx) && vol > 0;
+      const norm = clamp(vol, 0, 100) / 100;
       g.gain.value = audible ? Math.pow(norm, 1.55) * 1.15 : 0;
       pan.pan.value = clamp(tr.pan, -100, 100) / 100;
       g.connect(pan);
@@ -2593,6 +2781,7 @@ export class ArrangementStudio {
     });
 
     for (const pl of this.placements) {
+      if (pl.trackIndex < 0 || pl.trackIndex >= offTrackGains.length) continue;
       const trNode = offTrackGains[pl.trackIndex];
       const clip = this.clipsLibrary.find((c) => c.id === pl.clipId);
       if (!trNode || !trNode.audible || !clip || !clip.audioBuffer) continue;

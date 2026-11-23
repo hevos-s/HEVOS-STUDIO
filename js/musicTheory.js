@@ -9,7 +9,7 @@ import {
   midiToNoteName,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=37';
+} from './theory.js?v=38';
 
 // Ưu tiên giáng chuẩn khi gốc hợp âm là các giọng giáng phổ biến trong nhạc nhẹ (Eb, Bb, Ab, Db, Gb, F, Fm, Cm, Gm)
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
@@ -599,7 +599,7 @@ export function recordLessonExerciseScore(lessonId, accuracyPct) {
   };
 }
 
-export { renderTheoryDiagramHtml } from './theoryDiagrams.js?v=37';
+export { renderTheoryDiagramHtml } from './theoryDiagrams.js?v=38';
 
 export function resetTheoryProgress() {
   const empty = createEmptyProgress();

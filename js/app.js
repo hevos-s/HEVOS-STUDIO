@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=37';
+} from './theory.js?v=38';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=37';
+} from './audioEngine.js?v=38';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=37';
-import { PianoRoll } from './pianoRoll.js?v=37';
-import { downloadMidiFile } from './midiExport.js?v=37';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=37';
-import { MusicTrainer } from './musicTrainer.js?v=37';
-import { VocalStudio } from './vocalStudio.js?v=37';
-import { ArrangementStudio } from './arrangementStudio.js?v=37';
-import { createAmbientScene } from './ambientScene.js?v=37';
-import { midiController } from './midiController.js?v=37';
+} from './pitchToMidi.js?v=38';
+import { PianoRoll } from './pianoRoll.js?v=38';
+import { downloadMidiFile } from './midiExport.js?v=38';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=38';
+import { MusicTrainer } from './musicTrainer.js?v=38';
+import { VocalStudio } from './vocalStudio.js?v=38';
+import { ArrangementStudio } from './arrangementStudio.js?v=38';
+import { createAmbientScene } from './ambientScene.js?v=38';
+import { midiController } from './midiController.js?v=38';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=37';
+} from './stepSequencer.js?v=38';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 

@@ -3,9 +3,9 @@
 // + Phân tích Tự động Tông, BPM & Vòng Hợp Âm theo dòng thời gian ngay trên trình duyệt
 // ============================================================================
 
-import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=37';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=37';
-import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=37';
+import { detectKeyFromAudioBuffer, softLimitPcm } from './autoTune.js?v=38';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=38';
+import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=38';
 
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
 
@@ -20,6 +20,12 @@ const CHORD_MATCH_TEMPLATES = [
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function smoothstep(x, edge0, edge1) {
+  if (edge1 === edge0) return x >= edge0 ? 1 : 0;
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function formatClock(sec) {
@@ -407,44 +413,24 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
     win[i] = Math.sqrt(0.5 * (1 - Math.cos((2 * Math.PI * i) / fftSize)));
   }
 
-  // Phân dải chéo mượt: Bass (<215Hz), Vocal Stereo (150Hz–9.6kHz), Vocal Mono (150Hz–6.5kHz)
+  // Phân dải phổ tách bạch 4 Stems:
+  // - Bass & Sub (< 165 Hz, cộng pha trung tâm)
+  // - Drums (Kick 50–150 Hz, Snare/Clap 180–450 Hz gắt transient, Hi-Hat/Cymbal > 6 kHz; khóa sạch vùng Vocal 460–5600 Hz)
+  // - Vocal (Center Mid 180 Hz – 5.5 kHz khi |Mid| > |Side|)
+  // - Other / Nhạc nền (Side stereo bù width + Mid ngoài dải vocal, triệt giảm >= 24 dB vùng Vocal trung tâm)
   const bassBand = new Float32Array(halfBins + 1);
   const vocBand = new Float32Array(halfBins + 1);
-  const monoVocBand = new Float32Array(halfBins + 1);
+  const kickBand = new Float32Array(halfBins + 1);
+  const snareBand = new Float32Array(halfBins + 1);
+  const hihatBand = new Float32Array(halfBins + 1);
 
   for (let k = 0; k <= halfBins; k++) {
     const freq = (k * sr) / fftSize;
-
-    // 1. Dải Sub & Bass: 1.0 <= 135Hz, tắt hẳn >= 215Hz
-    if (freq <= 135) {
-      bassBand[k] = 1;
-    } else if (freq < 215) {
-      bassBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 135)) / 80));
-    } else {
-      bassBand[k] = 0;
-    }
-
-    // 2. Dải Vocal Stereo: tắt < 150Hz, 1.0 trong 235..6800Hz, tắt > 9600Hz
-    if (freq < 150 || freq > 9600) {
-      vocBand[k] = 0;
-    } else if (freq < 235) {
-      vocBand[k] = 0.5 * (1 - Math.cos((Math.PI * (freq - 150)) / 85));
-    } else if (freq > 6800) {
-      vocBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 6800)) / 2800));
-    } else {
-      vocBand[k] = 1;
-    }
-
-    // 3. Dải Vocal formant cho file Mono (khi không có thông tin Stereo L-R)
-    if (freq < 150 || freq > 6500) {
-      monoVocBand[k] = 0;
-    } else if (freq < 220) {
-      monoVocBand[k] = 0.5 * (1 - Math.cos((Math.PI * (freq - 150)) / 70));
-    } else if (freq > 4400) {
-      monoVocBand[k] = 0.5 * (1 + Math.cos((Math.PI * (freq - 4400)) / 2100));
-    } else {
-      monoVocBand[k] = 1;
-    }
+    bassBand[k] = 1 - smoothstep(freq, 130, 165);
+    vocBand[k] = smoothstep(freq, 155, 185) * (1 - smoothstep(freq, 5400, 6100));
+    kickBand[k] = smoothstep(freq, 35, 50) * (1 - smoothstep(freq, 145, 170));
+    snareBand[k] = smoothstep(freq, 165, 195) * (1 - smoothstep(freq, 410, 460));
+    hihatBand[k] = smoothstep(freq, 5600, 6200);
   }
 
   const outLen = len;
@@ -481,7 +467,6 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
   const gDrumM = new Float32Array(halfBins + 1);
 
   const gInstS = isStereo ? new Float32Array(halfBins + 1) : null;
-  const gBassS = isStereo ? new Float32Array(halfBins + 1) : null;
   const gDrumS = isStereo ? new Float32Array(halfBins + 1) : null;
 
   const medBuf = new Float32Array(T);
@@ -575,12 +560,10 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
         const hm2 = hM * hM;
         const pm2 = pM * pM;
         const pMid = pm2 / (hm2 + pm2 + 1e-12);
-        const hMid = 1 - pMid;
 
         // 2. 2D-HPSS trên Side (nếu Stereo)
         let hS = 0;
         let pSide = 0;
-        let hSide = 0;
         if (isStereo) {
           for (let ti = 0, f = tMin; f <= tMax; f++, ti++) {
             medBuf[ti] = ringMagS[f % T][k];
@@ -596,32 +579,50 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
           const hs2 = hS * hS;
           const ps2 = pS * pS;
           pSide = ps2 / (hs2 + ps2 + 1e-12);
-          hSide = 1 - pSide;
         }
 
-        // 3. Phân hoạch 4 mặt nạ loại trừ 100% (tổng các Stem === 1.0 trên cả Mid và Side)
+        // 3. Phân hoạch mặt nạ loại bỏ rò giọng hát sang Trống & triệt >= 24 dB Vocal trung tâm trong Other
         const bb = bassBand[k];
         const oneMinusBb = 1 - bb;
+        const vb = vocBand[k];
 
-        let vocMask;
+        // Trống: chỉ bắt transient Kick (50–150 Hz), Snare gắt (180–450 Hz) & Hi-Hat (> 6 kHz)
+        const snareGate = smoothstep(pMid, 0.72, 0.88) * 0.45;
+        gDrumM[k] = Math.min(
+          1,
+          Math.pow(pMid, 1.25) * kickBand[k] +
+            snareGate * snareBand[k] +
+            Math.pow(pMid, 1.15) * hihatBand[k]
+        );
+        const remM = Math.max(0, 1 - gDrumM[k]);
+
+        // Bass & Sub (< 165 Hz) cộng pha trung tâm mượt
+        gBassM[k] = remM * bb;
+
         if (isStereo) {
-          const centerShare = hM / (hM + hS + 1e-9);
-          const ct = clamp((centerShare - 0.44) / 0.22, 0, 1);
-          const centerMask = ct * ct * (3 - 2 * ct);
-          vocMask = vocBand[k] * centerMask;
+          gDrumS[k] = Math.min(
+            1,
+            Math.pow(pSide, 1.2) * (kickBand[k] + snareBand[k] * 0.8 + hihatBand[k])
+          );
+          const remS = Math.max(0, 1 - gDrumS[k]);
+
+          const mMag = 0.65 * cMagM[k] + 0.35 * hM;
+          const sMag = 0.65 * cMagS[k] + 0.35 * hS;
+          const vocPres = clamp((mMag - 0.55 * sMag) / (mMag + 1e-9), 0, 1);
+
+          // Giọng hát (Center Mid 180 Hz – 5.5 kHz, |Mid| > |Side|)
+          gVocM[k] = remM * oneMinusBb * vb * Math.pow(vocPres, 0.75);
+
+          // Nhạc nền Other: triệt <= 0.06 (-24.4 dB) vùng Vocal trung tâm + giữ & bù nhẹ Side Stereo
+          const otherMidVocFloor = 0.035 + 0.025 * smoothstep(sMag / (mMag + 1e-9), 1.2, 2.5);
+          const otherMidMask = (1 - vb) + vb * otherMidVocFloor;
+          gInstM[k] = remM * oneMinusBb * otherMidMask;
+
+          const widthComp = 1.0 + 0.38 * vb + 0.15 * hihatBand[k];
+          gInstS[k] = remS * oneMinusBb * widthComp;
         } else {
-          vocMask = monoVocBand[k];
-        }
-
-        gDrumM[k] = pMid;
-        gBassM[k] = hMid * bb;
-        gVocM[k] = hMid * oneMinusBb * vocMask;
-        gInstM[k] = hMid * oneMinusBb * (1 - vocMask);
-
-        if (isStereo) {
-          gDrumS[k] = pSide;
-          gBassS[k] = hSide * bb;
-          gInstS[k] = hSide * oneMinusBb;
+          gVocM[k] = remM * oneMinusBb * vb * 0.92;
+          gInstM[k] = remM * oneMinusBb * ((1 - vb) + vb * 0.08);
         }
       }
 
@@ -630,7 +631,7 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
       const cSRe = isStereo ? ringSRe[cSlot] : null;
       const cSIm = isStereo ? ringSIm[cSlot] : null;
 
-      // Stem 1: Giọng hát (Center Harmonic Vocal)
+      // Stem 1: Giọng hát (Center Vocal)
       applyComplexMaskAndIfft(cMRe, cMIm, gVocM, wRe, wIm);
       for (let i = 0; i < fftSize; i++) {
         const idx = cStart + i;
@@ -641,7 +642,7 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
         }
       }
 
-      // Stem 2: Nhạc cụ & Hòa âm (Other)
+      // Stem 2: Nhạc cụ & Hòa âm (Other — Stereo Side + Mid đã triệt vocal trung tâm)
       applyComplexMaskAndIfft(cMRe, cMIm, gInstM, wRe, wIm);
       if (isStereo) {
         applyComplexMaskAndIfft(cSRe, cSIm, gInstS, sideTmpRe, sideTmpIm);
@@ -666,28 +667,14 @@ export async function separateAudioStems(audioBuffer, { onProgress = null } = {}
         }
       }
 
-      // Stem 3: Bass & Sub
+      // Stem 3: Bass & Sub (cộng pha mượt ở trung tâm < 165 Hz từ L/R)
       applyComplexMaskAndIfft(cMRe, cMIm, gBassM, wRe, wIm);
-      if (isStereo) {
-        applyComplexMaskAndIfft(cSRe, cSIm, gBassS, sideTmpRe, sideTmpIm);
-        for (let i = 0; i < fftSize; i++) {
-          const idx = cStart + i;
-          if (idx >= 0 && idx < outLen) {
-            const w = win[i];
-            const midV = wRe[i] * w;
-            const sideV = sideTmpRe[i] * w;
-            bassL[idx] += midV + sideV;
-            bassR[idx] += midV - sideV;
-          }
-        }
-      } else {
-        for (let i = 0; i < fftSize; i++) {
-          const idx = cStart + i;
-          if (idx >= 0 && idx < outLen) {
-            const midV = wRe[i] * win[i];
-            bassL[idx] += midV;
-            bassR[idx] += midV;
-          }
+      for (let i = 0; i < fftSize; i++) {
+        const idx = cStart + i;
+        if (idx >= 0 && idx < outLen) {
+          const midV = wRe[i] * win[i];
+          bassL[idx] += midV;
+          bassR[idx] += midV;
         }
       }
 
@@ -829,8 +816,13 @@ export class StemAnalyzerStudio {
       const val = this._computeStemGainValue(key);
       try {
         node.gain.cancelScheduledValues(now);
-        node.gain.setValueAtTime(node.gain.value, now);
-        node.gain.linearRampToValueAtTime(val, now + 0.015);
+        if (val === 0 || this.playCtx.state !== 'running') {
+          node.gain.setValueAtTime(val, now);
+          node.gain.value = val;
+        } else {
+          node.gain.setValueAtTime(node.gain.value, now);
+          node.gain.linearRampToValueAtTime(val, now + 0.012);
+        }
       } catch (_) {
         node.gain.value = val;
       }
@@ -839,24 +831,30 @@ export class StemAnalyzerStudio {
 
   _detectActivePreset() {
     const m = this.stemMixer;
-    const allDefaultVol = Object.values(m).every((s) => s.volume === 100);
-    if (!anyMuteOrSolo(m) && allDefaultVol) return 'all';
-    if (m.vocals.muted && !m.instrumental.muted && !m.bass.muted && !m.drums.muted &&
-        !m.instrumental.solo && !m.bass.solo && !m.drums.solo) {
+    const anySolo = Object.values(m).some((s) => s.solo);
+    if (!anySolo && !m.vocals.muted && m.vocals.volume === 100 &&
+        !m.instrumental.muted && m.instrumental.volume === 100 &&
+        !m.bass.muted && m.bass.volume === 100 &&
+        !m.drums.muted && m.drums.volume === 100) {
+      return 'all';
+    }
+    if (!anySolo && (m.vocals.muted || m.vocals.volume === 0) &&
+        !m.instrumental.muted && m.instrumental.volume === 100 &&
+        !m.bass.muted && m.bass.volume === 100 &&
+        !m.drums.muted && m.drums.volume === 100) {
       return 'karaoke';
     }
-    if (m.vocals.solo && !m.vocals.muted && !m.instrumental.solo && !m.bass.solo && !m.drums.solo) {
+    if (m.vocals.solo && !m.vocals.muted && m.vocals.volume > 0 &&
+        !m.instrumental.solo && !m.bass.solo && !m.drums.solo) {
       return 'acapella';
     }
-    if (m.vocals.muted && m.instrumental.muted && !m.bass.muted && !m.drums.muted &&
-        !m.bass.solo && !m.drums.solo) {
+    if (!anySolo && (m.vocals.muted || m.vocals.volume === 0) &&
+        (m.instrumental.muted || m.instrumental.volume === 0) &&
+        !m.bass.muted && m.bass.volume === 100 &&
+        !m.drums.muted && m.drums.volume === 100) {
       return 'rhythm';
     }
     return 'custom';
-
-    function anyMuteOrSolo(mix) {
-      return Object.values(mix).some((s) => s.muted || s.solo);
-    }
   }
 
   applyMixerPreset(presetId) {
@@ -867,12 +865,22 @@ export class StemAnalyzerStudio {
       s.volume = 100;
     });
     if (presetId === 'karaoke') {
+      m.vocals.volume = 0;
       m.vocals.muted = true;
     } else if (presetId === 'acapella') {
       m.vocals.solo = true;
+      m.vocals.volume = 100;
+      m.instrumental.muted = true;
+      m.instrumental.volume = 0;
+      m.bass.muted = true;
+      m.bass.volume = 0;
+      m.drums.muted = true;
+      m.drums.volume = 0;
     } else if (presetId === 'rhythm') {
       m.vocals.muted = true;
+      m.vocals.volume = 0;
       m.instrumental.muted = true;
+      m.instrumental.volume = 0;
     }
     this.activePreset = this._detectActivePreset();
     this._syncLiveStemGains();
@@ -936,6 +944,7 @@ export class StemAnalyzerStudio {
     this.analysis = null;
     this.stems = null;
     this.currentTimeSec = 0;
+    this.applyMixerPreset('all');
     this._render();
 
     try {
@@ -1052,6 +1061,10 @@ export class StemAnalyzerStudio {
   _stopSources() {
     this._activeSources.forEach((s) => {
       try { s.stop(); } catch (_) {}
+      try { s.disconnect(); } catch (_) {}
+    });
+    Object.values(this._stemGainNodes).forEach((g) => {
+      try { g.disconnect(); } catch (_) {}
     });
     this._activeSources = [];
     this._stemGainNodes = {};
@@ -1128,8 +1141,8 @@ export class StemAnalyzerStudio {
     }
   }
 
-  async _downloadMixedStems() {
-    if (!this.stems) return;
+  renderCurrentMixBuffer() {
+    if (!this.stems) return null;
     const keys = Object.keys(this.stemMixer);
     const gains = {};
     let hasAudible = false;
@@ -1138,10 +1151,7 @@ export class StemAnalyzerStudio {
       gains[k] = g;
       if (g > 0 && this.stems[k]) hasAudible = true;
     });
-    if (!hasAudible) {
-      this._toast('Tất cả 4 Stems đang bị tắt (Mute hoặc Volume 0%).', true);
-      return;
-    }
+    if (!hasAudible) return null;
 
     const refBuf = this.stems.instrumental || this.stems.vocals;
     const len = refBuf.length;
@@ -1166,6 +1176,16 @@ export class StemAnalyzerStudio {
     const mixBuf = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr });
     mixBuf.getChannelData(0).set(outL);
     mixBuf.getChannelData(1).set(outR);
+    return mixBuf;
+  }
+
+  async _downloadMixedStems() {
+    if (!this.stems) return;
+    const mixBuf = this.renderCurrentMixBuffer();
+    if (!mixBuf) {
+      this._toast('Tất cả 4 Stems đang bị tắt (Mute hoặc Volume 0%).', true);
+      return;
+    }
 
     const fmt = this.exportFormat === 'mp3' ? 'mp3' : 'wav';
     try {
@@ -1435,12 +1455,14 @@ export class StemAnalyzerStudio {
       this.stopPlayback();
       const bpm = this.analysis ? this.analysis.bpmInfo.bpm : 100;
       const items = Object.entries(this.stemMixer).map(([key, st], idx) => ({
+        stemKey: key,
+        trackTitle: st.label,
         name: `${st.label} (${this.sourceName})`,
-        sourceType: key === 'vocals' ? 'vocal' : 'studio',
+        sourceType: key === 'vocals' ? 'vocal' : 'stem',
         audioBuffer: this.stems[key],
         bpm,
         color: st.color,
-        suggestedTrackIndex: idx % 4,
+        suggestedTrackIndex: idx,
       }));
       this.cb.onSendStemsToPlaylist(items);
     });

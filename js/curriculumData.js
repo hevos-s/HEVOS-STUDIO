@@ -11,7 +11,7 @@ export {
   resetTheoryProgress,
   saveTheoryProgress,
   setLastLessonId,
-} from './musicTheory.js?v=37';
+} from './musicTheory.js?v=38';
 
 export const CURRICULUM_STAGES = [
   {

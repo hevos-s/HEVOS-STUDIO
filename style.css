@@ -5940,6 +5940,18 @@ body.piano-roll-open .toast-container {
   font-size: 10px;
 }
 
+.arr-tr-ms .arr-tr-del-btn {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-2);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.arr-tr-ms .arr-tr-del-btn:hover {
+  background: rgba(244, 63, 94, 0.2);
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #FDA4AF;
+}
+
 .arr-tr-sliders {
   display: grid;
   grid-template-columns: 1fr 1fr;
