@@ -4,7 +4,7 @@
 // Dùng cho Giáo trình 6 Chặng · 18 Bài Học (js/curriculumData.js)
 // ============================================================================
 
-import { midiToNoteName } from './theory.js?v=38';
+import { midiToNoteName } from './theory.js?v=40';
 
 function escapeHtml(str) {
   return String(str ?? '')

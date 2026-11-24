@@ -6755,6 +6755,18 @@ body.piano-roll-open .toast-container {
   font-size: 11px;
   color: var(--text-2);
 }
+.stem-dsp-badge.is-ready {
+  color: #34D399;
+}
+
+.stem-error-note {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  color: #FDE68A;
+  font-size: 12.5px;
+}
 
 .stem-progress-box {
   padding: 14px 16px;
@@ -6944,92 +6956,21 @@ body.piano-roll-open .toast-container {
   color: #E4E4E7;
 }
 
-.stem-quick-presets {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.stem-preset-btn {
+.stem-now-chord {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 12px;
+  padding: 4px 11px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #E4E4E7;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.34);
+  font-size: 11.5px;
+  color: #A5F3FC;
+  margin-left: auto;
 }
-.stem-preset-btn:hover {
-  background: rgba(255, 255, 255, 0.11);
-  border-color: rgba(255, 255, 255, 0.28);
+.stem-now-chord strong {
   color: #FFFFFF;
-}
-.stem-preset-btn.active {
-  background: #FAFAFA;
-  border-color: #FFFFFF;
-  color: #09090B;
-}
-
-.stem-mixer-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.stem-card {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--glass-surface);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-left: 3px solid var(--stem-accent, #22D3EE);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.stem-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: #FFFFFF;
-}
-
-.stem-title-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stem-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.stem-card-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.stem-card-controls .studio-range {
-  flex: 1 1 120px;
-  min-width: 90px;
-}
-
-.stem-ms-btns {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  font-size: 12.5px;
 }
 
 /* ==========================================================================
@@ -10462,8 +10403,7 @@ body.piano-roll-open .toast-container {
     margin-left: 0;
   }
 
-  .stem-meta-grid,
-  .stem-mixer-grid {
+  .stem-meta-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -10471,19 +10411,8 @@ body.piano-roll-open .toast-container {
     flex: 1 1 100%;
   }
 
-  .stem-quick-presets {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .stem-preset-btn {
-    min-height: 40px;
-    height: auto;
-    padding: 6px 8px;
-    justify-content: center;
-    text-align: center;
-    font-size: 11.5px;
+  .stem-now-chord {
+    margin-left: 0;
   }
 
   /* 8. V31 Mobile Academy 6 Chặng + Ngăn kéo Mục lục + 6 Bài tập */

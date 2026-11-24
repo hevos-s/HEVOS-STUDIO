@@ -5,10 +5,10 @@
 // - Chuỗi Mastering đồng nhất Live + OfflineAudioContext:
 //   3-Band Master EQ -> Stereo Width (Mid/Side) -> Glue Compressor ->
 //   Master Limiter / Maximizer (-0.3 dBFS Ceiling) -> Xuất Stereo .WAV 16/24-bit
-// - Tích hợp StemAnalyzerStudio: Tách 4 Stems & Phân tích hợp âm/BPM tự động
+// - Tích hợp StemAnalyzerStudio: Phân tích Hợp âm, Tông & BPM 100% Browser-Native
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=38';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=40';
 
 export const MASTERING_PRESETS = [
   {
@@ -593,12 +593,12 @@ export class ArrangementStudio {
 
     this.root.innerHTML = `
       <div class="arr-shell">
-        <div class="arr-top-mode-bar" role="tablist" aria-label="Chế độ Dựng bài và Tách Stems">
+        <div class="arr-top-mode-bar" role="tablist" aria-label="Chế độ Dựng bài và Phân tích Hợp âm &amp; Tông">
           <button type="button" class="arr-mode-tab${this.activeSubView === 'playlist' ? ' active' : ''}" data-arr-view="playlist" role="tab" aria-selected="${this.activeSubView === 'playlist'}">
             <span>🎚️ Playlist &amp; Mastering</span>
           </button>
           <button type="button" class="arr-mode-tab${this.activeSubView === 'stems' ? ' active' : ''}" data-arr-view="stems" role="tab" aria-selected="${this.activeSubView === 'stems'}">
-            <span>🎛️ Tách Stems &amp; Phân Tích Hợp Âm</span>
+            <span>🎼 Phân tích Hợp âm &amp; Tông</span>
             <span class="badge-new">NEW</span>
           </button>
         </div>
@@ -848,7 +848,7 @@ export class ArrangementStudio {
         </div>
         </div>
 
-        <!-- Phân khu Tách Stems & Phân Tích Hợp Âm Tự Động -->
+        <!-- Phân khu Phân tích Hợp âm & Tông 100% Browser-Native -->
         <div id="arr-stems-panel" class="arr-stems-panel${this.activeSubView !== 'stems' ? ' hidden' : ''}"></div>
       </div>
     `;
@@ -861,98 +861,41 @@ export class ArrangementStudio {
     if (stemsPanel) {
       this.stemStudio = new StemAnalyzerStudio(stemsPanel, {
         renderStudioBeat: this.cb.renderStudioBeat,
-        onSendStemsToPlaylist: (items) => {
-          const validItems = Array.isArray(items)
-            ? items.filter((it) => it && it.audioBuffer && it.audioBuffer.length > 0)
-            : [];
-          if (validItems.length === 0) return;
-
-          // Ngắt hoàn toàn mọi nguồn phát cũ trước khi thay thế/cập nhật 4 Stems
+        onSendAudioToPlaylist: (item) => {
+          if (!item || !item.audioBuffer || item.audioBuffer.length === 0) return;
           this.stopAll();
 
-          const nextBpm = Number(validItems[0].bpm);
-          if (Number.isFinite(nextBpm) && nextBpm >= 40 && nextBpm <= 220) {
+          const nextBpm = Number(item.bpm);
+          if (this.placements.length === 0 && Number.isFinite(nextBpm) && nextBpm >= 40 && nextBpm <= 220) {
             this.bpm = Math.round(nextBpm);
             const bpmInp = this.root?.querySelector('#arr-bpm-input');
             if (bpmInp) bpmInp.value = String(this.bpm);
           }
 
-          // Dọn sạch các placement & clip stem cũ trước khi nạp bộ 4 Stems mới
-          this.placements = this.placements.filter((p) => !p.isStemPlacement);
-          const remainingClipIds = new Set(this.placements.map((p) => p.clipId));
-          this.clipsLibrary = this.clipsLibrary.filter(
-            (c) => !c.isStemClip || remainingClipIds.has(c.id)
-          );
+          if (this.tracks.length === 0) this.addTrack();
+          const occupiedTracks = new Set(this.placements.map((p) => p.trackIndex));
+          let targetTrackIdx = this.tracks.findIndex((_, i) => !occupiedTracks.has(i));
+          if (targetTrackIdx === -1) targetTrackIdx = 0;
 
-          const stemTracks = validItems.map((item, idx) => ({
-            id: this._nextId('tr'),
-            name: item.trackTitle || item.name || `Stem ${idx + 1}`,
-            color: item.color || EXTRA_TRACK_COLORS[idx % EXTRA_TRACK_COLORS.length],
-            volume: 85,
-            pan: 0,
-            muted: false,
-            solo: false,
-            isStemTrack: true,
-            stemKey: item.stemKey || null,
-          }));
-
-          let trackOffset = 0;
-          if (this.placements.length === 0) {
-            this.tracks = stemTracks;
-          } else {
-            // Giữ các track đang có clip Beat/Vocal riêng, dọn các track stem cũ đã trống
-            const keptTracks = [];
-            const indexMap = new Map();
-            this.tracks.forEach((tr, oldIdx) => {
-              const hasPl = this.placements.some((p) => p.trackIndex === oldIdx);
-              if (!tr.isStemTrack || hasPl) {
-                indexMap.set(oldIdx, keptTracks.length);
-                keptTracks.push(tr);
-              }
-            });
-            this.placements.forEach((p) => {
-              if (indexMap.has(p.trackIndex)) {
-                p.trackIndex = indexMap.get(p.trackIndex);
-              }
-            });
-            trackOffset = keptTracks.length;
-            keptTracks.push(...stemTracks);
-            this.tracks = keptTracks;
-          }
-
-          this._rebuildTrackNodes();
-
-          const imported = [];
-          validItems.forEach((item, idx) => {
-            const targetTrackIdx = trackOffset + idx;
-            const clip = this.importClip({
-              name: item.name,
-              sourceType: item.sourceType || 'stem',
-              audioBuffer: item.audioBuffer,
-              bpm: item.bpm || this.bpm,
-              color: item.color,
-              stemKey: item.stemKey || null,
-              isStemClip: true,
-              suggestedTrackIndex: targetTrackIdx,
-              autoPlace: false,
-            });
-            if (clip) {
-              this.placeClipOnTimeline(clip.id, {
-                trackIndex: targetTrackIdx,
-                startSec: 0,
-                isStemPlacement: true,
-              });
-              imported.push(clip);
-            }
+          const clip = this.importClip({
+            name: item.name || 'File Audio Phân tích',
+            sourceType: item.sourceType || 'file',
+            audioBuffer: item.audioBuffer,
+            bpm: item.bpm || this.bpm,
+            suggestedTrackIndex: targetTrackIdx,
+            autoPlace: false,
           });
-
-          if (imported.length > 0) {
+          if (clip) {
+            this.placeClipOnTimeline(clip.id, {
+              trackIndex: targetTrackIdx,
+              startSec: 0,
+            });
             this._renderTrackHeaders();
             this._syncSelectionButtons();
             this._updateStageSize();
             this.setSubView('playlist');
             this.resizeAndRedraw();
-            this._toast(`Đã đưa ${imported.length} Stems tách rời (độc lập từng Track) lên Playlist & Master!`);
+            this._toast(`Đã gửi "${clip.name}" sang Playlist Dựng bài!`);
           }
         },
         onApplyChordsToStudio: this.cb.onApplyChordsToStudio,

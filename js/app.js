@@ -15,33 +15,33 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=38';
+} from './theory.js?v=40';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=38';
+} from './audioEngine.js?v=40';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=38';
-import { PianoRoll } from './pianoRoll.js?v=38';
-import { downloadMidiFile } from './midiExport.js?v=38';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=38';
-import { MusicTrainer } from './musicTrainer.js?v=38';
-import { VocalStudio } from './vocalStudio.js?v=38';
-import { ArrangementStudio } from './arrangementStudio.js?v=38';
-import { createAmbientScene } from './ambientScene.js?v=38';
-import { midiController } from './midiController.js?v=38';
+} from './pitchToMidi.js?v=40';
+import { PianoRoll } from './pianoRoll.js?v=40';
+import { downloadMidiFile } from './midiExport.js?v=40';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=40';
+import { MusicTrainer } from './musicTrainer.js?v=40';
+import { VocalStudio } from './vocalStudio.js?v=40';
+import { ArrangementStudio } from './arrangementStudio.js?v=40';
+import { createAmbientScene } from './ambientScene.js?v=40';
+import { midiController } from './midiController.js?v=40';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
-} from './stepSequencer.js?v=38';
+} from './stepSequencer.js?v=40';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -2390,7 +2390,7 @@ function init() {
       : 'Bật để ghi từng nốt bấm từ đàn Piano MIDI USB vào Piano Roll';
   }
 
-  // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist, Mastering & Tách Stems)
+  // Khởi tạo Phân khu Dựng bài & Master (Multi-Track Playlist, Mastering & Phân tích Hợp âm)
   if (el.arrangementRoot) {
     arrangementStudio = new ArrangementStudio(el.arrangementRoot, {
       getStudioBpm: () => state.bpm,

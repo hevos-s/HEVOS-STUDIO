@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=38" />
+  <link rel="stylesheet" href="./style.css?v=40" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" defer></script>
@@ -266,7 +266,7 @@
           <div class="roadmap-pills">
             <button type="button" class="roadmap-pill-btn" data-goto-feature="ear-training">🎧 Luyện cảm âm hợp âm</button>
             <button type="button" class="roadmap-pill-btn" data-goto-feature="step-sequencer">🥁 Bộ gõ Step Sequencer</button>
-            <button type="button" class="roadmap-pill-btn" data-goto-feature="stems">🎛️ Tách Stems &amp; Phân tích hợp âm</button>
+            <button type="button" class="roadmap-pill-btn" data-goto-feature="stems">🎼 Phân tích Hợp âm &amp; Tông AI</button>
           </div>
         </footer>
       </div>
@@ -1065,7 +1065,7 @@
                   <ul class="vision-feature-list">
                     <li><strong>Playlist Đa kênh hợp nhất:</strong> Tập hợp Beat từ Sáng tác, các lớp Vocal phòng thu và file âm thanh ngoài lên cùng một dòng thời gian trực quan theo cấu trúc <em>Intro – Verse – Chorus – Bridge</em>.</li>
                     <li><strong>Dao cắt chuẩn xác &amp; Fade-In/Out mượt:</strong> Hỗ trợ kéo thả vị trí, cắt đoạn (Split), co hai đầu clip (Trim), nhân bản và tạo đường dốc âm lượng tránh tiếng nổ chuyển đoạn.</li>
-                    <li><strong>Tách Stems &amp; Phân tích hợp âm cục bộ:</strong> Bộ phân tách 4 dải <em>Vocals / Nhạc cụ / Bass / Trống</em> chạy ngay trên trình duyệt kèm dò Tông, BPM và dòng hợp âm tham chiếu.</li>
+                    <li><strong>Phân tích Hợp âm &amp; Tông AI cục bộ:</strong> Tự động dò Tông (Key), BPM và vẽ dòng thời gian hợp âm chạy theo nhạc ngay trên trình duyệt, đồng bộ thẳng sang Sáng tác Beat, Phòng Đàn hoặc Playlist.</li>
                     <li><strong>Mastering chuẩn streaming:</strong> Chuỗi xử lý gồm Master EQ 3 dải, Stereo Width mở rộng không gian, Glue Compressor gắn kết nhạc cụ và Brickwall Limiter <code>-0.3 dBFS</code> xuất file <code>.wav</code> sẵn sàng phát hành.</li>
                   </ul>
                 </div>
@@ -1124,7 +1124,7 @@
               </div>
               <h3 class="vision-tech-title">100% Browser-Native Web Audio</h3>
               <p class="vision-tech-desc">
-                Không cần tải bộ cài nặng hàng gigabyte hay plugin rời. Mọi thao tác tổng hợp tiếng, Auto-Tune TD-PSOLA, tách Stems và kết xuất Master đều xử lý độ trễ thấp bằng Web Audio API &amp; <code>OfflineAudioContext</code> ngay trên trình duyệt, chuẩn hóa đầu ra sạch sẽ mức <code>-14 LUFS</code>.
+                Không cần tải bộ cài nặng hàng gigabyte hay plugin rời. Mọi thao tác tổng hợp tiếng, Auto-Tune TD-PSOLA, phân tích hợp âm &amp; tông và kết xuất Master đều xử lý độ trễ thấp bằng Web Audio API &amp; <code>OfflineAudioContext</code> ngay trên trình duyệt, chuẩn hóa đầu ra sạch sẽ mức <code>-14 LUFS</code>.
               </p>
             </article>
 
@@ -1228,6 +1228,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=38"></script>
+  <script type="module" src="./js/app.js?v=40"></script>
 </body>
 </html>
