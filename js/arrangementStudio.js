@@ -8,7 +8,7 @@
 // - Tích hợp StemAnalyzerStudio: Phân tích Hợp âm, Tông & BPM 100% Browser-Native
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=40';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=41';
 
 export const MASTERING_PRESETS = [
   {
@@ -1550,6 +1550,59 @@ export class ArrangementStudio {
       }
     }
     return clip;
+  }
+
+  importBeatToTrackAtZero({
+    name = 'Beat Remix Full Bài',
+    audioBuffer,
+    bpm = null,
+    color = '#8B5CF6',
+  }) {
+    if (!audioBuffer || audioBuffer.length === 0) return null;
+    this.stopAll();
+
+    const nextBpm = Number(bpm);
+    if (Number.isFinite(nextBpm) && nextBpm >= 40 && nextBpm <= 220) {
+      this.bpm = Math.round(nextBpm);
+      const bpmInp = this.root?.querySelector('#arr-bpm-input');
+      if (bpmInp) bpmInp.value = String(this.bpm);
+    }
+
+    if (this.tracks.length === 0) this.addTrack();
+    const occupiedTracks = new Set(this.placements.map((p) => p.trackIndex));
+    let targetTrackIdx = this.tracks.findIndex((_, i) => !occupiedTracks.has(i));
+    if (targetTrackIdx === -1) {
+      this.addTrack();
+      targetTrackIdx = this.tracks.length - 1;
+      if (this.tracks[targetTrackIdx]) {
+        this.tracks[targetTrackIdx].name = `Track ${targetTrackIdx + 1} · Beat Remix`;
+        this.tracks[targetTrackIdx].color = color;
+      }
+    }
+
+    const clip = this.importClip({
+      name,
+      sourceType: 'studio',
+      audioBuffer,
+      bpm: nextBpm || this.bpm,
+      color,
+      suggestedTrackIndex: targetTrackIdx,
+      suggestedStartSec: 0,
+      autoPlace: false,
+    });
+    if (!clip) return null;
+
+    const placement = this.placeClipOnTimeline(clip.id, {
+      trackIndex: targetTrackIdx,
+      startSec: 0,
+    });
+    this._renderTrackHeaders();
+    this._syncSelectionButtons();
+    this._updateStageSize();
+    this.setSubView('playlist');
+    this.resizeAndRedraw();
+
+    return { clip, placement, trackIndex: targetTrackIdx };
   }
 
   _deleteClipFromLibrary(clipId) {

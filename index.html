@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=40" />
+  <link rel="stylesheet" href="./style.css?v=41" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" defer></script>
@@ -343,7 +343,7 @@
 
         <div class="ctrl-group ctrl-slider">
           <span class="ctrl-label">BPM <strong class="mono-val" data-display="bpm">84</strong></span>
-          <input type="range" class="studio-range" min="60" max="160" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
+          <input type="range" class="studio-range" min="50" max="180" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
         </div>
 
         <div class="ctrl-group">
@@ -351,6 +351,7 @@
           <div class="seg-group" data-seg="totalBars">
             <button type="button" class="seg-btn active" data-value="4">4 ô</button>
             <button type="button" class="seg-btn" data-value="8">8 ô</button>
+            <button type="button" class="seg-btn seg-btn-remix" data-value="remix">Full Bài</button>
           </div>
         </div>
 
@@ -491,7 +492,21 @@
         <!-- Nút chọn nhanh màu nhạc trên Mobile -->
         <div id="vibe-chips" class="vibe-chips mobile-only" aria-label="Chọn nhanh màu nhạc"></div>
 
-        <!-- Lưới các ô nhịp Hợp âm (4 hoặc 8 ô) -->
+        <!-- Thanh điều khiển chế độ Full Bài (Remix Mode) -->
+        <div id="remix-mode-bar" class="remix-mode-bar hidden" aria-label="Điều khiển chế độ Full Bài Remix">
+          <div class="remix-bar-info">
+            <span class="remix-badge">FULL BÀI · REMIX</span>
+            <strong id="remix-source-name" class="remix-source-name">Bản phối Full Bài</strong>
+            <span id="remix-bars-meta" class="remix-bars-meta mono-val">16 ô · 0:38</span>
+          </div>
+          <div class="remix-bar-actions">
+            <span class="remix-tip desktop-only">Bấm ô để tua nghe · Bấm ✎ để sửa hợp âm</span>
+            <button type="button" id="btn-remix-add-bar" class="btn btn-cyan-outline btn-xs">+ Thêm ô</button>
+            <button type="button" id="btn-remix-remove-bar" class="btn btn-rose-outline btn-xs">Xóa ô cuối</button>
+          </div>
+        </div>
+
+        <!-- Lưới các ô nhịp Hợp âm (4, 8 hoặc cuộn Full Bài tới 64 ô) -->
         <div id="chord-strip" class="chord-strip bars-4" role="list" aria-label="Dải vòng hợp âm theo ô nhịp"></div>
       </section>
 
@@ -800,7 +815,7 @@
                 <span>Tốc độ (BPM)</span>
                 <strong class="mono-val" data-display="bpm">84</strong>
               </div>
-              <input type="range" class="studio-range" min="60" max="160" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
+              <input type="range" class="studio-range" min="50" max="180" step="1" value="84" data-bind="bpm" aria-label="Tốc độ BPM" />
             </div>
 
             <div class="mobile-slider-row">
@@ -814,8 +829,9 @@
             <div class="mobile-inline-setting">
               <span>Độ dài vòng lặp (Loop)</span>
               <div class="seg-group" data-seg="totalBars">
-                <button type="button" class="seg-btn active" data-value="4">4 ô nhịp</button>
-                <button type="button" class="seg-btn" data-value="8">8 ô nhịp</button>
+                <button type="button" class="seg-btn active" data-value="4">4 ô</button>
+                <button type="button" class="seg-btn" data-value="8">8 ô</button>
+                <button type="button" class="seg-btn seg-btn-remix" data-value="remix">Full Bài</button>
               </div>
             </div>
 
@@ -1195,7 +1211,12 @@
         </div>
 
         <div class="picker-section">
-          <span class="picker-label">4. Màu sắc hợp âm (1-3-5 · 1-3-5-7 · Extension)</span>
+          <span class="picker-label">4. Hợp âm Dấu hóa (Db · Eb · F# · Ab · Bb · Trưởng &amp; Thứ)</span>
+          <div id="basic-accidental-grid" class="basic-chords-grid accidental-grid"></div>
+        </div>
+
+        <div class="picker-section">
+          <span class="picker-label">5. Màu sắc hợp âm (1-3-5 · 1-3-5-7 · Extension)</span>
           <div id="extension-pills" class="extension-pills"></div>
         </div>
       </div>
@@ -1228,6 +1249,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=40"></script>
+  <script type="module" src="./js/app.js?v=41"></script>
 </body>
 </html>

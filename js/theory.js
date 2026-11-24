@@ -70,6 +70,19 @@ export const BASIC_MINOR_CHORDS = [
   { rootPc: 11, quality: 'min', name: 'Bm', viName: 'Si Thứ' },
 ];
 
+export const ACCIDENTAL_CHORDS = [
+  { rootPc: 1,  quality: 'maj', name: 'Db',  viName: 'Rê Giáng Tr.' },
+  { rootPc: 3,  quality: 'maj', name: 'Eb',  viName: 'Mi Giáng Tr.' },
+  { rootPc: 6,  quality: 'maj', name: 'F#',  viName: 'Fa Thăng Tr.' },
+  { rootPc: 8,  quality: 'maj', name: 'Ab',  viName: 'La Giáng Tr.' },
+  { rootPc: 10, quality: 'maj', name: 'Bb',  viName: 'Si Giáng Tr.' },
+  { rootPc: 1,  quality: 'min', name: 'C#m', viName: 'Đô Thăng Thứ' },
+  { rootPc: 3,  quality: 'min', name: 'Ebm', viName: 'Mi Giáng Thứ' },
+  { rootPc: 6,  quality: 'min', name: 'F#m', viName: 'Fa Thăng Thứ' },
+  { rootPc: 8,  quality: 'min', name: 'Abm', viName: 'La Giáng Thứ' },
+  { rootPc: 10, quality: 'min', name: 'Bbm', viName: 'Si Giáng Thứ' },
+];
+
 export function shouldPreferFlats(keyPc, scaleType) {
   if (scaleType === 'minor') {
     // Minor keys with flats: D(2), G(7), C(0), F(5), Bb(10), Eb(3), Ab(8)
@@ -1033,6 +1046,34 @@ export function buildBarChordEvents(
       pushEvent(b5 <= 56 ? b5 : warmHighBass, 3.0, 0.85, 0.76, 'bass');
       pushTaggedChord(3.0, tagUpper(anthemChord), 0.46, 0.80, 0, false);
       pushTaggedChord(3.5, tagUpper([vTop, vOct]), 0.36, 0.74, 0, false);
+    }
+  } else if (style === 'afrobeats_bounce') {
+    // Afrobeats / Dancehall Bounce: Hợp âm staccato nảy theo nhịp lệch Tresillo (bước 1, 4, 7, 12) + Bass nảy ôm chân Kick
+    const grooveChord = isLiftBar ? [...upper, vOct] : upper;
+    const bounceBass = b5 <= 56 ? b5 : warmHighBass;
+
+    pushEvent(b1, 0.0, 0.42, 0.86, 'bass');
+    pushTaggedChord(0.0, tagUpper(grooveChord), 0.25, 0.85, 0.004, false);
+
+    pushEvent(warmHighBass, 0.75, 0.24, 0.72, 'bass');
+    pushTaggedChord(0.75, tagUpper(grooveChord), 0.24, 0.78, 0.004, false);
+
+    pushEvent(b1, 1.0, 0.40, 0.76, 'bass');
+    pushTaggedChord(1.5, tagUpper(grooveChord), 0.26, 0.84, 0.004, false);
+
+    pushEvent(b1, 2.0, 0.44, 0.84, 'bass');
+    pushEvent(bounceBass, 2.75, 0.24, 0.74, 'bass');
+    pushTaggedChord(2.75, tagUpper(grooveChord), 0.25, 0.80, 0.004, false);
+
+    if (isTurnaround) {
+      pushEvent(passingBass, 3.0, 0.42, 0.80, 'bass');
+      pushEvent(passingBass, 3.5, 0.36, 0.78, 'bass');
+      pushTaggedChord(3.5, tagUpper([v1, vTop, vOct]), 0.22, 0.74, 0.004, false);
+    } else {
+      pushEvent(b1, 3.0, 0.44, 0.78, 'bass');
+      if (isOddBar) {
+        pushTaggedChord(3.5, tagUpper([vTop, vOct]), 0.20, 0.64, 0, false);
+      }
     }
   } else if (style === 'alt_punk') {
     // GD Alt-Pop / Avant-Garde: Bass chạy móc đơn đẩy nhịp + hợp âm đánh nghịch phách (Crooked / Sober vibe)

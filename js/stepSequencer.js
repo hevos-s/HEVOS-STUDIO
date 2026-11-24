@@ -85,7 +85,53 @@ export const SEQ_PRESETS = [
       perc:    [0,0,0,0, 2,0,0,0, 0,0,0,0, 2,0,0,0],
     },
   },
+  {
+    id: 'afrobeats_bounce',
+    name: 'Afrobeats / Dancehall Bounce',
+    suggestedBpm: 105,
+    suggestedSwing: 12,
+    grid: {
+      kick:    [2,0,0,0, 1,0,0,0, 2,0,0,0, 1,0,0,0],
+      snare:   [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+      clap:    [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+      hat:     [2,0,1,0, 1,0,1,0, 2,0,1,0, 1,0,1,0],
+      openHat: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
+      perc:    [0,0,0,2, 0,0,1,0, 0,0,0,2, 0,0,1,0],
+    },
+  },
+  {
+    id: 'vpop_afro_club',
+    name: 'V-Pop Afro Club',
+    suggestedBpm: 104,
+    suggestedSwing: 15,
+    grid: {
+      kick:    [2,0,0,0, 1,0,0,0, 2,0,0,1, 2,0,0,0],
+      snare:   [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+      clap:    [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,2,0],
+      hat:     [2,1,1,0, 1,1,1,0, 2,1,1,0, 1,1,1,1],
+      openHat: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
+      perc:    [0,0,0,2, 0,0,1,0, 0,0,2,0, 0,0,1,0],
+    },
+  },
+  {
+    id: 'afro_rnb_chill',
+    name: 'Afro R&B / Moombahton Chill',
+    suggestedBpm: 102,
+    suggestedSwing: 18,
+    grid: {
+      kick:    [2,0,0,0, 1,0,0,0, 2,0,0,0, 1,0,0,0],
+      snare:   [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+      clap:    [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+      hat:     [1,0,1,1, 1,0,1,1, 1,0,1,0, 1,0,1,1],
+      openHat: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+      perc:    [0,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,1,0],
+    },
+  },
 ];
+
+export function getSeqPresetById(id) {
+  return SEQ_PRESETS.find((p) => p.id === id) || null;
+}
 
 export function cloneDrumGrid(grid) {
   const out = {};
@@ -240,7 +286,7 @@ export class StepSequencerUI {
             <div class="seq-lanes-body" id="seq-lanes-body">${lanesHtml}</div>
           </div>
         </div>
-        <p class="seq-tip">Mẹo: Chạm vào ô để bật/tắt tiếng · Step 1 nhấn Accent trên <strong>Rim / Crash</strong> sẽ đánh chũm chọe Crash đầu đoạn!</p>
+        <p class="seq-tip">Mẹo: Chạm vào ô để bật/tắt tiếng · Step 1 nhấn Accent trên <strong>Rim / Crash</strong> đánh Crash đầu đoạn, các bước lệch phách đánh Afro Rimshot sắc nét!</p>
       </div>
     `;
 
@@ -272,8 +318,9 @@ export class StepSequencerUI {
     });
 
     q('#btn-seq-load-preset')?.addEventListener('click', () => {
+      const presetObj = getSeqPresetById(this.selectedPresetId);
       const next = createDefaultDrumGrid(this.selectedPresetId);
-      if (this.cb.onGridChange) this.cb.onGridChange(next, true);
+      if (this.cb.onGridChange) this.cb.onGridChange(next, true, presetObj);
       this.renderGridValues(next);
       this.syncPatternBadge(true);
     });
@@ -333,6 +380,17 @@ export class StepSequencerUI {
       if (this.cb.onGridChange) this.cb.onGridChange(grid, true);
       this.syncPatternBadge(true);
     });
+  }
+
+  selectPresetVisual(presetId, gridOverride = null) {
+    if (!presetId) return;
+    const presetObj = getSeqPresetById(presetId);
+    if (!presetObj && !gridOverride) return;
+    this.selectedPresetId = presetObj ? presetObj.id : this.selectedPresetId;
+    const sel = this.container?.querySelector('#seq-preset-select');
+    if (sel && presetObj) sel.value = presetObj.id;
+    const nextGrid = gridOverride ? cloneDrumGrid(gridOverride) : createDefaultDrumGrid(this.selectedPresetId);
+    this.renderGridValues(nextGrid);
   }
 
   renderGridValues(grid) {

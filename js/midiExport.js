@@ -19,7 +19,7 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=40';
+} from './audioEngine.js?v=41';
 
 export const MIDI_PPQ = 480;
 export const FL_SAMPLER_ROOT_MIDI = 60; // C5 mặc định của Sampler trong FL Studio

@@ -4,8 +4,8 @@
 // - Đồng bộ phát nhạc gốc với đèn Hợp âm, tua theo ô hợp âm & đẩy sang Beat / Đàn / Playlist
 // ============================================================================
 
-import { detectKeyFromAudioBuffer } from './autoTune.js?v=40';
-import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=40';
+import { detectKeyFromAudioBuffer } from './autoTune.js?v=41';
+import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=41';
 
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
 
@@ -199,7 +199,100 @@ export function detectBpmFromAudioBuffer(audioBuffer) {
 }
 
 /**
- * Phân tích hợp âm theo từng đoạn thời gian trên bản nhạc (Key + Timeline Hợp âm + Studio 4/8 ô)
+ * Bộ Căn Lưới Ô Nhịp Tự Động (Bar Quantizer):
+ * Chia dòng thời gian hợp âm theo barSec = (60 / bpm) * 4,
+ * lọc bỏ hợp âm nhiễu quá ngắn (< 35% ô nhịp) và chốt hợp âm chủ đạo cho từng ô nhịp (tối đa 64 ô).
+ */
+export function quantizeTimelineToBars({
+  timeline = [],
+  bpm = 100,
+  durationSec = 0,
+  keyInfo = null,
+  maxBars = 64,
+} = {}) {
+  const safeBpm = clamp(Math.round(Number(bpm) || 100), 40, 220);
+  const barSec = (60 / safeBpm) * 4;
+  const tl = Array.isArray(timeline) ? timeline : [];
+  const tlEnd = tl.length > 0 ? tl[tl.length - 1].endSec || 0 : 0;
+  const spanSec = Math.max(barSec * 4, Math.min(Math.max(durationSec || 0, tlEnd), tlEnd > 0 ? tlEnd + barSec * 0.5 : durationSec || 0));
+
+  const rawBars = Math.round(spanSec / barSec);
+  const snappedMulti4 = Math.round(rawBars / 4) * 4;
+  const numBars = clamp(snappedMulti4 || 4, 4, maxBars);
+
+  const keyPc = keyInfo && Number.isFinite(keyInfo.keyPc) ? ((keyInfo.keyPc % 12) + 12) % 12 : 0;
+  const scaleType = keyInfo && keyInfo.scaleType === 'minor' ? 'minor' : 'major';
+  const preferFlats = shouldPreferFlats(keyPc, scaleType);
+  const tonicFallback = {
+    rootPc: keyPc,
+    quality: scaleType === 'minor' ? 'min' : 'maj',
+    extension: 'triad',
+    symbol: `${pcToNoteName(keyPc, preferFlats || FLAT_PREF_ROOTS.has(keyPc))}${scaleType === 'minor' ? 'm' : ''}`,
+  };
+
+  const bars = [];
+  let filteredNoiseCount = 0;
+  let prevChosen = null;
+
+  for (let b = 0; b < numBars; b++) {
+    const winStart = b * barSec;
+    const winEnd = (b + 1) * barSec;
+    const tally = new Map();
+
+    for (const item of tl) {
+      const overlap = Math.min(winEnd, item.endSec) - Math.max(winStart, item.startSec);
+      if (overlap <= 0) continue;
+      const k = `${item.rootPc}:${item.quality}:${item.extension}`;
+      const cur = tally.get(k) || {
+        dur: 0,
+        rootPc: item.rootPc,
+        quality: item.quality,
+        extension: item.extension,
+        symbol: item.symbol,
+      };
+      cur.dur += overlap;
+      tally.set(k, cur);
+    }
+
+    const minKeepDur = barSec * 0.35; // Lọc nhiễu < 35% ô nhịp
+    const candidates = Array.from(tally.values()).sort((a, c) => c.dur - a.dur);
+    const valid = candidates.filter((c) => c.dur >= minKeepDur);
+    filteredNoiseCount += candidates.length - valid.length;
+
+    let chosen = null;
+    if (valid.length > 0) {
+      chosen = valid[0];
+    } else if (candidates.length > 0 && candidates[0].dur >= barSec * 0.15) {
+      chosen = candidates[0];
+    } else if (prevChosen) {
+      chosen = prevChosen;
+    } else {
+      chosen = tonicFallback;
+    }
+
+    prevChosen = chosen;
+    bars.push({
+      custom: true,
+      rootPc: chosen.rootPc,
+      quality: chosen.quality,
+      extension: chosen.extension,
+      symbol: chosen.symbol,
+      barIndex: b,
+      coveragePct: chosen.dur ? Math.min(100, Math.round((chosen.dur / barSec) * 100)) : 100,
+    });
+  }
+
+  return {
+    bars,
+    barSec,
+    totalBars: bars.length,
+    filteredNoiseCount,
+    minNoiseRatio: 0.35,
+  };
+}
+
+/**
+ * Phân tích hợp âm theo từng đoạn thời gian trên bản nhạc (Key + Timeline Hợp âm + Full-Song Bar Quantizer)
  */
 export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
   if (!audioBuffer || audioBuffer.length < 4096) return null;
@@ -214,10 +307,15 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
     ? { bpm: clamp(Math.round(options.bpm), 50, 185), confidence: 90 }
     : detectBpmFromAudioBuffer(audioBuffer);
 
-  const { mono, sr, len } = getMonoMix(audioBuffer, 60);
-  const totalDur = Math.min(60, len / sr);
-  const barSec = clamp((60 / bpmInfo.bpm) * 4, 1.4, 3.2);
-  const stepSec = Math.max(0.7, barSec * 0.5);
+  const exactBarSec = (60 / bpmInfo.bpm) * 4;
+  const stepSec = clamp(exactBarSec * 0.25, 0.45, 0.90);
+  const maxAnalyzeSec = Math.min(
+    audioBuffer.duration || 0,
+    Math.max(60, exactBarSec * 64 + 1.5),
+    260
+  );
+  const { mono, sr, len } = getMonoMix(audioBuffer, maxAnalyzeSec);
+  const totalDur = Math.min(maxAnalyzeSec, len / sr);
 
   const fftSize = 4096;
   const minBin = Math.max(2, Math.floor((60 * fftSize) / sr));
@@ -333,7 +431,7 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
     }
   });
 
-  // Trích xuất vòng 4 hoặc 8 hợp âm tiêu biểu cho Sáng tác Beat
+  // Trích xuất vòng 4 hoặc 8 hợp âm tiêu biểu cho Sáng tác Beat / Phòng Đàn
   const studioCount = timeline.length >= 6 ? 8 : 4;
   const studioChords = [];
   if (timeline.length > 0) {
@@ -349,11 +447,23 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
     }
   }
 
+  // Căn lưới ô nhịp tự động trọn bài cho Chế độ Full Bài (Remix Mode)
+  const quantResult = quantizeTimelineToBars({
+    timeline,
+    bpm: bpmInfo.bpm,
+    durationSec: audioBuffer.duration,
+    keyInfo,
+    maxBars: 64,
+  });
+
   return {
     keyInfo,
     bpmInfo,
     timeline,
     studioChords,
+    quantizedBars: quantResult.bars,
+    barSec: quantResult.barSec,
+    filteredNoiseCount: quantResult.filteredNoiseCount,
     analyzedDurationSec: audioBuffer.duration,
   };
 }
@@ -677,7 +787,7 @@ export class StemAnalyzerStudio {
             </div>
             <div class="stem-meta-actions">
               <button type="button" id="stem-btn-apply-chords" class="btn btn-indigo-solid btn-xs">
-                Nạp hợp âm vào Sáng tác Beat →
+                Đẩy Full Bài sang Remix Beat →
               </button>
               <button type="button" id="stem-btn-practice-chords" class="btn btn-cyan-outline btn-xs">
                 Tập đệm ngay bên Phòng Đàn →
@@ -700,7 +810,7 @@ export class StemAnalyzerStudio {
 
           <div class="stem-timeline-section">
             <div class="stem-section-head">
-              <span>DÒNG THỜI GIAN HỢP ÂM TỰ ĐỘNG (${timeline.length} chuyển đoạn · Bấm để tua nghe)</span>
+              <span>DÒNG THỜI GIAN HỢP ÂM (${timeline.length} chuyển đoạn · Bar Quantizer: ${Array.isArray(this.analysis.quantizedBars) ? this.analysis.quantizedBars.length : 8} ô)</span>
               <span class="stem-source-name mono-val">${escapeHtml(this.sourceName)}</span>
             </div>
             <div id="stem-chord-timeline" class="stem-chord-timeline">${chordsTimelineHtml}</div>
@@ -788,11 +898,20 @@ export class StemAnalyzerStudio {
     q('#stem-btn-apply-chords')?.addEventListener('click', () => {
       if (!this.analysis || !this.cb.onApplyChordsToStudio) return;
       this.stopPlayback();
+      const qBars =
+        Array.isArray(this.analysis.quantizedBars) && this.analysis.quantizedBars.length > 0
+          ? this.analysis.quantizedBars
+          : this.analysis.studioChords;
       this.cb.onApplyChordsToStudio({
         keyPc: this.analysis.keyInfo.keyPc,
         scaleType: this.analysis.keyInfo.scaleType,
         bpm: this.analysis.bpmInfo.bpm,
-        chords: this.analysis.studioChords,
+        chords: qBars,
+        totalBars: qBars.length,
+        sourceName: this.sourceName || 'Bản nhạc Phân tích',
+        barSec: this.analysis.barSec,
+        filteredNoiseCount: this.analysis.filteredNoiseCount || 0,
+        remixMode: true,
       });
     });
 

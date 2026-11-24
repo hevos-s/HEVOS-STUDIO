@@ -977,6 +977,9 @@ button {
   flex-shrink: 0;
   padding: 8px 12px 10px;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .chords-toolbar {
@@ -1052,6 +1055,137 @@ button {
   grid-template-columns: repeat(8, minmax(0, 1fr));
 }
 
+.remix-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(24, 24, 32, 0.86);
+  border: 1px solid rgba(139, 92, 246, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.remix-bar-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.remix-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(139, 92, 246, 0.22);
+  border: 1px solid rgba(167, 139, 250, 0.5);
+  color: #DDD6FE;
+  white-space: nowrap;
+}
+
+.remix-source-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #F4F4F5;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remix-bars-meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: #67E8F9;
+  white-space: nowrap;
+}
+
+.remix-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.remix-tip {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-right: 4px;
+}
+
+.chord-strip.bars-remix {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 7px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 7px;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+}
+
+.chord-strip.bars-remix::-webkit-scrollbar {
+  height: 5px;
+}
+
+.chord-strip.bars-remix::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+.chord-card.is-remix-card {
+  flex: 0 0 132px;
+  min-width: 132px;
+  min-height: 66px;
+  padding: 9px 10px 8px;
+  cursor: pointer;
+}
+
+.chord-card-top-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.chord-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #D4D4D8;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.chord-edit-btn:hover {
+  background: rgba(34, 211, 238, 0.22);
+  border-color: rgba(34, 211, 238, 0.68);
+  color: #FFFFFF;
+}
+
+.basic-chords-grid.accidental-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .chord-card {
   position: relative;
   display: flex;
@@ -1112,17 +1246,20 @@ button {
   font-weight: 700;
   color: var(--text-3);
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chord-roman {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: var(--radius-pill);
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: #E4E4E7;
+  white-space: nowrap;
 }
 
 .chord-symbol {
@@ -9409,6 +9546,21 @@ body.piano-roll-open .toast-container {
     grid-template-columns: 1fr 1fr !important;
   }
 
+  .chord-sound-controls .inline-field {
+    min-width: 0;
+  }
+
+  .chord-sound-controls .studio-select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 36px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .chord-sound-controls .drum-field {
     grid-column: 1 / -1;
   }
@@ -9425,13 +9577,38 @@ body.piano-roll-open .toast-container {
     gap: 8px;
   }
 
+  .remix-mode-bar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .remix-source-name {
+    max-width: 170px;
+  }
+
+  .chord-strip.bars-remix {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 6px;
+  }
+
+  .chord-card.is-remix-card {
+    flex: 0 0 118px;
+    min-width: 118px;
+    min-height: 76px;
+    padding: 10px 10px 8px;
+  }
+
   .chord-card {
     min-height: 76px;
     padding: 11px 12px 9px;
   }
 
   .chord-symbol,
-  .chord-strip.bars-8 .chord-symbol {
+  .chord-strip.bars-8 .chord-symbol,
+  .chord-strip.bars-remix .chord-symbol {
     font-size: 18px;
   }
 

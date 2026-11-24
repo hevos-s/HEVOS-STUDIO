@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=40';
+} from './theory.js?v=41';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=40';
+} from './pitchToMidi.js?v=41';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=40';
+} from './autoTune.js?v=41';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=40';
+} from './audioEngine.js?v=41';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=40';
+} from './audioEncode.js?v=41';
 
 export { encodeAudioBufferToWavBlob };
 
@@ -1787,8 +1787,8 @@ export class VocalStudio {
 
     try {
       const bpm = Math.max(40, Math.min(220, Number(studioCtx.bpm) || 84));
-      const totalBars = studioCtx.totalBars === 8 ? 8 : 4;
-      const loops = totalBars === 8 ? 2 : 4; // Tổng cộng 16 ô nhịp (~45 giây)
+      const totalBars = Math.max(4, Math.min(64, Math.round(Number(studioCtx.totalBars) || 4)));
+      const loops = totalBars >= 16 ? 1 : totalBars >= 8 ? 2 : 4; // Tối thiểu 16 ô hoặc trọn bài Remix
       const beatSec = 60 / bpm;
       const singleLoopBeats = totalBars * 4;
       const singleLoopSec = singleLoopBeats * beatSec;
