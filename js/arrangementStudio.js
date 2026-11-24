@@ -8,7 +8,7 @@
 // - Tích hợp StemAnalyzerStudio: Phân tích Hợp âm, Tông & BPM 100% Browser-Native
 // ============================================================================
 
-import { StemAnalyzerStudio } from './stemAnalyzer.js?v=41';
+import { StemAnalyzerStudio } from './stemAnalyzer.js?v=42';
 
 export const MASTERING_PRESETS = [
   {

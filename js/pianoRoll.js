@@ -9,20 +9,23 @@ import {
   midiToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=41';
+} from './theory.js?v=42';
 
-const MIN_MIDI = 48; // C3
+const MIN_MIDI = 36; // C2 (bao gồm trọn vẹn bè Bass E2..D#3 trên làn Chords Piano)
 const MAX_MIDI = 84; // C6
-const NUM_ROWS = MAX_MIDI - MIN_MIDI + 1; // 37 bán cung
+const NUM_ROWS = MAX_MIDI - MIN_MIDI + 1; // 49 bán cung
 
 export class PianoRoll {
   constructor(canvas, callbacks = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.cb = callbacks; // { onChange, onSelect, onAudition, onHistoryPush }
+    this.cb = callbacks; // { onChange, onSelect, onAudition, onHistoryPush, onRequestCustomize }
 
     // Trạng thái bài nhạc (được đồng bộ từ app.js)
     this.notes = [];
+    this.ghostNotes = [];
+    this.activeLayer = 'melody'; // 'melody' | 'chords'
+    this.isAutoPreview = false;
     this.totalBars = 4;
     this.keyPc = 0;
     this.scaleType = 'major';
@@ -102,8 +105,21 @@ export class PianoRoll {
     return NUM_ROWS * this.rowHeight;
   }
 
-  setData({ notes, totalBars, keyPc, scaleType, voicedChords, selectedNoteId }) {
+  setData({
+    notes,
+    ghostNotes,
+    activeLayer,
+    isAutoPreview,
+    totalBars,
+    keyPc,
+    scaleType,
+    voicedChords,
+    selectedNoteId,
+  }) {
     if (notes !== undefined) this.notes = notes;
+    if (ghostNotes !== undefined) this.ghostNotes = ghostNotes;
+    if (activeLayer !== undefined) this.activeLayer = activeLayer === 'chords' ? 'chords' : 'melody';
+    if (isAutoPreview !== undefined) this.isAutoPreview = Boolean(isAutoPreview);
     if (totalBars !== undefined) this.totalBars = totalBars;
     if (keyPc !== undefined) this.keyPc = keyPc;
     if (scaleType !== undefined) this.scaleType = scaleType;
@@ -136,8 +152,8 @@ export class PianoRoll {
   }
 
   centerOnVocalRange() {
-    // Tự động căn giữa quãng nốt hiện có, hoặc C4–C5 (MIDI 66) nếu chưa có nốt
-    let targetMidMidi = 66; // F#4
+    // Tự động căn giữa quãng nốt hiện có, hoặc F#4 (Melody) / G3-C4 (Chords)
+    let targetMidMidi = this.activeLayer === 'chords' ? 56 : 66;
     if (Array.isArray(this.notes) && this.notes.length > 0) {
       let minMidi = Infinity;
       let maxMidi = -Infinity;
@@ -194,11 +210,26 @@ export class PianoRoll {
     return Math.max(0, Math.min(this.totalBeats - step, Number(snapped.toFixed(4))));
   }
 
-  _snapMidiIfLocked(midi, barIndex = 0) {
+  _snapMidiIfLocked(midi, barIndex = 0, beat = 0) {
     if (!this.scaleLock) return Math.max(MIN_MIDI, Math.min(MAX_MIDI, Math.round(midi)));
-    const barChordPcs = this.voicedChords[barIndex]?.allPitchClasses || null;
+    const vc = this.voicedChords[barIndex];
+    const inSecondHalf = vc && vc.split && vc.secondVoiced && (beat % 4) >= 2.0;
+    const barChordPcs = (inSecondHalf ? vc.secondVoiced.allPitchClasses : vc?.allPitchClasses) || null;
     const snapped = snapMidiToScale(midi, this.keyPc, this.scaleType, barChordPcs, 0.15);
     return Math.max(MIN_MIDI, Math.min(MAX_MIDI, snapped));
+  }
+
+  _ensureEditableCopy() {
+    if (this.activeLayer === 'chords' && this.isAutoPreview) {
+      const cloned = this.notes.map((n) => ({ ...n }));
+      this.notes = cloned;
+      this.isAutoPreview = false;
+      if (this.cb.onRequestCustomize) {
+        this.cb.onRequestCustomize(cloned);
+      }
+      return true;
+    }
+    return false;
   }
 
   _findNoteAt(x, y, isTouch = false) {
@@ -287,7 +318,13 @@ export class PianoRoll {
     };
 
     if (typeof ResizeObserver !== 'undefined') {
-      this._ro = new ResizeObserver(this._updateSize);
+      this._ro = new ResizeObserver(() => {
+        if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
+        this._resizeRaf = requestAnimationFrame(() => {
+          this._resizeRaf = null;
+          this._updateSize();
+        });
+      });
       this._ro.observe(this.canvas);
       if (this.canvas.parentElement) {
         this._ro.observe(this.canvas.parentElement);
@@ -365,7 +402,10 @@ export class PianoRoll {
       const midi = this.yToMidi(pt.y);
       this.activePianoKey = midi;
       this.dragState = { type: 'piano', lastMidi: midi };
-      if (this.cb.onAudition) this.cb.onAudition(midi);
+      if (this.cb.onAudition) {
+        const role = this.activeLayer === 'chords' ? (midi < 52 ? 'bass' : 'chord') : 'melody';
+        this.cb.onAudition(midi, role);
+      }
       this.requestDraw();
       return;
     }
@@ -400,6 +440,7 @@ export class PianoRoll {
       this.dragState = { type: 'erase', pushedHistory: false };
       const hit = this._findNoteAt(pt.x, pt.y, isTouch);
       if (hit) {
+        this._ensureEditableCopy();
         if (this.cb.onHistoryPush) this.cb.onHistoryPush();
         this.dragState.pushedHistory = true;
         this._removeNoteNoHistory(hit.note.id);
@@ -428,7 +469,10 @@ export class PianoRoll {
       this._lastTap = { time: now, noteId: note.id };
 
       this._selectNote(note.id);
-      if (this.cb.onAudition && !onRightEdge) this.cb.onAudition(note.midi);
+      if (this.cb.onAudition && !onRightEdge) {
+        const role = this.activeLayer === 'chords' ? (note.role || (note.midi < 52 ? 'bass' : 'chord')) : 'melody';
+        this.cb.onAudition(note.midi, role);
+      }
 
       if (onRightEdge) {
         this.dragState = {
@@ -463,26 +507,29 @@ export class PianoRoll {
 
     const barIdx = Math.min(Math.floor(startBeat / 4), Math.max(0, this.totalBars - 1));
     const rawMidi = this.yToMidi(pt.y);
-    const midi = this._snapMidiIfLocked(rawMidi, barIdx);
+    const midi = this._snapMidiIfLocked(rawMidi, barIdx, startBeat);
 
     const defaultDur = Math.min(
       Math.max(0.5, this.gridStep || 0.5),
       this.totalBeats - startBeat
     );
 
+    this._ensureEditableCopy();
     if (this.cb.onHistoryPush) this.cb.onHistoryPush();
 
+    const newRole = this.activeLayer === 'chords' ? (midi < 52 ? 'bass' : 'chord') : undefined;
     const newNote = {
       id: `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       midi,
       startBeat,
       durationBeats: Math.max(0.25, defaultDur),
       velocity: 0.82,
+      ...(newRole ? { role: newRole } : {}),
     };
 
     this.notes = [...this.notes, newNote];
     this._selectNote(newNote.id);
-    if (this.cb.onAudition) this.cb.onAudition(newNote.midi);
+    if (this.cb.onAudition) this.cb.onAudition(newNote.midi, newRole || 'melody');
     if (this.cb.onChange) this.cb.onChange(this.notes);
 
     // Cho phép kéo tiếp ngay sau khi chấm để chỉnh cao độ hoặc vị trí cực mượt
@@ -530,7 +577,10 @@ export class PianoRoll {
       if (midi !== this.dragState.lastMidi) {
         this.dragState.lastMidi = midi;
         this.activePianoKey = midi;
-        if (this.cb.onAudition) this.cb.onAudition(midi);
+        if (this.cb.onAudition) {
+          const role = this.activeLayer === 'chords' ? (midi < 52 ? 'bass' : 'chord') : 'melody';
+          this.cb.onAudition(midi, role);
+        }
         this.requestDraw();
       }
       return;
@@ -547,6 +597,7 @@ export class PianoRoll {
     if (this.dragState.type === 'erase') {
       const hit = this._findNoteAt(pt.x, pt.y, isTouch);
       if (hit) {
+        this._ensureEditableCopy();
         if (!this.dragState.pushedHistory && this.cb.onHistoryPush) {
           this.cb.onHistoryPush();
           this.dragState.pushedHistory = true;
@@ -556,14 +607,16 @@ export class PianoRoll {
       return;
     }
 
-    const note = this.notes.find((n) => n.id === this.dragState.noteId);
+    let note = this.notes.find((n) => n.id === this.dragState.noteId);
     if (!note) return;
 
     if (this.dragState.type === 'resize') {
       const dx = pt.x - this.dragState.startX;
       if (!this.dragState.moved && Math.abs(dx) < 3) return;
-      if (!this.dragState.snapshotPushed && this.cb.onHistoryPush) {
-        this.cb.onHistoryPush();
+      if (!this.dragState.snapshotPushed) {
+        this._ensureEditableCopy();
+        note = this.notes.find((n) => n.id === this.dragState.noteId) || note;
+        if (this.cb.onHistoryPush) this.cb.onHistoryPush();
         this.dragState.snapshotPushed = true;
       }
       this.dragState.moved = true;
@@ -588,8 +641,10 @@ export class PianoRoll {
       const dy = pt.y - this.dragState.startY;
       if (!this.dragState.moved && Math.hypot(dx, dy) < 5) return;
 
-      if (!this.dragState.snapshotPushed && this.cb.onHistoryPush) {
-        this.cb.onHistoryPush();
+      if (!this.dragState.snapshotPushed) {
+        this._ensureEditableCopy();
+        note = this.notes.find((n) => n.id === this.dragState.noteId) || note;
+        if (this.cb.onHistoryPush) this.cb.onHistoryPush();
         this.dragState.snapshotPushed = true;
       }
       this.dragState.moved = true;
@@ -606,7 +661,7 @@ export class PianoRoll {
 
       const deltaSemi = -Math.round(dy / this.rowHeight);
       const targetBar = Math.min(Math.floor(nextBeat / 4), Math.max(0, this.totalBars - 1));
-      const nextMidi = this._snapMidiIfLocked(this.dragState.origMidi + deltaSemi, targetBar);
+      const nextMidi = this._snapMidiIfLocked(this.dragState.origMidi + deltaSemi, targetBar, nextBeat);
 
       let changed = false;
       if (Number(nextBeat.toFixed(4)) !== note.startBeat) {
@@ -618,7 +673,10 @@ export class PianoRoll {
         changed = true;
         if (nextMidi !== this.dragState.lastAuditionMidi) {
           this.dragState.lastAuditionMidi = nextMidi;
-          if (this.cb.onAudition) this.cb.onAudition(nextMidi);
+          if (this.cb.onAudition) {
+            const role = this.activeLayer === 'chords' ? (note.role || (nextMidi < 52 ? 'bass' : 'chord')) : 'melody';
+            this.cb.onAudition(nextMidi, role);
+          }
         }
       }
 
@@ -645,6 +703,7 @@ export class PianoRoll {
   }
 
   _deleteNoteById(noteId) {
+    this._ensureEditableCopy();
     if (this.cb.onHistoryPush) this.cb.onHistoryPush();
     this._removeNoteNoHistory(noteId);
   }
@@ -713,34 +772,50 @@ export class PianoRoll {
       }
       ctx.fillRect(kw, y, w - kw, rh);
 
-      // 2b. Tô sáng tinh tế các nốt thuộc HỢP ÂM của từng ô nhịp (tông trắng bạc mờ)
+      // 2b. Tô sáng tinh tế các nốt thuộc HỢP ÂM của từng ô nhịp (hỗ trợ Split-Bar 2 nửa ô)
       for (let bar = 0; bar < this.totalBars; bar++) {
         const vc = this.voicedChords[bar];
-        if (!vc || !vc.allPitchClasses.has(pc)) continue;
+        if (!vc) continue;
 
         const bx = this.beatToX(bar * 4);
         const barPxW = 4 * bw;
         if (bx + barPxW < kw || bx > w) continue;
 
-        const isChordRoot = pc === vc.rootPc;
         const isCurrentBar = bar === activeBar;
+        if (vc.split && vc.secondVoiced) {
+          const halfW = 2 * bw;
+          const halves = [
+            { x: bx, hw: halfW, data: vc },
+            { x: bx + halfW, hw: halfW, data: vc.secondVoiced },
+          ];
+          for (const hf of halves) {
+            if (!hf.data || !hf.data.allPitchClasses.has(pc)) continue;
+            const isRootHalf = pc === hf.data.rootPc;
+            ctx.fillStyle = isRootHalf
+              ? (isCurrentBar ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.065)')
+              : (isCurrentBar ? 'rgba(255, 255, 255, 0.075)' : 'rgba(255, 255, 255, 0.035)');
+            ctx.fillRect(hf.x + 1, y + 0.5, hf.hw - 2, rh - 1);
+            ctx.fillStyle = isRootHalf ? 'rgba(255, 255, 255, 0.58)' : 'rgba(255, 255, 255, 0.30)';
+            ctx.fillRect(hf.x + 1, y + 2, 2.5, rh - 4);
+          }
+        } else if (vc.allPitchClasses && vc.allPitchClasses.has(pc)) {
+          const isChordRoot = pc === vc.rootPc;
+          if (isChordRoot) {
+            ctx.fillStyle = isCurrentBar
+              ? 'rgba(255, 255, 255, 0.12)'
+              : 'rgba(255, 255, 255, 0.065)';
+          } else {
+            ctx.fillStyle = isCurrentBar
+              ? 'rgba(255, 255, 255, 0.075)'
+              : 'rgba(255, 255, 255, 0.035)';
+          }
+          ctx.fillRect(bx + 1, y + 0.5, barPxW - 2, rh - 1);
 
-        if (isChordRoot) {
-          ctx.fillStyle = isCurrentBar
-            ? 'rgba(255, 255, 255, 0.12)'
-            : 'rgba(255, 255, 255, 0.065)';
-        } else {
-          ctx.fillStyle = isCurrentBar
-            ? 'rgba(255, 255, 255, 0.075)'
-            : 'rgba(255, 255, 255, 0.035)';
+          ctx.fillStyle = isChordRoot
+            ? 'rgba(255, 255, 255, 0.58)'
+            : 'rgba(255, 255, 255, 0.30)';
+          ctx.fillRect(bx + 1, y + 2, 2.5, rh - 4);
         }
-        ctx.fillRect(bx + 1, y + 0.5, barPxW - 2, rh - 1);
-
-        // Thanh đánh dấu mảnh đầu ô nhịp
-        ctx.fillStyle = isChordRoot
-          ? 'rgba(255, 255, 255, 0.58)'
-          : 'rgba(255, 255, 255, 0.30)';
-        ctx.fillRect(bx + 1, y + 2, 2.5, rh - 4);
       }
 
       // Đường kẻ ngang phân tách bán cung (đậm nhẹ tại mỗi quãng tám C)
@@ -783,7 +858,40 @@ export class PianoRoll {
       }
     }
 
-    // 2d. Gợi ý trực quan khi chưa có nốt nào
+    // 2d. Vẽ Nốt Mờ Đối Chiếu (Ghost Notes của làn còn lại để tránh đụng nốt giữa Hợp âm đệm & Giai điệu)
+    if (Array.isArray(this.ghostNotes) && this.ghostNotes.length > 0) {
+      ctx.save();
+      for (const g of this.ghostNotes) {
+        if (!g || !Number.isFinite(g.midi) || !Number.isFinite(g.startBeat)) continue;
+        const gx = this.beatToX(g.startBeat);
+        const gDur = g.durationBeats ?? g.durationBeat ?? 0.5;
+        const gw = Math.max(8, gDur * bw - 1.5);
+        const gy = this.midiToY(g.midi) + 2;
+        const gh = rh - 4;
+        if (gx + gw < kw || gx > w || gy + gh < hh || gy > h) continue;
+
+        this._drawRoundedRect(ctx, gx + 0.5, gy, gw, gh, 3);
+        ctx.fillStyle =
+          this.activeLayer === 'chords'
+            ? 'rgba(226, 232, 240, 0.14)'
+            : 'rgba(129, 140, 248, 0.14)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(203, 213, 225, 0.24)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        if (gw >= 34) {
+          ctx.fillStyle = 'rgba(226, 232, 240, 0.42)';
+          ctx.font = `600 8.5px ${monoFont}`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(midiToNoteName(g.midi, preferFlats), gx + 4, gy + gh / 2 + 0.5);
+        }
+      }
+      ctx.restore();
+    }
+
+    // 2d-2. Gợi ý trực quan khi chưa có nốt nào
     if (this.notes.length === 0) {
       ctx.save();
       ctx.fillStyle = 'rgba(161, 161, 170, 0.45)';
@@ -791,14 +899,17 @@ export class PianoRoll {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const msg =
-        w < 520
-          ? 'Chạm vào hàng sáng để chấm nốt • Hoặc nhấn Ngân nga MIDI'
-          : 'Chạm vào lưới sáng hợp âm để chấm nốt • Hoặc nhấn Ngân nga MIDI (R) để thu giai điệu';
+        this.activeLayer === 'chords'
+          ? 'Ô nhịp đang tắt/trống • Bấm "Đổ đệm tự động" hoặc chạm lưới để tự viết hợp âm Piano'
+          : w < 520
+            ? 'Chạm vào hàng sáng để chấm nốt • Hoặc nhấn Ngân nga MIDI'
+            : 'Chạm vào lưới sáng hợp âm để chấm nốt • Hoặc nhấn Ngân nga MIDI (R) để thu giai điệu';
       ctx.fillText(msg, kw + (w - kw) / 2, hh + (h - hh) / 2);
       ctx.restore();
     }
 
-    // 2e. Vẽ các thanh nốt MIDI tông Trắng Bạc / Ghi Sáng hài hòa
+    // 2e. Vẽ các thanh nốt MIDI của làn đang chọn (Melody: Trắng Bạc | Chords Piano: Indigo + Bass Cyan)
+    const isChordsLayer = this.activeLayer === 'chords';
     for (const note of this.notes) {
       const nx = this.beatToX(note.startBeat);
       const nw = Math.max(9, note.durationBeats * bw - 1.5);
@@ -810,10 +921,22 @@ export class PianoRoll {
       const isSelected = note.id === this.selectedNoteId;
       const isActiveNow =
         isPlaying && playBeat >= note.startBeat && playBeat < note.startBeat + note.durationBeats;
+      const isBassNote = isChordsLayer && (note.role === 'bass' || note.midi < 52);
+
+      ctx.save();
+      if (isChordsLayer && this.isAutoPreview) {
+        ctx.globalAlpha = 0.72;
+      }
 
       this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 4);
       if (isActiveNow) {
         ctx.fillStyle = '#FFFFFF';
+      } else if (isChordsLayer) {
+        if (isBassNote) {
+          ctx.fillStyle = isSelected ? '#A5F3FC' : '#67E8F9';
+        } else {
+          ctx.fillStyle = isSelected ? '#C7D2FE' : '#A5B4FC';
+        }
       } else if (isSelected) {
         ctx.fillStyle = '#F4F4F5';
       } else {
@@ -827,11 +950,15 @@ export class PianoRoll {
         ctx.fillRect(nx + 1.5, ny + 1, Math.max(0, nw - 2), 1.5);
       }
 
-      // Viền ngoài sắc nét
+      // Viền ngoài sắc nét (nét đứt nhẹ khi còn ở chế độ Auto Preview)
       this._drawRoundedRect(ctx, nx + 0.5, ny, nw, nh, 4);
+      if (isChordsLayer && this.isAutoPreview && !isSelected) {
+        ctx.setLineDash([4, 3]);
+      }
       ctx.strokeStyle = isSelected ? '#FFFFFF' : '#27272A';
       ctx.lineWidth = isSelected ? 1.6 : 1;
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Tay nắm kéo độ dài cạnh phải
       if (nw >= 20) {
@@ -847,6 +974,7 @@ export class PianoRoll {
         ctx.textBaseline = 'middle';
         ctx.fillText(midiToNoteName(note.midi, preferFlats), nx + 4.5, ny + nh / 2 + 0.5);
       }
+      ctx.restore();
     }
 
     // 2f. Kim chạy thời gian DAW (Playhead trắng bạc sắc nét)
@@ -1007,7 +1135,13 @@ export class PianoRoll {
       if (vc) {
         ctx.fillStyle = isCur ? '#D4D4D8' : '#71717A';
         ctx.font = `600 10px ${monoFont}`;
-        ctx.fillText(vc.symbol, bx + 18, 4);
+        const label =
+          vc.split && vc.secondVoiced
+            ? `${vc.symbol}|${vc.secondVoiced.symbol}`
+            : vc.barStyle === 'break'
+              ? `${vc.symbol} (Break)`
+              : vc.symbol;
+        ctx.fillText(label, bx + 18, 4);
       }
 
       for (let sub = 1; sub < 4; sub++) {

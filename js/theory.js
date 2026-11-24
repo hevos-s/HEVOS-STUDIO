@@ -49,6 +49,22 @@ export const CHORD_EXTENSIONS = [
   { id: 'sus4',  label: 'sus4', suffix: 'sus4' },
 ];
 
+export const BAR_COMP_STYLES = [
+  { id: 'default', label: 'Theo mặc định chung', shortLabel: 'Mặc định' },
+  { id: 'sustain', label: 'Ngân dài giữ Pedal (Sustain)', shortLabel: 'Sustain' },
+  { id: 'pattern_158', label: 'Rải 1-5-8 Piano', shortLabel: '1-5-8' },
+  { id: 'pop_pulse', label: 'Đập phách đều (Pop Pulse)', shortLabel: 'Pop Pulse' },
+  { id: 'afro_rnb', label: 'Nảy lệch phách (Afro / R&B)', shortLabel: 'Afro / R&B' },
+  { id: 'break', label: 'Nghỉ / Tắt đàn (Break)', shortLabel: 'Break' },
+];
+
+export const CHORD_INVERSIONS = [
+  { id: 'auto', label: 'Tự động (Voice Leading)', shortLabel: 'Auto' },
+  { id: 'root', label: 'Thế gốc (Root)', shortLabel: 'Gốc' },
+  { id: 'inv1', label: 'Đảo 1 (1st Inv)', shortLabel: 'Đảo 1' },
+  { id: 'inv2', label: 'Đảo 2 (2nd Inv)', shortLabel: 'Đảo 2' },
+];
+
 // Đầy đủ 7 hợp âm Trưởng cơ bản (C D E F G A B) và 7 hợp âm Thứ cơ bản (Cm Dm Em Fm Gm Am Bm)
 export const BASIC_MAJOR_CHORDS = [
   { rootPc: 0,  quality: 'maj', name: 'C',  viName: 'Đô Trưởng' },
@@ -446,58 +462,138 @@ function transitionCost(prevVoicing, nextVoicing) {
   return totalDist;
 }
 
-/**
- * Thuật toán Smart Voice Leading cho cả vòng hợp âm (4 hoặc 8 ô nhịp)
- */
-export function generateVoicedProgression(chords, keyPc, scaleType) {
-  const resolvedList = chords.map((ch) => resolveChord(ch, keyPc, scaleType));
-  const preferFlats = shouldPreferFlats(keyPc, scaleType);
-  const result = [];
-  let prevVoicing = null;
+function selectUpperVoicingForResolved(
+  resolved,
+  prevVoicing,
+  barIndex,
+  totalBars,
+  firstBarUpper,
+  inversion = 'auto',
+  octaveShift = 0
+) {
+  const safeOct = Math.max(-1, Math.min(1, Math.round(Number(octaveShift) || 0)));
+  const shift = safeOct * 12;
+  let upper;
 
-  for (let i = 0; i < resolvedList.length; i++) {
-    const resolved = resolvedList[i];
+  if (inversion === 'root' || inversion === 'inv1' || inversion === 'inv2') {
+    const baseRoot = (resolved.rootPc >= 8 ? 48 : 60) + resolved.rootPc;
+    const raw = resolved.intervals.map((iv) => baseRoot + iv);
+    const rot = inversion === 'inv1' ? 1 : inversion === 'inv2' ? Math.min(2, Math.max(0, raw.length - 1)) : 0;
+    for (let k = 0; k < rot; k++) {
+      raw[k] += 12;
+    }
+    raw.sort((a, b) => a - b);
+    upper = raw.map((m) => m + shift);
+  } else {
     const candidates = buildCandidateVoicings(resolved);
     let bestVoicing = candidates[0];
     let bestScore = Infinity;
 
     for (const cand of candidates) {
-      // Thay đổi nhẹ độ cao trung tâm theo vai trò từng ô nhịp (A -> A' -> B -> Turnaround)
-      // để vòng hợp âm có nhịp dâng/lắng tự nhiên thay vì bó mãi ở 1 vùng cao độ
-      const barPhase = i % 4;
+      const barPhase = barIndex % 4;
       const dynamicCenter = barPhase === 0 ? 61 : barPhase === 1 ? 62 : barPhase === 2 ? 64 : 60;
       let score = intrinsicVoicingCost(cand, dynamicCenter);
       if (prevVoicing) {
         score += transitionCost(prevVoicing, cand) * 1.05;
       }
-      // Ở ô nhịp cuối, kéo nhẹ về gần ô nhịp đầu để vòng lặp (loop) quay đầu êm tai
-      if (i === resolvedList.length - 1 && result.length > 0) {
-        score += transitionCost(cand, result[0].upperMidis) * 0.35;
+      if (barIndex === totalBars - 1 && firstBarUpper) {
+        score += transitionCost(cand, firstBarUpper) * 0.35;
       }
       if (score < bestScore) {
         bestScore = score;
         bestVoicing = cand;
       }
     }
+    upper = bestVoicing.map((m) => m + shift);
+  }
 
-    const bassMidi = computeBassMidi(resolved.rootPc);
-    // Công thức thế gốc 1-3-5 / 1-3-5-7 và công thức 1-5-8 chuẩn nhạc lý
-    const rootBaseMidi = (resolved.rootPc >= 7 ? 48 : 60) + resolved.rootPc;
-    const rootOrderedMidis = resolved.intervals.map((iv) => rootBaseMidi + iv);
-    const fifthInterval = resolved.intervals[2] ?? 7;
-    const bass158Midis = [bassMidi, bassMidi + fifthInterval, bassMidi + 12];
-    prevVoicing = bestVoicing;
+  // Giữ an toàn trong tầm Piano Roll C2 (36) – C6 (84)
+  while (upper.length > 0 && upper[upper.length - 1] > 84) {
+    upper = upper.map((m) => m - 12);
+  }
+  while (upper.length > 0 && upper[0] < 36) {
+    upper = upper.map((m) => m + 12);
+  }
+  return upper;
+}
+
+function buildSingleVoicedObject(resolved, barIndex, upper, octaveShift, preferFlats) {
+  const safeOct = Math.max(-1, Math.min(1, Math.round(Number(octaveShift) || 0)));
+  const shift = safeOct * 12;
+  const bassMidi = computeBassMidi(resolved.rootPc);
+  const rawRootBase = (resolved.rootPc >= 7 ? 48 : 60) + resolved.rootPc + shift;
+  const rootBaseMidi = Math.max(36, Math.min(72, rawRootBase));
+  const rootOrderedMidis = resolved.intervals.map((iv) => Math.max(36, Math.min(84, rootBaseMidi + iv)));
+  const fifthInterval = resolved.intervals[2] ?? 7;
+  const bass158Midis = [bassMidi, bassMidi + fifthInterval, bassMidi + 12];
+
+  return {
+    ...resolved,
+    barIndex,
+    bassMidi,
+    upperMidis: upper,
+    rootOrderedMidis,
+    bass158Midis,
+    allMidis: [bassMidi, ...upper],
+    voicingLabels: upper.map((m) => midiToNoteName(m, preferFlats)),
+    rootOrderedLabels: rootOrderedMidis.map((m) => midiToNoteName(m, preferFlats)),
+  };
+}
+
+/**
+ * Thuật toán Smart Voice Leading cho cả vòng hợp âm (4, 8 hoặc 4..64 ô Remix)
+ * Hỗ trợ: Split-Bar (2 hợp âm/ô), Thế đảo từng ô, Dịch quãng tám (-1/0/+1), Kiểu đệm từng ô (barStyle).
+ */
+export function generateVoicedProgression(chords, keyPc, scaleType) {
+  const safeChords = Array.isArray(chords) ? chords : [];
+  const preferFlats = shouldPreferFlats(keyPc, scaleType);
+  const result = [];
+  let prevVoicing = null;
+
+  for (let i = 0; i < safeChords.length; i++) {
+    const ch = safeChords[i] || { degree: 0, extension: 'triad' };
+    const barStyle = typeof ch.barStyle === 'string' && ch.barStyle ? ch.barStyle : 'default';
+    const inversion = typeof ch.inversion === 'string' && ch.inversion ? ch.inversion : 'auto';
+    const octaveShift = Math.max(-1, Math.min(1, Math.round(Number(ch.octaveShift) || 0)));
+    const isSplit = Boolean(ch.split && ch.secondChord);
+
+    const resolved1 = resolveChord(ch, keyPc, scaleType);
+    const upper1 = selectUpperVoicingForResolved(
+      resolved1,
+      prevVoicing,
+      i,
+      safeChords.length,
+      result[0]?.upperMidis || null,
+      inversion,
+      octaveShift
+    );
+    const voiced1 = buildSingleVoicedObject(resolved1, i, upper1, octaveShift, preferFlats);
+
+    let secondVoiced = null;
+    if (isSplit) {
+      const resolved2 = resolveChord(ch.secondChord, keyPc, scaleType);
+      const upper2 = selectUpperVoicingForResolved(
+        resolved2,
+        upper1,
+        i,
+        safeChords.length,
+        result[0]?.upperMidis || null,
+        inversion,
+        octaveShift
+      );
+      secondVoiced = buildSingleVoicedObject(resolved2, i, upper2, octaveShift, preferFlats);
+      prevVoicing = upper2;
+    } else {
+      prevVoicing = upper1;
+    }
 
     result.push({
-      ...resolved,
-      barIndex: i,
-      bassMidi,
-      upperMidis: bestVoicing,
-      rootOrderedMidis,
-      bass158Midis,
-      allMidis: [bassMidi, ...bestVoicing],
-      voicingLabels: bestVoicing.map((m) => midiToNoteName(m, preferFlats)),
-      rootOrderedLabels: rootOrderedMidis.map((m) => midiToNoteName(m, preferFlats)),
+      ...voiced1,
+      barStyle,
+      inversion,
+      octaveShift,
+      split: isSplit,
+      secondVoiced,
     });
   }
 
@@ -875,7 +971,7 @@ export const PROGRESSION_PRESETS = [
  * Gắn rõ role ('bass' | 'chord') để tách chuẩn Track 1 (Hợp âm tay phải) và Track 2 (Bass nền).
  * Dùng chung cho cả Tone.js playback VÀ bộ xuất MIDI (.mid)!
  */
-export function buildBarChordEvents(
+function _buildSingleChordFullBarEvents(
   voicedChord,
   barIndex,
   style = 'rnb',
@@ -913,7 +1009,7 @@ export function buildBarChordEvents(
     } else {
       leadBass = bass + 7 <= 56 ? bass + 7 : bass - 5;
     }
-    while (leadBass < 34) leadBass += 12;
+    while (leadBass < 36) leadBass += 12;
     while (leadBass > 56) leadBass -= 12;
     return leadBass;
   };
@@ -966,7 +1062,32 @@ export function buildBarChordEvents(
   const b5 = arp158[1];
   const b8 = arp158[2];
 
-  if (style === 'yg_bounce') {
+  if (style === 'sustain') {
+    // Ngân dài giữ Pedal (Sustain): hợp âm êm ngân trọn ô, chừa không gian tối đa cho giọng hát/intro
+    pushEvent(b1, 0.0, 3.88, 0.72, 'bass');
+    pushTaggedChord(0.0, tagUpper(upper), 3.85, 0.66, 0.016, false);
+  } else if (style === 'pop_pulse') {
+    // Đập phách đều (Pop Pulse): nhịp quarter-note Piano vững vàng + bass giữ nền phách 1 & 3
+    pushEvent(b1, 0.0, 1.85, 0.78, 'bass');
+    pushTaggedChord(0.0, tagUpper(upper), 0.78, 0.74, 0.008, false);
+    pushTaggedChord(1.0, tagUpper(upper), 0.76, 0.66, 0.006, false);
+    pushEvent(isTurnaround ? passingBass : b1, 2.0, 1.85, 0.74, 'bass');
+    pushTaggedChord(2.0, tagUpper(upper), 0.78, 0.72, 0.008, false);
+    pushTaggedChord(3.0, tagUpper(isLiftBar ? [...upper, vOct] : upper), 0.76, 0.68, 0.006, false);
+  } else if (style === 'afro_rnb') {
+    // Nảy lệch phách (Afro / R&B): groove Tresillo 3-3-2 ấm áp
+    const bounceBass = b5 <= 56 ? b5 : warmHighBass;
+    pushEvent(b1, 0.0, 0.85, 0.80, 'bass');
+    pushTaggedChord(0.0, tagUpper(upper), 0.36, 0.76, 0.008, false);
+    pushEvent(warmHighBass, 0.75, 0.40, 0.66, 'bass');
+    pushTaggedChord(0.75, tagUpper(upper), 0.32, 0.68, 0.008, false);
+    pushTaggedChord(1.5, tagUpper(upper), 0.36, 0.74, 0.008, false);
+    pushEvent(b1, 2.0, 0.85, 0.78, 'bass');
+    pushTaggedChord(2.0, tagUpper(upper), 0.36, 0.72, 0.008, false);
+    pushEvent(bounceBass, 2.75, 0.42, 0.68, 'bass');
+    pushTaggedChord(2.75, tagUpper(upper), 0.34, 0.72, 0.008, false);
+    pushTaggedChord(3.5, tagUpper(isTurnaround ? [v1, vTop, vOct] : upper), 0.32, 0.66, 0.008, false);
+  } else if (style === 'yg_bounce') {
     // K-Pop / YG Stage Bounce: Dập staccato uy lực, chừa khoảng thở cho rap/vocal & 808 octave drop
     if (isTurnaround) {
       pushEvent(b1, 0.0, 0.90, 0.88, 'bass');
@@ -1404,4 +1525,78 @@ export function buildBarChordEvents(
   }
 
   return events;
+}
+
+/**
+ * Tạo mảng sự kiện nốt (deterministic, theo đơn vị beat) cho 1 ô nhịp dựa vào kiểu đệm.
+ * Hỗ trợ:
+ *   - Kiểu đệm riêng từng ô (voicedChord.barStyle, bao gồm 'break' tắt đàn để tạo khoảng thở)
+ *   - Split-Bar 2 hợp âm / ô (phách 1-2 là hợp âm đầu, phách 3-4 là voicedChord.secondVoiced)
+ * Dùng chung cho cả Tone.js playback, Offline Render, Piano Roll Chords VÀ bộ xuất MIDI (.mid)!
+ */
+export function buildBarChordEvents(
+  voicedChord,
+  barIndex,
+  style = 'rnb',
+  nextVoicedChord = null,
+  totalBars = 4
+) {
+  if (!voicedChord || !Array.isArray(voicedChord.upperMidis) || voicedChord.upperMidis.length === 0) {
+    return [];
+  }
+  const effStyle =
+    voicedChord.barStyle && voicedChord.barStyle !== 'default'
+      ? voicedChord.barStyle
+      : style;
+
+  if (effStyle === 'break') {
+    return [];
+  }
+
+  if (voicedChord.split && voicedChord.secondVoiced) {
+    const barStart = barIndex * 4;
+    const out = [];
+    const half1Raw = _buildSingleChordFullBarEvents(
+      voicedChord,
+      barIndex,
+      effStyle,
+      voicedChord.secondVoiced,
+      totalBars
+    );
+    for (const ev of half1Raw) {
+      const local = ev.startBeat - barStart;
+      if (local < 0 || local >= 1.92) continue;
+      const dur = Math.max(0.15, Math.min(1.94 - local, ev.durationBeat));
+      out.push({
+        ...ev,
+        startBeat: barStart + local,
+        durationBeat: dur,
+        durationBeats: dur,
+      });
+    }
+
+    const half2Raw = _buildSingleChordFullBarEvents(
+      voicedChord.secondVoiced,
+      barIndex,
+      effStyle,
+      nextVoicedChord,
+      totalBars
+    );
+    for (const ev of half2Raw) {
+      const local = ev.startBeat - barStart;
+      if (local < 0 || local >= 1.92) continue;
+      const dur = Math.max(0.15, Math.min(1.94 - local, ev.durationBeat));
+      out.push({
+        ...ev,
+        startBeat: barStart + 2.0 + local,
+        durationBeat: dur,
+        durationBeats: dur,
+      });
+    }
+
+    out.sort((a, b) => a.startBeat - b.startBeat || a.midi - b.midi);
+    return out;
+  }
+
+  return _buildSingleChordFullBarEvents(voicedChord, barIndex, effStyle, nextVoicedChord, totalBars);
 }

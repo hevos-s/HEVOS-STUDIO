@@ -13,26 +13,26 @@ import {
   midiToFreq,
   pcToNoteName,
   shouldPreferFlats,
-} from './theory.js?v=41';
+} from './theory.js?v=42';
 import {
   VocalCapture,
   encodePcmToWavBlob,
   getDefaultMicGain,
-} from './pitchToMidi.js?v=41';
+} from './pitchToMidi.js?v=42';
 import {
   applyAutoTunePcm,
   detectKeyFromAudioBuffer,
   detectKeyFromPcm,
-} from './autoTune.js?v=41';
+} from './autoTune.js?v=42';
 import {
   generateAccompanimentEvents,
   generateDrumEvents,
   generateMelodyEvents,
-} from './audioEngine.js?v=41';
+} from './audioEngine.js?v=42';
 import {
   encodeAudioBufferByFormat,
   encodeAudioBufferToWavBlob,
-} from './audioEncode.js?v=41';
+} from './audioEncode.js?v=42';
 
 export { encodeAudioBufferToWavBlob };
 
@@ -1811,6 +1811,8 @@ export class VocalStudio {
         chordStyle: studioCtx.chordStyle || 'rnb',
         drumPattern: studioCtx.drumPattern || 'lofi',
         humanize: studioCtx.humanize ?? 50,
+        useCustomChordNotes: Boolean(studioCtx.useCustomChordNotes),
+        customChordNotes: studioCtx.customChordNotes || null,
       });
 
       const drumEvents = generateDrumEvents({

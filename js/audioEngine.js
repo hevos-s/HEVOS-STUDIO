@@ -3,8 +3,8 @@
 // 4 kiểu đệm, Nhịp trống, Giai điệu, Giọng thu nháp, Mixer 4 kênh & Xuất Audio
 // ============================================================================
 
-import { buildBarChordEvents, midiToToneNote } from './theory.js?v=41';
-import { getSeqPresetById } from './stepSequencer.js?v=41';
+import { buildBarChordEvents, midiToToneNote } from './theory.js?v=42';
+import { getSeqPresetById } from './stepSequencer.js?v=42';
 
 const getToneContext = (Tone) =>
   Tone && typeof Tone.getContext === 'function' ? Tone.getContext() : Tone?.context;
@@ -221,8 +221,10 @@ export function applySwingBeat(beat, totalBeats, chordStyle = 'rnb', drumPattern
 
 /**
  * Hàm thuần sinh toàn bộ sự kiện nốt Hợp âm (tay phải) và Bass nền cho cả vòng lặp.
- * Trả về { chordEvents, bassEvents, allEvents } dạng { midi, startBeat, durationBeat, velocity, role }.
- * Đã áp dụng đầy đủ Voice Leading, Kiểu đệm, độ dài Loop (4/8 ô), Swing & Humanize.
+ * Hỗ trợ:
+ *   - Sinh tự động từ vòng hợp âm (Smart Voice Leading, Split-Bar, Per-Bar barStyle)
+ *   - Hoặc dùng nguyên nốt chỉnh tay từ Piano Roll (useCustomChordNotes = true & customChordNotes)
+ * Dùng chung 100% cho Tone.js playback, Offline Render, Vocal Studio & Xuất MIDI (.mid)!
  */
 export function generateAccompanimentEvents({
   voicedChords = [],
@@ -231,6 +233,8 @@ export function generateAccompanimentEvents({
   chordStyle = 'rnb',
   drumPattern = 'lofi',
   humanize = 55,
+  useCustomChordNotes = false,
+  customChordNotes = null,
 }) {
   const totalBeats = totalBars * 4;
   const clampedBpm = Math.max(40, Math.min(240, Number(bpm) || 84));
@@ -240,6 +244,32 @@ export function generateAccompanimentEvents({
   const chordEvents = [];
   const bassEvents = [];
   const allEvents = [];
+
+  if (useCustomChordNotes && Array.isArray(customChordNotes)) {
+    customChordNotes.forEach((n) => {
+      if (!n || !Number.isFinite(Number(n.midi)) || !Number.isFinite(Number(n.startBeat))) return;
+      const sb = Number(n.startBeat);
+      if (sb < 0 || sb >= totalBeats) return;
+      const startBeat = Number(Math.max(0, Math.min(totalBeats - 0.04, sb)).toFixed(5));
+      const rawDur = Number(n.durationBeats ?? n.durationBeat ?? 0.5);
+      const safeDur = Number.isFinite(rawDur) ? rawDur : 0.5;
+      const durationBeat = Number(Math.max(0.06, Math.min(safeDur, totalBeats - startBeat)).toFixed(5));
+      const midi = Math.max(0, Math.min(127, Math.round(Number(n.midi))));
+      const rawVel = Number(n.velocity);
+      const velocity = Number(Math.max(0.15, Math.min(0.96, Number.isFinite(rawVel) ? rawVel : 0.72)).toFixed(3));
+      const role = n.role === 'bass' ? 'bass' : n.role === 'chord' ? 'chord' : midi < 52 ? 'bass' : 'chord';
+
+      const noteEvent = { midi, startBeat, durationBeat, velocity, role };
+      allEvents.push(noteEvent);
+    });
+
+    allEvents.sort((a, b) => a.startBeat - b.startBeat || a.midi - b.midi);
+    allEvents.forEach((ev) => {
+      if (ev.role === 'bass') bassEvents.push(ev);
+      else chordEvents.push(ev);
+    });
+    return { chordEvents, bassEvents, allEvents };
+  }
 
   const lenChords = voicedChords.length;
   voicedChords.slice(0, totalBars).forEach((vc, barIdx) => {
@@ -291,6 +321,42 @@ export function generateAccompanimentEvents({
   });
 
   return { chordEvents, bassEvents, allEvents };
+}
+
+/**
+ * Đổ toàn bộ nốt đệm tự động (Chords + Bass) thành danh sách nốt chuẩn Piano Roll để người dùng tinh chỉnh tay
+ */
+export function materializeAccompanimentToNotes({
+  voicedChords = [],
+  totalBars = 4,
+  bpm = 84,
+  chordStyle = 'rnb',
+  drumPattern = 'lofi',
+  humanize = 55,
+}) {
+  const { allEvents } = generateAccompanimentEvents({
+    voicedChords,
+    totalBars,
+    bpm,
+    chordStyle,
+    drumPattern,
+    humanize,
+    useCustomChordNotes: false,
+  });
+
+  return allEvents.map((ev, idx) => {
+    let m = Math.round(ev.midi);
+    while (m < 36) m += 12;
+    while (m > 84) m -= 12;
+    return {
+      id: `ch_${idx}_${ev.role}_${Math.round(ev.startBeat * 100)}_${m}`,
+      midi: m,
+      startBeat: Number(ev.startBeat.toFixed(4)),
+      durationBeats: Number(Math.max(0.125, ev.durationBeat).toFixed(4)),
+      velocity: Number((ev.velocity ?? 0.74).toFixed(3)),
+      role: ev.role === 'bass' ? 'bass' : 'chord',
+    };
+  });
 }
 
 /**
@@ -610,6 +676,8 @@ class AudioEngine {
       melodyTimbre: 'bell',
       voicedChords: [],
       melodyNotes: [],
+      useCustomChordNotes: false,
+      customChordNotes: [],
       customDrumGrid: null,
       mixer: {
         chords: { volume: 78, muted: false, solo: false },
@@ -678,6 +746,14 @@ class AudioEngine {
     this._countInTimers = [];
     this._countInCancelled = false;
     this._loopEndCallbackId = null;
+
+    // Reference Track (chỉ phát nghe đối chiếu khi sửa Beat, KHÔNG bao giờ đưa vào renderBeatOffline/exportMIDI)
+    this.refAudioBuffer = null;
+    this.refConfig = { enabled: false, volume: 0.45, offsetMs: 0 };
+    this._refSource = null;
+    this._refGainNode = null;
+    this._refLoopEventId = null;
+    this._skipNextLoopRefRestart = false;
   }
 
   _createTriggerMap() {
@@ -1817,6 +1893,10 @@ class AudioEngine {
       try { transport.clear(this._loopEndCallbackId); } catch (_) {}
       this._loopEndCallbackId = null;
     }
+    if (this._refLoopEventId !== null) {
+      try { transport.clear(this._refLoopEventId); } catch (_) {}
+      this._refLoopEventId = null;
+    }
     transport.cancel(0);
     this._releaseAllSynths();
   }
@@ -1843,8 +1923,16 @@ class AudioEngine {
     const totalBars = Math.max(4, Math.min(64, Math.round(Number(this.state.totalBars) || 4)));
     const rawHumanize = Number(this.state.humanize);
     const humanize = Number.isFinite(rawHumanize) ? Math.max(0, Math.min(100, rawHumanize)) : 55;
-    const { chordStyle, chordTimbre, melodyTimbre, drumPattern, voicedChords, melodyNotes } =
-      this.state;
+    const {
+      chordStyle,
+      chordTimbre,
+      melodyTimbre,
+      drumPattern,
+      voicedChords,
+      melodyNotes,
+      useCustomChordNotes,
+      customChordNotes,
+    } = this.state;
 
     const beatSec = 60 / bpm;
     const totalBeats = totalBars * 4;
@@ -1915,6 +2003,8 @@ class AudioEngine {
       chordStyle,
       drumPattern,
       humanize,
+      useCustomChordNotes: Boolean(useCustomChordNotes),
+      customChordNotes: customChordNotes || null,
     });
 
     const chordPartEvents = toTickEvents(
@@ -2036,6 +2126,17 @@ class AudioEngine {
         } catch (_) {}
       }, 0);
     }
+
+    // Đồng bộ Reference Audio đối chiếu khi vòng lặp quay về đầu ô 1 (tick 0)
+    this._refLoopEventId = transport.schedule((time) => {
+      if (this._skipNextLoopRefRestart) {
+        this._skipNextLoopRefRestart = false;
+        return;
+      }
+      if (this.isPlaying && !this.isExporting && this.refConfig.enabled && this.refAudioBuffer) {
+        this._startReferenceAtTransport(0, 0, time);
+      }
+    }, 0);
   }
 
   _scheduleVocalTrackPlayer(track, loopDurationSec) {
@@ -2172,6 +2273,121 @@ class AudioEngine {
   }
 
   /**
+   * Nghe thử ngay 1 nốt hợp âm hoặc bass khi sửa trên làn Chords Piano Roll
+   */
+  async auditionChordNote(midi, role = 'chord', duration = 0.48) {
+    if (!Number.isFinite(midi)) return;
+    this.unlockSync();
+    await this.ensureReady();
+    const isBass = role === 'bass' || (role !== 'chord' && midi < 52);
+    const synth = isBass ? this._getBassSynth() : this._getChordSynth(this.state.chordTimbre);
+    const dur = Number.isFinite(duration) ? Math.max(0.08, duration) : 0.48;
+    const t = this._nextSafeTime(isBass ? 'bass' : 'chord', getToneNow(window.Tone) + 0.005);
+    try {
+      synth.triggerAttackRelease(midiToToneNote(Math.round(midi)), dur, t, isBass ? 0.78 : 0.72);
+    } catch (_) {}
+  }
+
+  /**
+   * Gắn bản nhạc gốc đối chiếu (chỉ phát live khi chỉnh sửa Beat, tuyệt đối KHÔNG vào renderBeatOffline/MIDI)
+   */
+  setReferenceAudioBuffer(audioBuffer) {
+    this._stopReferenceSource();
+    this.refAudioBuffer =
+      audioBuffer && typeof audioBuffer.getChannelData === 'function' ? audioBuffer : null;
+  }
+
+  setReferenceConfig(partial = {}) {
+    if (partial.enabled !== undefined) {
+      this.refConfig.enabled = Boolean(partial.enabled);
+    }
+    if (partial.volume !== undefined && Number.isFinite(Number(partial.volume))) {
+      this.refConfig.volume = Math.max(0, Math.min(1, Number(partial.volume)));
+    }
+    if (partial.offsetMs !== undefined && Number.isFinite(Number(partial.offsetMs))) {
+      this.refConfig.offsetMs = Math.max(-2000, Math.min(2000, Math.round(Number(partial.offsetMs))));
+    }
+
+    const Tone = typeof window !== 'undefined' ? window.Tone : null;
+    const ctx = Tone ? getToneContext(Tone) : null;
+    const rawCtx = (ctx && ctx.rawContext) || ctx;
+    if (this._refGainNode && rawCtx && Number.isFinite(rawCtx.currentTime)) {
+      const targetGain = this.refConfig.enabled && !this.isExporting ? this.refConfig.volume : 0;
+      try {
+        this._refGainNode.gain.setTargetAtTime(targetGain, rawCtx.currentTime, 0.015);
+      } catch (_) {
+        this._refGainNode.gain.value = targetGain;
+      }
+    }
+
+    if (this.initialized && this.isPlaying && !this.isExporting) {
+      if (!this.refConfig.enabled || !this.refAudioBuffer) {
+        this._stopReferenceSource();
+      } else {
+        const beatSec = 60 / Math.max(40, Math.min(240, Number(this.state.bpm) || 84));
+        const curBeat = this.getCurrentBeat();
+        this._startReferenceAtTransport(curBeat * beatSec, 0.02);
+      }
+    }
+  }
+
+  getReferenceState() {
+    return {
+      hasBuffer: Boolean(this.refAudioBuffer),
+      enabled: Boolean(this.refConfig.enabled),
+      volume: this.refConfig.volume,
+      offsetMs: this.refConfig.offsetMs,
+      durationSec: this.refAudioBuffer ? this.refAudioBuffer.duration : 0,
+    };
+  }
+
+  _stopReferenceSource() {
+    if (this._refSource) {
+      try { this._refSource.stop(); } catch (_) {}
+      try { this._refSource.disconnect(); } catch (_) {}
+      this._refSource = null;
+    }
+  }
+
+  _startReferenceAtTransport(transportSec = 0, startDelaySec = 0, explicitWhen = null) {
+    this._stopReferenceSource();
+    if (!this.refAudioBuffer || !this.refConfig.enabled || this.isExporting) return;
+    const Tone = typeof window !== 'undefined' ? window.Tone : null;
+    if (!Tone) return;
+    const ctx = getToneContext(Tone);
+    const rawCtx = (ctx && ctx.rawContext) || ctx;
+    if (!rawCtx || typeof rawCtx.createBufferSource !== 'function') return;
+
+    if (!this._refGainNode || this._refGainNode.context !== rawCtx) {
+      this._refGainNode = rawCtx.createGain();
+      this._refGainNode.connect(rawCtx.destination);
+    }
+    this._refGainNode.gain.setValueAtTime(this.refConfig.volume, rawCtx.currentTime);
+
+    const offsetSec = (Number(transportSec) || 0) + (this.refConfig.offsetMs || 0) / 1000;
+    if (offsetSec >= this.refAudioBuffer.duration - 0.01) return;
+
+    const baseWhen = Number.isFinite(explicitWhen)
+      ? Math.max(rawCtx.currentTime, explicitWhen)
+      : rawCtx.currentTime + Math.max(0, startDelaySec);
+
+    const src = rawCtx.createBufferSource();
+    src.buffer = this.refAudioBuffer;
+    src.connect(this._refGainNode);
+    this._refSource = src;
+
+    try {
+      if (offsetSec < 0) {
+        src.start(baseWhen + Math.abs(offsetSec), 0);
+      } else {
+        src.start(baseWhen, offsetSec);
+      }
+    } catch (_) {
+      this._stopReferenceSource();
+    }
+  }
+
+  /**
    * Nghe thử ngay 1 hợp âm (khi người dùng chọn hợp âm trong Chord Picker)
    */
   async auditionChord(voicedChord) {
@@ -2231,9 +2447,16 @@ class AudioEngine {
         }
         this.rebuildSchedule();
         const startPos = fromStart || !this.isPlaying ? 0 : transport.seconds;
-        const leadIn = fromStart || !this.isPlaying ? '+0.10' : '+0.06';
-        transport.start(leadIn, Number.isFinite(startPos) ? startPos : 0);
+        const leadSec = fromStart || !this.isPlaying ? 0.10 : 0.06;
+        const hwNow = ctx && ctx.rawContext ? ctx.rawContext.currentTime : getToneNow(Tone);
+        const targetStartTime = (Number.isFinite(hwNow) ? hwNow : 0) + leadSec;
+        const safePos = Number.isFinite(startPos) ? Math.max(0, startPos) : 0;
+        this._skipNextLoopRefRestart = safePos < 0.02;
+        transport.start(targetStartTime, safePos);
         this.isPlaying = true;
+        if (this.refConfig.enabled && this.refAudioBuffer) {
+          this._startReferenceAtTransport(safePos, 0, targetStartTime);
+        }
       } finally {
         this._playStartPromise = null;
       }
@@ -2260,6 +2483,7 @@ class AudioEngine {
     const wasPlaying = this.isPlaying;
     const imm = ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : undefined;
     try { transport.stop(imm); } catch (_) { try { transport.stop(); } catch (_) {} }
+    this._stopReferenceSource();
     transport.cancel(0);
     this._releaseAllSynths();
 
@@ -2271,8 +2495,14 @@ class AudioEngine {
     }
 
     if (autoPlay || wasPlaying) {
-      transport.start('+0.06', `${targetTicks}i`);
+      const hwNow = ctx && ctx.rawContext ? ctx.rawContext.currentTime : getToneNow(Tone);
+      const targetStartTime = (Number.isFinite(hwNow) ? hwNow : 0) + 0.06;
+      this._skipNextLoopRefRestart = safeBar === 0;
+      transport.start(targetStartTime, `${targetTicks}i`);
       this.isPlaying = true;
+      if (this.refConfig.enabled && this.refAudioBuffer) {
+        this._startReferenceAtTransport(targetSec, 0, targetStartTime);
+      }
     }
     return safeBar;
   }
@@ -2283,6 +2513,8 @@ class AudioEngine {
     const ctx = getToneContext(Tone);
     const transport = getToneTransport(Tone);
     this.cancelCountIn();
+    this._stopReferenceSource();
+    this._skipNextLoopRefRestart = false;
     try {
       const imm = ctx && typeof ctx.immediate === 'function' ? ctx.immediate() : undefined;
       transport.stop(imm);
@@ -3075,6 +3307,8 @@ class AudioEngine {
       chordStyle: cfg.chordStyle || 'rnb',
       drumPattern: cfg.drumPattern || 'lofi',
       humanize: cfg.humanize ?? 55,
+      useCustomChordNotes: Boolean(cfg.useCustomChordNotes),
+      customChordNotes: cfg.customChordNotes || null,
     });
 
     const melEvents = generateMelodyEvents({

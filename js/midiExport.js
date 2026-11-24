@@ -19,7 +19,7 @@ import {
   generateDrumEvents,
   generateMelodyEvents,
   isMixerChannelAudible,
-} from './audioEngine.js?v=41';
+} from './audioEngine.js?v=42';
 
 export const MIDI_PPQ = 480;
 export const FL_SAMPLER_ROOT_MIDI = 60; // C5 mặc định của Sampler trong FL Studio
@@ -187,6 +187,8 @@ export function buildMidiFile({
   chordTimbre = 'rhodes',
   drumPattern = 'lofi',
   customDrumGrid = null,
+  useCustomChordNotes = false,
+  customChordNotes = null,
   melodyNotes = [],
   vocalNotes = null,
   melodyTimbre = 'bell',
@@ -213,7 +215,10 @@ export function buildMidiFile({
   const trackSpecs = [];
 
   // --- Track 1 & Track 2: Chords (Ch 0) + Bass (Ch 1) ---
-  if (chordsAudible && voicedChords.length > 0) {
+  const hasChordData =
+    voicedChords.length > 0 ||
+    (useCustomChordNotes && Array.isArray(customChordNotes) && customChordNotes.length > 0);
+  if (chordsAudible && hasChordData) {
     const { chordEvents, bassEvents } = generateAccompanimentEvents({
       voicedChords,
       totalBars,
@@ -221,6 +226,8 @@ export function buildMidiFile({
       chordStyle,
       drumPattern,
       humanize,
+      useCustomChordNotes: Boolean(useCustomChordNotes),
+      customChordNotes: customChordNotes || null,
     });
 
     if (chordEvents.length > 0) {

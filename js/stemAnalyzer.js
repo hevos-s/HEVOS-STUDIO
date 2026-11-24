@@ -4,8 +4,8 @@
 // - Đồng bộ phát nhạc gốc với đèn Hợp âm, tua theo ô hợp âm & đẩy sang Beat / Đàn / Playlist
 // ============================================================================
 
-import { detectKeyFromAudioBuffer } from './autoTune.js?v=41';
-import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=41';
+import { detectKeyFromAudioBuffer } from './autoTune.js?v=42';
+import { SCALES, getScaleSet, pcToNoteName, shouldPreferFlats } from './theory.js?v=42';
 
 const FLAT_PREF_ROOTS = new Set([1, 3, 5, 6, 8, 10]);
 
@@ -198,10 +198,40 @@ export function detectBpmFromAudioBuffer(audioBuffer) {
   return { bpm: detectedBpm, confidence };
 }
 
+function pickDominantInWindow(tl, winStart, winEnd, minRatio) {
+  const tally = new Map();
+  const span = Math.max(1e-6, winEnd - winStart);
+
+  for (const item of tl) {
+    const overlap = Math.min(winEnd, item.endSec) - Math.max(winStart, item.startSec);
+    if (overlap <= 0) continue;
+    const k = `${item.rootPc}:${item.quality}:${item.extension}`;
+    const cur = tally.get(k) || {
+      dur: 0,
+      rootPc: item.rootPc,
+      quality: item.quality,
+      extension: item.extension,
+      symbol: item.symbol,
+      key: k,
+    };
+    cur.dur += overlap;
+    tally.set(k, cur);
+  }
+
+  const candidates = Array.from(tally.values()).sort((a, c) => c.dur - a.dur);
+  const valid = candidates.filter((c) => c.dur >= span * minRatio);
+  return {
+    candidates,
+    valid,
+    best: valid.length > 0 ? valid[0] : null,
+  };
+}
+
 /**
  * Bộ Căn Lưới Ô Nhịp Tự Động (Bar Quantizer):
- * Chia dòng thời gian hợp âm theo barSec = (60 / bpm) * 4,
- * lọc bỏ hợp âm nhiễu quá ngắn (< 35% ô nhịp) và chốt hợp âm chủ đạo cho từng ô nhịp (tối đa 64 ô).
+ * - Chia dòng thời gian hợp âm theo barSec = (60 / bpm) * 4 (tối đa 64 ô).
+ * - Hỗ trợ Split-Bar (2 hợp âm / ô): tách phách 1–2 và 3–4, nếu 2 nửa khác nhau rõ rệt thì lưu cả 2 hợp âm.
+ * - Dựa vào năng lượng hòa thanh (200 Hz – 2.5 kHz) từng ô để tự động gợi ý 'sustain' hoặc 'break' ở đoạn nhẹ / nghỉ.
  */
 export function quantizeTimelineToBars({
   timeline = [],
@@ -209,12 +239,16 @@ export function quantizeTimelineToBars({
   durationSec = 0,
   keyInfo = null,
   maxBars = 64,
+  frameEnergies = [],
 } = {}) {
   const safeBpm = clamp(Math.round(Number(bpm) || 100), 40, 220);
   const barSec = (60 / safeBpm) * 4;
   const tl = Array.isArray(timeline) ? timeline : [];
   const tlEnd = tl.length > 0 ? tl[tl.length - 1].endSec || 0 : 0;
-  const spanSec = Math.max(barSec * 4, Math.min(Math.max(durationSec || 0, tlEnd), tlEnd > 0 ? tlEnd + barSec * 0.5 : durationSec || 0));
+  const spanSec = Math.max(
+    barSec * 4,
+    Math.min(Math.max(durationSec || 0, tlEnd), tlEnd > 0 ? tlEnd + barSec * 0.5 : durationSec || 0)
+  );
 
   const rawBars = Math.round(spanSec / barSec);
   const snappedMulti4 = Math.round(rawBars / 4) * 4;
@@ -228,42 +262,100 @@ export function quantizeTimelineToBars({
     quality: scaleType === 'minor' ? 'min' : 'maj',
     extension: 'triad',
     symbol: `${pcToNoteName(keyPc, preferFlats || FLAT_PREF_ROOTS.has(keyPc))}${scaleType === 'minor' ? 'm' : ''}`,
+    key: `${keyPc}:${scaleType === 'minor' ? 'min' : 'maj'}:triad`,
   };
+
+  // Tính năng lượng dải hòa thanh trung bình (200 Hz - 2.5 kHz) theo từng ô nhịp
+  const energiesArr = Array.isArray(frameEnergies) ? frameEnergies : [];
+  const barEnergies = new Float64Array(numBars);
+  const hasEnergyForBar = new Uint8Array(numBars);
+  if (energiesArr.length > 0) {
+    for (let b = 0; b < numBars; b++) {
+      const winStart = b * barSec;
+      const winEnd = (b + 1) * barSec;
+      let weightedSum = 0;
+      let weightTotal = 0;
+      for (const fe of energiesArr) {
+        const overlap = Math.min(winEnd, fe.endSec) - Math.max(winStart, fe.startSec);
+        if (overlap <= 0) continue;
+        weightedSum += Math.max(0, Number(fe.energy) || 0) * overlap;
+        weightTotal += overlap;
+      }
+      if (weightTotal > 0) {
+        barEnergies[b] = weightedSum / weightTotal;
+        hasEnergyForBar[b] = 1;
+      }
+    }
+  }
+  const nonZeroEnergies = [];
+  for (let b = 0; b < numBars; b++) {
+    if (hasEnergyForBar[b] && barEnergies[b] > 0) nonZeroEnergies.push(barEnergies[b]);
+  }
+  nonZeroEnergies.sort((a, b) => a - b);
+  const medianEnergy =
+    nonZeroEnergies.length > 0
+      ? nonZeroEnergies[Math.floor(nonZeroEnergies.length * 0.5)]
+      : 0;
 
   const bars = [];
   let filteredNoiseCount = 0;
+  let splitBarCount = 0;
+  let breathBarCount = 0;
   let prevChosen = null;
 
   for (let b = 0; b < numBars; b++) {
     const winStart = b * barSec;
+    const winMid = winStart + barSec * 0.5;
     const winEnd = (b + 1) * barSec;
-    const tally = new Map();
 
-    for (const item of tl) {
-      const overlap = Math.min(winEnd, item.endSec) - Math.max(winStart, item.startSec);
-      if (overlap <= 0) continue;
-      const k = `${item.rootPc}:${item.quality}:${item.extension}`;
-      const cur = tally.get(k) || {
-        dur: 0,
-        rootPc: item.rootPc,
-        quality: item.quality,
-        extension: item.extension,
-        symbol: item.symbol,
-      };
-      cur.dur += overlap;
-      tally.set(k, cur);
+    const full = pickDominantInWindow(tl, winStart, winEnd, 0.35);
+    filteredNoiseCount += full.candidates.length - full.valid.length;
+
+    const half1 = pickDominantInWindow(tl, winStart, winMid, 0.45);
+    const half2 = pickDominantInWindow(tl, winMid, winEnd, 0.45);
+
+    let barStyle = 'default';
+    if (medianEnergy > 0 && hasEnergyForBar[b]) {
+      if (barEnergies[b] < medianEnergy * 0.12) {
+        barStyle = 'break';
+        breathBarCount++;
+      } else if (barEnergies[b] < medianEnergy * 0.38) {
+        barStyle = 'sustain';
+        breathBarCount++;
+      }
     }
 
-    const minKeepDur = barSec * 0.35; // Lọc nhiễu < 35% ô nhịp
-    const candidates = Array.from(tally.values()).sort((a, c) => c.dur - a.dur);
-    const valid = candidates.filter((c) => c.dur >= minKeepDur);
-    filteredNoiseCount += candidates.length - valid.length;
+    if (half1.best && half2.best && half1.best.key !== half2.best.key) {
+      prevChosen = half2.best;
+      splitBarCount++;
+      bars.push({
+        custom: true,
+        rootPc: half1.best.rootPc,
+        quality: half1.best.quality,
+        extension: half1.best.extension || 'triad',
+        symbol: half1.best.symbol,
+        split: true,
+        secondChord: {
+          custom: true,
+          rootPc: half2.best.rootPc,
+          quality: half2.best.quality,
+          extension: half2.best.extension || 'triad',
+          symbol: half2.best.symbol,
+        },
+        barStyle,
+        inversion: 'auto',
+        octaveShift: 0,
+        barIndex: b,
+        coveragePct: Math.min(100, Math.round(((half1.best.dur + half2.best.dur) / barSec) * 100)),
+      });
+      continue;
+    }
 
     let chosen = null;
-    if (valid.length > 0) {
-      chosen = valid[0];
-    } else if (candidates.length > 0 && candidates[0].dur >= barSec * 0.15) {
-      chosen = candidates[0];
+    if (full.valid.length > 0) {
+      chosen = full.valid[0];
+    } else if (full.candidates.length > 0 && full.candidates[0].dur >= barSec * 0.15) {
+      chosen = full.candidates[0];
     } else if (prevChosen) {
       chosen = prevChosen;
     } else {
@@ -275,8 +367,13 @@ export function quantizeTimelineToBars({
       custom: true,
       rootPc: chosen.rootPc,
       quality: chosen.quality,
-      extension: chosen.extension,
+      extension: chosen.extension || 'triad',
       symbol: chosen.symbol,
+      split: false,
+      secondChord: null,
+      barStyle,
+      inversion: 'auto',
+      octaveShift: 0,
       barIndex: b,
       coveragePct: chosen.dur ? Math.min(100, Math.round((chosen.dur / barSec) * 100)) : 100,
     });
@@ -287,6 +384,8 @@ export function quantizeTimelineToBars({
     barSec,
     totalBars: bars.length,
     filteredNoiseCount,
+    splitBarCount,
+    breathBarCount,
     minNoiseRatio: 0.35,
   };
 }
@@ -320,6 +419,8 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
   const fftSize = 4096;
   const minBin = Math.max(2, Math.floor((60 * fftSize) / sr));
   const maxBin = Math.min(fftSize >> 1, Math.ceil((2200 * fftSize) / sr));
+  const harmMinBin = Math.max(minBin, Math.floor((200 * fftSize) / sr));
+  const harmMaxBin = Math.min(fftSize >> 1, Math.ceil((2500 * fftSize) / sr));
   const hann = new Float32Array(fftSize);
   for (let i = 0; i < fftSize; i++) {
     hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)));
@@ -331,7 +432,9 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
   const preferFlats = shouldPreferFlats(keyInfo.keyPc, keyInfo.scaleType);
 
   const rawSlices = [];
+  const frameEnergies = [];
   for (let startSec = 0; startSec + 0.35 < totalDur; startSec += stepSec) {
+    const endSec = Math.min(totalDur, startSec + stepSec);
     const centerSample = Math.min(len - fftSize, Math.max(0, Math.round((startSec + stepSec * 0.5) * sr - fftSize * 0.5)));
     if (centerSample < 0 || centerSample + fftSize > len) break;
 
@@ -342,9 +445,21 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
       im[i] = 0;
       sliceEnergy += s * s;
     }
-    if (sliceEnergy / fftSize < 1e-7) continue;
+    if (sliceEnergy / fftSize < 1e-7) {
+      frameEnergies.push({ startSec, endSec, energy: 0 });
+      continue;
+    }
 
     fftRadix2(re, im, false);
+
+    // Đo năng lượng dải hòa thanh (200 Hz – 2.5 kHz) để gợi ý sustain / break
+    let harmEnergySq = 0;
+    for (let k = harmMinBin; k <= harmMaxBin; k++) {
+      harmEnergySq += re[k] * re[k] + im[k] * im[k];
+    }
+    const harmBinsCount = Math.max(1, harmMaxBin - harmMinBin + 1);
+    frameEnergies.push({ startSec, endSec, energy: Math.sqrt(harmEnergySq / harmBinsCount) });
+
     const chroma = new Float64Array(12);
     const bassChroma = new Float64Array(12);
 
@@ -402,7 +517,7 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
       const rootName = pcToNoteName(bestMatch.rootPc, useFlat);
       rawSlices.push({
         startSec,
-        endSec: Math.min(totalDur, startSec + stepSec),
+        endSec,
         symbol: `${rootName}${bestMatch.tpl.suffix}`,
         rootPc: bestMatch.rootPc,
         quality: bestMatch.tpl.quality,
@@ -454,6 +569,7 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
     durationSec: audioBuffer.duration,
     keyInfo,
     maxBars: 64,
+    frameEnergies,
   });
 
   return {
@@ -464,6 +580,8 @@ export function analyzeChordsFromAudioBuffer(audioBuffer, options = {}) {
     quantizedBars: quantResult.bars,
     barSec: quantResult.barSec,
     filteredNoiseCount: quantResult.filteredNoiseCount,
+    splitBarCount: quantResult.splitBarCount,
+    breathBarCount: quantResult.breathBarCount,
     analyzedDurationSec: audioBuffer.duration,
   };
 }
@@ -810,7 +928,7 @@ export class StemAnalyzerStudio {
 
           <div class="stem-timeline-section">
             <div class="stem-section-head">
-              <span>DÒNG THỜI GIAN HỢP ÂM (${timeline.length} chuyển đoạn · Bar Quantizer: ${Array.isArray(this.analysis.quantizedBars) ? this.analysis.quantizedBars.length : 8} ô)</span>
+              <span>DÒNG THỜI GIAN HỢP ÂM (${timeline.length} chuyển đoạn · Bar Quantizer: ${Array.isArray(this.analysis.quantizedBars) ? this.analysis.quantizedBars.length : 8} ô${this.analysis.splitBarCount ? ` · ${this.analysis.splitBarCount} ô chia đôi` : ''}${this.analysis.breathBarCount ? ` · ${this.analysis.breathBarCount} ô nhẹ/nghỉ` : ''})</span>
               <span class="stem-source-name mono-val">${escapeHtml(this.sourceName)}</span>
             </div>
             <div id="stem-chord-timeline" class="stem-chord-timeline">${chordsTimelineHtml}</div>
@@ -911,6 +1029,9 @@ export class StemAnalyzerStudio {
         sourceName: this.sourceName || 'Bản nhạc Phân tích',
         barSec: this.analysis.barSec,
         filteredNoiseCount: this.analysis.filteredNoiseCount || 0,
+        splitBarCount: this.analysis.splitBarCount || 0,
+        breathBarCount: this.analysis.breathBarCount || 0,
+        referenceAudioBuffer: this.sourceBuffer || null,
         remixMode: true,
       });
     });

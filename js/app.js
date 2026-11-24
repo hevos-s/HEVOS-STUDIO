@@ -5,9 +5,11 @@
 
 import {
   ACCIDENTAL_CHORDS,
+  BAR_COMP_STYLES,
   BASIC_MAJOR_CHORDS,
   BASIC_MINOR_CHORDS,
   CHORD_EXTENSIONS,
+  CHORD_INVERSIONS,
   KEY_OPTIONS,
   PROGRESSION_PRESETS,
   SCALES,
@@ -16,34 +18,35 @@ import {
   pcToNoteName,
   shouldPreferFlats,
   snapMidiToScale,
-} from './theory.js?v=41';
+} from './theory.js?v=42';
 import {
   CHORD_STYLES,
   CHORD_TIMBRES,
   DRUM_PATTERNS,
   MELODY_TIMBRES,
   audioEngine,
-} from './audioEngine.js?v=41';
+  materializeAccompanimentToNotes,
+} from './audioEngine.js?v=42';
 import {
   VocalCapture,
   drawVocalWaveform,
   getDefaultMicGain,
   transcribeAudioBufferToMidi,
-} from './pitchToMidi.js?v=41';
-import { PianoRoll } from './pianoRoll.js?v=41';
-import { downloadMidiFile } from './midiExport.js?v=41';
-import { encodeAudioBufferByFormat } from './audioEncode.js?v=41';
-import { MusicTrainer } from './musicTrainer.js?v=41';
-import { VocalStudio } from './vocalStudio.js?v=41';
-import { ArrangementStudio } from './arrangementStudio.js?v=41';
-import { createAmbientScene } from './ambientScene.js?v=41';
-import { midiController } from './midiController.js?v=41';
+} from './pitchToMidi.js?v=42';
+import { PianoRoll } from './pianoRoll.js?v=42';
+import { downloadMidiFile } from './midiExport.js?v=42';
+import { encodeAudioBufferByFormat } from './audioEncode.js?v=42';
+import { MusicTrainer } from './musicTrainer.js?v=42';
+import { VocalStudio } from './vocalStudio.js?v=42';
+import { ArrangementStudio } from './arrangementStudio.js?v=42';
+import { createAmbientScene } from './ambientScene.js?v=42';
+import { midiController } from './midiController.js?v=42';
 import {
   StepSequencerUI,
   createDefaultDrumGrid,
   cloneDrumGrid,
   getSeqPresetById,
-} from './stepSequencer.js?v=41';
+} from './stepSequencer.js?v=42';
 
 const STORAGE_KEY = 'melosketch_projects_v1';
 
@@ -51,6 +54,18 @@ const STORAGE_KEY = 'melosketch_projects_v1';
 // Trạng thái ứng dụng trung tâm
 // ============================================================================
 const defaultPreset = PROGRESSION_PRESETS[0];
+
+function cloneChordSpec(c) {
+  const safe = c || { degree: 0, extension: 'triad' };
+  return {
+    ...safe,
+    barStyle: safe.barStyle || 'default',
+    inversion: safe.inversion || 'auto',
+    octaveShift: Number(safe.octaveShift) || 0,
+    split: Boolean(safe.split && safe.secondChord),
+    secondChord: safe.secondChord ? { ...safe.secondChord } : null,
+  };
+}
 
 const state = {
   activePresetId: defaultPreset.id,
@@ -69,12 +84,15 @@ const state = {
   melodyTimbre: 'bell',
   beatExportFormat: 'wav',
 
-  chords: defaultPreset.chords.map((c) => ({ ...c })),
+  chords: defaultPreset.chords.map(cloneChordSpec),
   voicedChords: [],
   melodyNotes: [],
+  useCustomChordNotes: false,
+  customChordNotes: [],
   selectedNoteId: null,
 
   // Piano Roll & Thu âm
+  prActiveLayer: 'melody', // 'melody' | 'chords'
   prMode: 'edit',
   scaleLock: true,
   prGridStep: 0.25,
@@ -86,6 +104,12 @@ const state = {
   midiRecordArmed: false,
   midiStepCursor: 0,
 
+  // Rãnh bài gốc đối chiếu (Monitoring-Only khi dựng Remix)
+  referenceAudioBuffer: null,
+  refEnabled: false,
+  refVolume: 45,
+  refOffsetMs: 0,
+
   // Mixer 4 kênh của phân khu Sáng tác Beat
   mixer: {
     chords: { volume: 78, muted: false, solo: false },
@@ -94,14 +118,17 @@ const state = {
     vocal:  { volume: 75, muted: false, solo: false },
   },
 
-  // Lịch sử hoàn tác giai điệu
+  // Lịch sử hoàn tác tách riêng theo 2 làn Piano Roll
   undoStack: [],
   redoStack: [],
+  chordUndoStack: [],
+  chordRedoStack: [],
 
   // Trạng thái thu âm & điều hướng 4 phân khu
   recordPhase: 'idle', // 'idle' | 'countin' | 'recording'
   rawVocalBuffer: null,
   editingBarIndex: null,
+  editingHalf: 0,
   activeMobileTab: 'chords', // 'chords' | 'melody' | 'mixer'
   studioCenterView: 'melody', // 'melody' | 'sequencer'
   activeSection: 'hub',      // 'hub' | 'studio' | 'vocal' | 'arrangement' | 'trainer' | 'vision'
@@ -163,9 +190,21 @@ const el = {
   remixBarsMeta: $('#remix-bars-meta'),
   btnRemixAddBar: $('#btn-remix-add-bar'),
   btnRemixRemoveBar: $('#btn-remix-remove-bar'),
+  refTrackBar: $('#ref-track-bar'),
+  btnRefToggle: $('#btn-ref-toggle'),
+  refVolSlider: $('#ref-vol-slider'),
+  refVolVal: $('#ref-vol-val'),
+  btnRefNudgeMinus: $('#btn-ref-nudge-minus'),
+  refOffsetVal: $('#ref-offset-val'),
+  btnRefNudgePlus: $('#btn-ref-nudge-plus'),
   chordStrip: $('#chord-strip'),
 
   prCanvas: $('#piano-roll-canvas'),
+  prLayerTabs: $('#pr-layer-tabs'),
+  prChordsBar: $('#pr-chords-bar'),
+  prChordsStatusBadge: $('#pr-chords-status-badge'),
+  btnDumpChordsPr: $('#btn-dump-chords-pr'),
+  btnResetChordsAuto: $('#btn-reset-chords-auto'),
   prModeGroup: $('#pr-mode-group'),
   btnScaleLock: $('#btn-scale-lock'),
   btnMidiRecordArm: $('#btn-midi-record-arm'),
@@ -213,6 +252,12 @@ const el = {
   chordModal: $('#chord-modal'),
   chordModalTitle: $('#chord-modal-title'),
   chordModalPreview: $('#chord-modal-preview'),
+  chordModalSplitSeg: $('#chord-modal-split-seg'),
+  chordModalHalfWrap: $('#chord-modal-half-wrap'),
+  chordModalHalfSeg: $('#chord-modal-half-seg'),
+  chordModalBarStyle: $('#chord-modal-bar-style'),
+  chordModalInversion: $('#chord-modal-inversion'),
+  chordModalOctave: $('#chord-modal-octave'),
   diatonicGrid: $('#diatonic-grid'),
   basicMajorGrid: $('#basic-major-grid'),
   basicMinorGrid: $('#basic-minor-grid'),
@@ -283,11 +328,59 @@ function syncAudioEngine() {
     melodyTimbre: state.melodyTimbre,
     voicedChords: state.voicedChords,
     melodyNotes: state.melodyNotes,
+    useCustomChordNotes: state.useCustomChordNotes,
+    customChordNotes: state.customChordNotes,
     mixer: state.mixer,
   });
 }
 
+function syncReferenceTrackUI() {
+  const hasRef = Boolean(state.referenceAudioBuffer);
+  if (el.refTrackBar) {
+    el.refTrackBar.classList.toggle('hidden', !hasRef);
+  }
+  if (el.btnRefToggle) {
+    el.btnRefToggle.classList.toggle('active', Boolean(hasRef && state.refEnabled));
+    el.btnRefToggle.setAttribute('aria-pressed', String(Boolean(hasRef && state.refEnabled)));
+  }
+  if (el.refVolSlider) {
+    el.refVolSlider.value = String(state.refVolume);
+  }
+  if (el.refVolVal) {
+    el.refVolVal.textContent = `${state.refVolume}%`;
+  }
+  if (el.refOffsetVal) {
+    el.refOffsetVal.textContent = `${state.refOffsetMs > 0 ? '+' : ''}${state.refOffsetMs}ms`;
+  }
+  audioEngine.setReferenceConfig({
+    enabled: Boolean(hasRef && state.refEnabled),
+    volume: (Number(state.refVolume) || 0) / 100,
+    offsetMs: Number(state.refOffsetMs) || 0,
+  });
+}
+
+function computeAutoChordNotes() {
+  return materializeAccompanimentToNotes({
+    voicedChords: state.voicedChords,
+    totalBars: state.totalBars,
+    bpm: state.bpm,
+    chordStyle: state.chordStyle,
+    drumPattern: state.drumPattern,
+    humanize: state.humanize,
+  });
+}
+
 function updateClearMelodyButton() {
+  const isChords = state.prActiveLayer === 'chords';
+  if (isChords) {
+    const count = state.useCustomChordNotes ? state.customChordNotes.length : 0;
+    el.btnClearMelody.disabled = !state.useCustomChordNotes || count === 0;
+    if (el.btnClearMelodyLabel) {
+      el.btnClearMelodyLabel.textContent =
+        state.useCustomChordNotes && count > 0 ? `Xóa đệm Piano (${count})` : 'Xóa đệm Piano';
+    }
+    return;
+  }
   const count = state.melodyNotes.length;
   el.btnClearMelody.disabled = count === 0;
   if (el.btnClearMelodyLabel) {
@@ -295,11 +388,53 @@ function updateClearMelodyButton() {
   }
 }
 
+function updateChordsLayerUI() {
+  const isChords = state.prActiveLayer === 'chords';
+  if (el.prLayerTabs) {
+    $$('[data-pr-layer]', el.prLayerTabs).forEach((btn) => {
+      const act = btn.dataset.prLayer === state.prActiveLayer;
+      btn.classList.toggle('active', act);
+      btn.setAttribute('aria-selected', String(act));
+    });
+  }
+  if (el.prChordsBar) {
+    el.prChordsBar.classList.toggle('hidden', !isChords);
+  }
+  if (el.prChordsStatusBadge) {
+    el.prChordsStatusBadge.classList.toggle('is-custom', state.useCustomChordNotes);
+    el.prChordsStatusBadge.textContent = state.useCustomChordNotes
+      ? `● Đang dùng đệm Piano chỉnh tay (${state.customChordNotes.length} nốt)`
+      : 'Đang dùng đệm tự động (Chords + Bass)';
+  }
+  if (el.btnResetChordsAuto) {
+    el.btnResetChordsAuto.disabled = !state.useCustomChordNotes;
+  }
+}
+
 function syncPianoRoll() {
   updateClearMelodyButton();
+  updateChordsLayerUI();
+  updateUndoButtons();
   if (!pianoRoll) return;
+
+  const isChords = state.prActiveLayer === 'chords';
+  const autoChordNotes = !state.useCustomChordNotes ? computeAutoChordNotes() : null;
+  const activeNotes = isChords
+    ? state.useCustomChordNotes
+      ? state.customChordNotes
+      : autoChordNotes
+    : state.melodyNotes;
+  const ghostNotes = isChords
+    ? state.melodyNotes
+    : state.useCustomChordNotes
+      ? state.customChordNotes
+      : autoChordNotes;
+
   pianoRoll.setData({
-    notes: state.melodyNotes,
+    notes: activeNotes || [],
+    ghostNotes: ghostNotes || [],
+    activeLayer: state.prActiveLayer,
+    isAutoPreview: isChords && !state.useCustomChordNotes,
     totalBars: state.totalBars,
     keyPc: state.keyPc,
     scaleType: state.scaleType,
@@ -308,7 +443,45 @@ function syncPianoRoll() {
   });
 }
 
-function pushUndoSnapshot() {
+function setPianoRollLayer(layer) {
+  const next = layer === 'chords' ? 'chords' : 'melody';
+  if (state.prActiveLayer === next) return;
+  state.prActiveLayer = next;
+  state.selectedNoteId = null;
+  syncPianoRoll();
+  if (pianoRoll) pianoRoll.centerOnVocalRange();
+}
+
+function dumpAutoChordsToPianoRoll() {
+  pushUndoSnapshot('chords');
+  state.customChordNotes = computeAutoChordNotes();
+  state.useCustomChordNotes = true;
+  state.selectedNoteId = null;
+  syncPianoRoll();
+  syncAudioEngine();
+  showToast(`Đã đổ ${state.customChordNotes.length} nốt đệm Piano & Bass xuống chỉnh tay!`);
+}
+
+function resetChordsToAuto() {
+  if (!state.useCustomChordNotes) return;
+  pushUndoSnapshot('chords');
+  state.useCustomChordNotes = false;
+  state.customChordNotes = [];
+  state.selectedNoteId = null;
+  syncPianoRoll();
+  syncAudioEngine();
+  showToast('Đã quay lại dùng đệm tự động theo vòng hợp âm.');
+}
+
+function pushUndoSnapshot(targetLayer = state.prActiveLayer) {
+  if (targetLayer === 'chords') {
+    const copy = (state.useCustomChordNotes ? state.customChordNotes : []).map((n) => ({ ...n }));
+    state.chordUndoStack.push({ useCustom: state.useCustomChordNotes, notes: copy });
+    if (state.chordUndoStack.length > 40) state.chordUndoStack.shift();
+    state.chordRedoStack = [];
+    updateUndoButtons();
+    return;
+  }
   const copy = state.melodyNotes.map((n) => ({ ...n }));
   state.undoStack.push(copy);
   if (state.undoStack.length > 40) state.undoStack.shift();
@@ -317,11 +490,31 @@ function pushUndoSnapshot() {
 }
 
 function updateUndoButtons() {
+  if (state.prActiveLayer === 'chords') {
+    el.btnUndo.disabled = state.chordUndoStack.length === 0;
+    el.btnRedo.disabled = state.chordRedoStack.length === 0;
+    return;
+  }
   el.btnUndo.disabled = state.undoStack.length === 0;
   el.btnRedo.disabled = state.redoStack.length === 0;
 }
 
 function performUndo() {
+  if (state.prActiveLayer === 'chords') {
+    if (state.chordUndoStack.length === 0) return;
+    state.chordRedoStack.push({
+      useCustom: state.useCustomChordNotes,
+      notes: state.customChordNotes.map((n) => ({ ...n })),
+    });
+    const prev = state.chordUndoStack.pop();
+    state.useCustomChordNotes = Boolean(prev.useCustom);
+    state.customChordNotes = Array.isArray(prev.notes) ? prev.notes : [];
+    state.selectedNoteId = null;
+    updateUndoButtons();
+    syncPianoRoll();
+    syncAudioEngine();
+    return;
+  }
   if (state.undoStack.length === 0) return;
   state.redoStack.push(state.melodyNotes.map((n) => ({ ...n })));
   state.melodyNotes = state.undoStack.pop();
@@ -332,6 +525,21 @@ function performUndo() {
 }
 
 function performRedo() {
+  if (state.prActiveLayer === 'chords') {
+    if (state.chordRedoStack.length === 0) return;
+    state.chordUndoStack.push({
+      useCustom: state.useCustomChordNotes,
+      notes: state.customChordNotes.map((n) => ({ ...n })),
+    });
+    const next = state.chordRedoStack.pop();
+    state.useCustomChordNotes = Boolean(next.useCustom);
+    state.customChordNotes = Array.isArray(next.notes) ? next.notes : [];
+    state.selectedNoteId = null;
+    updateUndoButtons();
+    syncPianoRoll();
+    syncAudioEngine();
+    return;
+  }
   if (state.redoStack.length === 0) return;
   state.undoStack.push(state.melodyNotes.map((n) => ({ ...n })));
   state.melodyNotes = state.redoStack.pop();
@@ -403,6 +611,17 @@ function populateSelects() {
   el.melodyTimbreSelect.innerHTML = MELODY_TIMBRES.map(
     (m) => `<option value="${m.id}">${m.label}</option>`
   ).join('');
+
+  if (el.chordModalBarStyle) {
+    el.chordModalBarStyle.innerHTML = BAR_COMP_STYLES.map(
+      (b) => `<option value="${b.id}">${b.label}</option>`
+    ).join('');
+  }
+  if (el.chordModalInversion) {
+    el.chordModalInversion.innerHTML = CHORD_INVERSIONS.map(
+      (inv) => `<option value="${inv.id}">${inv.label}</option>`
+    ).join('');
+  }
 }
 
 // ============================================================================
@@ -485,6 +704,33 @@ function syncGlobalControlsUI() {
   $$('.vibe-chip', el.vibeChips).forEach((chip) => {
     chip.classList.toggle('active', Boolean(activePreset && chip.dataset.vibe === activePreset.vibe));
   });
+
+  syncReferenceTrackUI();
+}
+
+function buildBarBadgesHtml(vc) {
+  const badges = [];
+  if (vc.split && vc.secondVoiced) {
+    badges.push('<span class="chord-card-badge is-split">2 hợp âm</span>');
+  }
+  if (vc.barStyle && vc.barStyle !== 'default') {
+    const meta = BAR_COMP_STYLES.find((b) => b.id === vc.barStyle);
+    const cls =
+      vc.barStyle === 'break'
+        ? ' is-break'
+        : vc.barStyle === 'sustain'
+          ? ' is-sustain'
+          : '';
+    badges.push(`<span class="chord-card-badge${cls}">${meta ? meta.shortLabel : vc.barStyle}</span>`);
+  }
+  if (vc.inversion && vc.inversion !== 'auto') {
+    const invMeta = CHORD_INVERSIONS.find((inv) => inv.id === vc.inversion);
+    badges.push(`<span class="chord-card-badge">${invMeta ? invMeta.shortLabel : vc.inversion}</span>`);
+  }
+  if (vc.octaveShift) {
+    badges.push(`<span class="chord-card-badge">${vc.octaveShift > 0 ? '+' : ''}${vc.octaveShift} Oct</span>`);
+  }
+  return badges.length > 0 ? `<div class="chord-card-badges">${badges.join('')}</div>` : '';
 }
 
 function renderChordStrip() {
@@ -493,32 +739,50 @@ function renderChordStrip() {
     ? 'chord-strip bars-remix'
     : `chord-strip bars-${state.totalBars}`;
   el.chordStrip.innerHTML = state.voicedChords
-    .map((vc, idx) =>
-      isRemix
+    .map((vc, idx) => {
+      const symbolHtml =
+        vc.split && vc.secondVoiced
+          ? `${vc.symbol}<span class="chord-split-sep">|</span>${vc.secondVoiced.symbol}`
+          : vc.symbol;
+      const romanLabel =
+        vc.split && vc.secondVoiced ? `${vc.roman}|${vc.secondVoiced.roman}` : vc.roman;
+      const voicingText =
+        vc.barStyle === 'break'
+          ? 'Nghỉ đàn (Break)'
+          : vc.split && vc.secondVoiced
+            ? `${vc.voicingLabels.slice(0, 2).join(' ')} | ${vc.secondVoiced.voicingLabels.slice(0, 2).join(' ')}`
+            : vc.voicingLabels.join(' · ');
+      const badgesHtml = buildBarBadgesHtml(vc);
+
+      const symbolClass = vc.split && vc.secondVoiced ? 'chord-symbol is-split-symbol' : 'chord-symbol';
+
+      return isRemix
         ? `
       <div class="chord-card is-remix-card" data-bar-index="${idx}" role="listitem" tabindex="0" title="Bấm để tua nghe từ Ô ${idx + 1}">
         <div class="chord-card-top">
           <span class="chord-bar-num">Ô ${idx + 1}</span>
           <span class="chord-card-top-right">
-            <span class="chord-roman">${vc.roman}</span>
+            <span class="chord-roman">${romanLabel}</span>
             <button type="button" class="chord-edit-btn" data-edit-bar="${idx}" title="Sửa hợp âm ô ${idx + 1}" aria-label="Sửa hợp âm ô ${idx + 1}">✎</button>
           </span>
         </div>
-        <div class="chord-symbol">${vc.symbol}</div>
-        <div class="chord-voicing">${vc.voicingLabels.join(' · ')}</div>
+        <div class="${symbolClass}">${symbolHtml}</div>
+        <div class="chord-voicing">${voicingText}</div>
+        ${badgesHtml}
       </div>
     `
         : `
       <button type="button" class="chord-card" data-bar-index="${idx}" role="listitem" title="Bấm để đổi hợp âm ô nhịp ${idx + 1}">
         <div class="chord-card-top">
           <span class="chord-bar-num">Ô ${idx + 1}</span>
-          <span class="chord-roman">${vc.roman}</span>
+          <span class="chord-roman">${romanLabel}</span>
         </div>
-        <div class="chord-symbol">${vc.symbol}</div>
-        <div class="chord-voicing">${vc.voicingLabels.join(' · ')}</div>
+        <div class="${symbolClass}">${symbolHtml}</div>
+        <div class="chord-voicing">${voicingText}</div>
+        ${badgesHtml}
       </button>
-    `
-    )
+    `;
+    })
     .join('');
 
   lastHighlightedBar = -1;
@@ -698,7 +962,14 @@ function applyPreset(presetId, notify = false) {
   state.chordStyle = preset.style;
   state.chordTimbre = preset.timbre;
   state.drumPattern = preset.drums;
-  state.chords = preset.chords.map((c) => ({ ...c }));
+  state.chords = preset.chords.map(cloneChordSpec);
+  state.useCustomChordNotes = false;
+  state.customChordNotes = [];
+  state.chordUndoStack = [];
+  state.chordRedoStack = [];
+  state.referenceAudioBuffer = null;
+  state.refEnabled = false;
+  audioEngine.setReferenceAudioBuffer(null);
 
   recomputeVoicings();
   syncGlobalControlsUI();
@@ -718,15 +989,15 @@ function setTotalBars(modeOrBars) {
   if (isRemixMode) {
     if (state.loopMode === 'remix') return;
     if (Array.isArray(state.remixChordsBackup) && state.remixChordsBackup.length >= 4) {
-      state.chords = state.remixChordsBackup.map((c) => ({ ...c }));
+      state.chords = state.remixChordsBackup.map(cloneChordSpec);
     } else {
       const base = state.chords.slice(0, Math.max(4, Math.min(8, state.chords.length)));
       const expanded = [];
       for (let i = 0; i < 16; i++) {
-        expanded.push({ ...base[i % base.length] });
+        expanded.push(cloneChordSpec(base[i % base.length]));
       }
       state.chords = expanded;
-      state.remixChordsBackup = expanded.map((c) => ({ ...c }));
+      state.remixChordsBackup = expanded.map(cloneChordSpec);
     }
     state.loopMode = 'remix';
     state.totalBars = Math.max(4, Math.min(64, state.chords.length));
@@ -735,16 +1006,16 @@ function setTotalBars(modeOrBars) {
     if (state.loopMode !== 'remix' && target === state.totalBars) return;
 
     if (state.loopMode === 'remix' && state.chords.length >= 4) {
-      state.remixChordsBackup = state.chords.map((c) => ({ ...c }));
+      state.remixChordsBackup = state.chords.map(cloneChordSpec);
     }
 
     if (target === 8 && state.chords.length < 8) {
       const base = state.chords.slice(0, 4);
-      state.chords = [...base.map((c) => ({ ...c })), ...base.map((c) => ({ ...c }))];
+      state.chords = [...base.map(cloneChordSpec), ...base.map(cloneChordSpec)];
     } else if (target === 4) {
-      state.chords = state.chords.slice(0, 4);
+      state.chords = state.chords.slice(0, 4).map(cloneChordSpec);
     } else if (target === 8 && state.chords.length > 8) {
-      state.chords = state.chords.slice(0, 8);
+      state.chords = state.chords.slice(0, 8).map(cloneChordSpec);
     }
 
     state.loopMode = target === 8 ? '8' : '4';
@@ -766,11 +1037,11 @@ function addRemixBar() {
   }
   const activeSlice = state.chords.slice(0, state.totalBars);
   const lastChord = activeSlice[activeSlice.length - 1] || { degree: 0, extension: 'triad' };
-  const nextChords = [...activeSlice.map((c) => ({ ...c })), { ...lastChord }];
+  const nextChords = [...activeSlice.map(cloneChordSpec), cloneChordSpec(lastChord)];
   state.chords = nextChords;
   state.loopMode = 'remix';
   state.totalBars = nextChords.length;
-  state.remixChordsBackup = nextChords.map((c) => ({ ...c }));
+  state.remixChordsBackup = nextChords.map(cloneChordSpec);
 
   recomputeVoicings();
   syncGlobalControlsUI();
@@ -787,11 +1058,11 @@ function removeRemixBar() {
     showToast('Vòng Remix cần tối thiểu 4 ô nhịp.', true);
     return;
   }
-  const nextChords = state.chords.slice(0, state.totalBars - 1).map((c) => ({ ...c }));
+  const nextChords = state.chords.slice(0, state.totalBars - 1).map(cloneChordSpec);
   state.chords = nextChords;
   state.loopMode = 'remix';
   state.totalBars = nextChords.length;
-  state.remixChordsBackup = nextChords.map((c) => ({ ...c }));
+  state.remixChordsBackup = nextChords.map(cloneChordSpec);
 
   recomputeVoicings();
   syncGlobalControlsUI();
@@ -845,6 +1116,7 @@ function setKeyPc(newPc) {
 // ============================================================================
 function openChordPicker(barIndex) {
   state.editingBarIndex = barIndex;
+  state.editingHalf = 0;
   renderChordPickerContent();
   el.chordModal.classList.remove('hidden');
 }
@@ -852,27 +1124,79 @@ function openChordPicker(barIndex) {
 function closeChordPicker() {
   el.chordModal.classList.add('hidden');
   state.editingBarIndex = null;
+  state.editingHalf = 0;
+}
+
+function getActiveHalfEditingTarget(spec, voiced) {
+  const isSplit = Boolean(spec && spec.split && spec.secondChord);
+  if (isSplit && state.editingHalf === 1) {
+    return {
+      isSplit: true,
+      halfIndex: 1,
+      halfSpec: spec.secondChord,
+      halfVoiced: voiced?.secondVoiced || voiced,
+    };
+  }
+  return {
+    isSplit,
+    halfIndex: 0,
+    halfSpec: spec,
+    halfVoiced: voiced,
+  };
 }
 
 function renderChordPickerContent() {
   const idx = state.editingBarIndex;
   if (idx === null || !state.chords[idx]) return;
 
-  const currentSpec = state.chords[idx];
-  const currentVoiced = state.voicedChords[idx];
+  const barSpec = state.chords[idx];
+  const barVoiced = state.voicedChords[idx];
+  const { isSplit, halfIndex, halfSpec, halfVoiced } = getActiveHalfEditingTarget(barSpec, barVoiced);
   const diatonics = getDiatonicChords(state.keyPc, state.scaleType);
 
   el.chordModalTitle.textContent = `Chọn hợp âm · Ô nhịp ${idx + 1}`;
-  const notesPreview =
-    currentVoiced && Array.isArray(currentVoiced.rootOrderedLabels)
-      ? ` · [${currentVoiced.rootOrderedLabels.join(' – ')}]`
-      : '';
-  el.chordModalPreview.innerHTML = `Đang chọn: <strong>${currentVoiced.symbol}</strong> (${currentVoiced.roman})${notesPreview}`;
+  if (isSplit && barVoiced.secondVoiced) {
+    const activeHalfLbl = halfIndex === 1 ? 'Nửa sau (Phách 3–4)' : 'Nửa đầu (Phách 1–2)';
+    el.chordModalPreview.innerHTML = `Ô chia đôi: <strong>${barVoiced.symbol} | ${barVoiced.secondVoiced.symbol}</strong> · Đang sửa: <strong>${activeHalfLbl} (${halfVoiced.symbol})</strong>`;
+  } else {
+    const notesPreview =
+      halfVoiced && Array.isArray(halfVoiced.rootOrderedLabels)
+        ? ` · [${halfVoiced.rootOrderedLabels.join(' – ')}]`
+        : '';
+    el.chordModalPreview.innerHTML = `Đang chọn: <strong>${halfVoiced.symbol}</strong> (${halfVoiced.roman})${notesPreview}`;
+  }
+
+  // Cập nhật các tùy chọn Per-Bar Accompaniment
+  if (el.chordModalSplitSeg) {
+    $$('[data-bar-split]', el.chordModalSplitSeg).forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.barSplit) === (isSplit ? 1 : 0));
+    });
+  }
+  if (el.chordModalHalfWrap) {
+    el.chordModalHalfWrap.classList.toggle('hidden', !isSplit);
+  }
+  if (el.chordModalHalfSeg) {
+    $$('[data-edit-half]', el.chordModalHalfSeg).forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.editHalf) === halfIndex);
+    });
+  }
+  if (el.chordModalBarStyle) {
+    el.chordModalBarStyle.value = barSpec.barStyle || 'default';
+  }
+  if (el.chordModalInversion) {
+    el.chordModalInversion.value = barSpec.inversion || 'auto';
+  }
+  if (el.chordModalOctave) {
+    const curOct = Math.max(-1, Math.min(1, Math.round(Number(barSpec.octaveShift) || 0)));
+    $$('[data-bar-octave]', el.chordModalOctave).forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.barOctave) === curOct);
+    });
+  }
 
   el.diatonicGrid.innerHTML = diatonics
     .map(
       (d) => `
-      <button type="button" class="diatonic-btn${!currentSpec.custom && d.degree === currentSpec.degree ? ' selected' : ''}" data-pick-degree="${d.degree}">
+      <button type="button" class="diatonic-btn${!halfSpec.custom && d.degree === halfSpec.degree ? ' selected' : ''}" data-pick-degree="${d.degree}">
         <span class="dia-roman">${d.roman}</span>
         <span class="dia-name">${d.symbol}</span>
       </button>
@@ -882,7 +1206,7 @@ function renderChordPickerContent() {
 
   if (el.basicMajorGrid) {
     el.basicMajorGrid.innerHTML = BASIC_MAJOR_CHORDS.map((ch) => {
-      const isSel = currentVoiced && currentVoiced.rootPc === ch.rootPc && currentVoiced.baseQuality === 'maj';
+      const isSel = halfVoiced && halfVoiced.rootPc === ch.rootPc && halfVoiced.baseQuality === 'maj';
       return `
         <button type="button" class="basic-chord-btn${isSel ? ' selected' : ''}" data-pick-basic-root="${ch.rootPc}" data-pick-basic-quality="maj" title="${ch.viName}">
           <span class="bc-name">${ch.name}</span>
@@ -894,7 +1218,7 @@ function renderChordPickerContent() {
 
   if (el.basicMinorGrid) {
     el.basicMinorGrid.innerHTML = BASIC_MINOR_CHORDS.map((ch) => {
-      const isSel = currentVoiced && currentVoiced.rootPc === ch.rootPc && currentVoiced.baseQuality === 'min';
+      const isSel = halfVoiced && halfVoiced.rootPc === ch.rootPc && halfVoiced.baseQuality === 'min';
       return `
         <button type="button" class="basic-chord-btn${isSel ? ' selected' : ''}" data-pick-basic-root="${ch.rootPc}" data-pick-basic-quality="min" title="${ch.viName}">
           <span class="bc-name">${ch.name}</span>
@@ -906,7 +1230,7 @@ function renderChordPickerContent() {
 
   if (el.basicAccidentalGrid) {
     el.basicAccidentalGrid.innerHTML = ACCIDENTAL_CHORDS.map((ch) => {
-      const isSel = currentVoiced && currentVoiced.rootPc === ch.rootPc && currentVoiced.baseQuality === ch.quality;
+      const isSel = halfVoiced && halfVoiced.rootPc === ch.rootPc && halfVoiced.baseQuality === ch.quality;
       return `
         <button type="button" class="basic-chord-btn${isSel ? ' selected' : ''}" data-pick-basic-root="${ch.rootPc}" data-pick-basic-quality="${ch.quality}" title="${ch.viName}">
           <span class="bc-name">${ch.name}</span>
@@ -918,20 +1242,45 @@ function renderChordPickerContent() {
 
   el.extensionPills.innerHTML = CHORD_EXTENSIONS.map(
     (ext) => `
-      <button type="button" class="ext-pill${ext.id === currentSpec.extension ? ' selected' : ''}" data-pick-ext="${ext.id}">
+      <button type="button" class="ext-pill${ext.id === (halfSpec.extension || 'triad') ? ' selected' : ''}" data-pick-ext="${ext.id}">
         ${ext.label}
       </button>
     `
   ).join('');
 }
 
-async function updateEditingBarChord(partial) {
+async function updateEditingBarChord(partial, isBarLevel = false) {
   const idx = state.editingBarIndex;
   if (idx === null || !state.chords[idx]) return;
 
-  state.chords[idx] = { ...state.chords[idx], ...partial };
+  const cur = cloneChordSpec(state.chords[idx]);
+  if (isBarLevel) {
+    Object.assign(cur, partial);
+    if (cur.split && !cur.secondChord) {
+      cur.secondChord = {
+        custom: Boolean(cur.custom),
+        degree: cur.degree,
+        rootPc: cur.rootPc,
+        quality: cur.quality,
+        extension: cur.extension || 'triad',
+      };
+    }
+    if (!cur.split) {
+      state.editingHalf = 0;
+    }
+    state.chords[idx] = cur;
+  } else if (cur.split && state.editingHalf === 1) {
+    cur.secondChord = {
+      ...(cur.secondChord || { extension: 'triad', degree: 0 }),
+      ...partial,
+    };
+    state.chords[idx] = cur;
+  } else {
+    state.chords[idx] = { ...cur, ...partial };
+  }
+
   if (state.loopMode === 'remix') {
-    state.remixChordsBackup = state.chords.slice(0, state.totalBars).map((c) => ({ ...c }));
+    state.remixChordsBackup = state.chords.slice(0, state.totalBars).map(cloneChordSpec);
   }
   recomputeVoicings();
   renderChordStrip();
@@ -939,11 +1288,13 @@ async function updateEditingBarChord(partial) {
   syncPianoRoll();
   syncAudioEngine();
 
-  // Nghe thử hợp âm vừa chọn ngay lập tức
-  if (state.voicedChords[idx]) {
+  // Nghe thử hợp âm vừa chọn ngay lập tức (trừ khi ô đang để Break tắt đàn)
+  const v = state.voicedChords[idx];
+  if (v && v.barStyle !== 'break') {
+    const targetVoiced = cur.split && state.editingHalf === 1 && v.secondVoiced ? v.secondVoiced : v;
     try {
       if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
-      await audioEngine.auditionChord(state.voicedChords[idx]);
+      await audioEngine.auditionChord(targetVoiced);
     } catch (_) {}
   }
 }
@@ -1175,6 +1526,8 @@ function handleExportMidi() {
       chordTimbre: state.chordTimbre,
       drumPattern: state.drumPattern,
       customDrumGrid: state.customDrumGrid,
+      useCustomChordNotes: state.useCustomChordNotes,
+      customChordNotes: state.customChordNotes,
       melodyNotes: state.melodyNotes,
       melodyTimbre: state.melodyTimbre,
       mixer: state.mixer,
@@ -1235,6 +1588,8 @@ async function handleExportAudio() {
       customDrumGrid: state.customDrumGrid,
       melodyTimbre: state.melodyTimbre,
       voicedChords: state.voicedChords,
+      useCustomChordNotes: state.useCustomChordNotes,
+      customChordNotes: state.customChordNotes,
       melodyNotes: state.melodyNotes,
       mixer: state.mixer,
     });
@@ -1292,6 +1647,8 @@ async function handleSendBeatToArrangement() {
       customDrumGrid: state.customDrumGrid,
       melodyTimbre: state.melodyTimbre,
       voicedChords: state.voicedChords,
+      useCustomChordNotes: state.useCustomChordNotes,
+      customChordNotes: state.customChordNotes,
       melodyNotes: state.melodyNotes,
       mixer: state.mixer,
     });
@@ -1421,7 +1778,9 @@ function saveCurrentProject(customName) {
     drumPattern: state.drumPattern,
     customDrumGrid: cloneDrumGrid(state.customDrumGrid),
     melodyTimbre: state.melodyTimbre,
-    chords: state.chords.map((c) => ({ ...c })),
+    chords: state.chords.map(cloneChordSpec),
+    useCustomChordNotes: Boolean(state.useCustomChordNotes),
+    customChordNotes: state.customChordNotes.map((n) => ({ ...n })),
     melodyNotes: state.melodyNotes.map((n) => ({ ...n })),
     mixer: JSON.parse(JSON.stringify(state.mixer)),
   };
@@ -1458,10 +1817,12 @@ function loadProjectById(id) {
   state.drumPattern = item.drumPattern || 'lofi';
   state.customDrumGrid = item.customDrumGrid ? cloneDrumGrid(item.customDrumGrid) : createDefaultDrumGrid('kpop_trap');
   state.melodyTimbre = item.melodyTimbre || 'bell';
-  state.chords = Array.isArray(item.chords) ? item.chords.map((c) => ({ ...c })) : defaultPreset.chords.map((c) => ({ ...c }));
+  state.chords = Array.isArray(item.chords) ? item.chords.map(cloneChordSpec) : defaultPreset.chords.map(cloneChordSpec);
   if (state.loopMode === 'remix') {
-    state.remixChordsBackup = state.chords.map((c) => ({ ...c }));
+    state.remixChordsBackup = state.chords.map(cloneChordSpec);
   }
+  state.useCustomChordNotes = Boolean(item.useCustomChordNotes);
+  state.customChordNotes = Array.isArray(item.customChordNotes) ? item.customChordNotes.map((n) => ({ ...n })) : [];
   state.melodyNotes = Array.isArray(item.melodyNotes) ? item.melodyNotes.map((n) => ({ ...n })) : [];
   if (item.mixer) {
     state.mixer = JSON.parse(JSON.stringify(item.mixer));
@@ -1471,7 +1832,12 @@ function loadProjectById(id) {
   }
   state.undoStack = [];
   state.redoStack = [];
+  state.chordUndoStack = [];
+  state.chordRedoStack = [];
   state.selectedNoteId = null;
+  state.referenceAudioBuffer = null;
+  state.refEnabled = false;
+  audioEngine.setReferenceAudioBuffer(null);
 
   recomputeVoicings();
   syncGlobalControlsUI();
@@ -1917,6 +2283,45 @@ function bindEvents() {
     el.btnRemixRemoveBar.addEventListener('click', removeRemixBar);
   }
 
+  // Reference Track (Nghe kèm bài gốc đối chiếu khi dựng Beat Remix)
+  if (el.btnRefToggle) {
+    el.btnRefToggle.addEventListener('click', async () => {
+      audioEngine.unlockSync();
+      await audioEngine.ensureReady();
+      state.refEnabled = !state.refEnabled;
+      syncReferenceTrackUI();
+      showToast(
+        state.refEnabled
+          ? 'Đã bật nghe kèm bài gốc đối chiếu (Chỉ phát Live, không lẫn vào file Xuất).'
+          : 'Đã tắt âm thanh bài gốc đối chiếu.'
+      );
+    });
+  }
+  if (el.refVolSlider) {
+    el.refVolSlider.addEventListener('input', (e) => {
+      state.refVolume = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+      syncReferenceTrackUI();
+    });
+  }
+  if (el.btnRefNudgeMinus) {
+    el.btnRefNudgeMinus.addEventListener('click', () => {
+      state.refOffsetMs = Math.max(-2000, state.refOffsetMs - 25);
+      syncReferenceTrackUI();
+    });
+  }
+  if (el.btnRefNudgePlus) {
+    el.btnRefNudgePlus.addEventListener('click', () => {
+      state.refOffsetMs = Math.min(2000, state.refOffsetMs + 25);
+      syncReferenceTrackUI();
+    });
+  }
+  if (el.refOffsetVal) {
+    el.refOffsetVal.addEventListener('click', () => {
+      state.refOffsetMs = 0;
+      syncReferenceTrackUI();
+    });
+  }
+
   // Preset & Vibe Chips
   el.presetSelect.addEventListener('change', (e) => {
     applyPreset(e.target.value, true);
@@ -2017,7 +2422,40 @@ function bindEvents() {
     seekAndPlayFromBar(Number(card.dataset.barIndex));
   });
 
-  // Sự kiện bên trong Modal Chọn Hợp Âm
+  // Sự kiện bên trong Modal Chọn Hợp Âm & Tinh Chỉnh Đệm Ô Nhịp
+  if (el.chordModalSplitSeg) {
+    el.chordModalSplitSeg.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-bar-split]');
+      if (!btn) return;
+      updateEditingBarChord({ split: Number(btn.dataset.barSplit) === 1 }, true);
+    });
+  }
+  if (el.chordModalHalfSeg) {
+    el.chordModalHalfSeg.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-edit-half]');
+      if (!btn) return;
+      state.editingHalf = Number(btn.dataset.editHalf) === 1 ? 1 : 0;
+      renderChordPickerContent();
+    });
+  }
+  if (el.chordModalBarStyle) {
+    el.chordModalBarStyle.addEventListener('change', (e) => {
+      updateEditingBarChord({ barStyle: e.target.value || 'default' }, true);
+    });
+  }
+  if (el.chordModalInversion) {
+    el.chordModalInversion.addEventListener('change', (e) => {
+      updateEditingBarChord({ inversion: e.target.value || 'auto' }, true);
+    });
+  }
+  if (el.chordModalOctave) {
+    el.chordModalOctave.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-bar-octave]');
+      if (!btn) return;
+      updateEditingBarChord({ octaveShift: Number(btn.dataset.barOctave) || 0 }, true);
+    });
+  }
+
   el.diatonicGrid.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-pick-degree]');
     if (!btn) return;
@@ -2035,7 +2473,9 @@ function bindEvents() {
     const rootPc = Number(btn.dataset.pickBasicRoot);
     const quality = btn.dataset.pickBasicQuality === 'min' ? 'min' : 'maj';
     const idx = state.editingBarIndex;
-    const curExt = idx !== null && state.chords[idx] ? state.chords[idx].extension : 'triad';
+    const barSpec = idx !== null ? state.chords[idx] : null;
+    const activeHalf = barSpec && barSpec.split && state.editingHalf === 1 && barSpec.secondChord ? barSpec.secondChord : barSpec;
+    const curExt = activeHalf ? activeHalf.extension : 'triad';
     let nextExt = curExt || 'triad';
     if (quality === 'maj' && nextExt === 'm7') nextExt = 'triad';
     if (quality === 'min' && (nextExt === 'maj7' || nextExt === '7')) nextExt = 'm7';
@@ -2058,10 +2498,12 @@ function bindEvents() {
 
   el.btnAuditionModalChord.addEventListener('click', async () => {
     const idx = state.editingBarIndex;
-    if (idx !== null && state.voicedChords[idx]) {
+    const v = idx !== null ? state.voicedChords[idx] : null;
+    if (v) {
+      const targetV = v.split && state.editingHalf === 1 && v.secondVoiced ? v.secondVoiced : v;
       try {
         if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
-        await audioEngine.auditionChord(state.voicedChords[idx]);
+        await audioEngine.auditionChord(targetV);
       } catch (_) {}
     }
   });
@@ -2070,6 +2512,21 @@ function bindEvents() {
   el.chordModal.addEventListener('click', (e) => {
     if (e.target === el.chordModal) closeChordPicker();
   });
+
+  // Chuyển làn & Điều khiển Chords Piano trên Piano Roll
+  if (el.prLayerTabs) {
+    el.prLayerTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pr-layer]');
+      if (!btn) return;
+      setPianoRollLayer(btn.dataset.prLayer);
+    });
+  }
+  if (el.btnDumpChordsPr) {
+    el.btnDumpChordsPr.addEventListener('click', dumpAutoChordsToPianoRoll);
+  }
+  if (el.btnResetChordsAuto) {
+    el.btnResetChordsAuto.addEventListener('click', resetChordsToAuto);
+  }
 
   // Thanh công cụ Piano Roll
   el.prModeGroup.addEventListener('click', (e) => {
@@ -2123,9 +2580,20 @@ function bindEvents() {
   }
 
   el.btnClearMelody.addEventListener('click', () => {
+    if (state.prActiveLayer === 'chords') {
+      const count = state.customChordNotes.length;
+      if (!state.useCustomChordNotes || count === 0) return;
+      pushUndoSnapshot('chords');
+      state.customChordNotes = [];
+      state.selectedNoteId = null;
+      syncPianoRoll();
+      syncAudioEngine();
+      showToast(`Đã xóa ${count} nốt đệm Piano chỉnh tay (bấm Hoàn tác để khôi phục).`);
+      return;
+    }
     const count = state.melodyNotes.length;
     if (count === 0) return;
-    pushUndoSnapshot();
+    pushUndoSnapshot('melody');
     state.melodyNotes = [];
     state.selectedNoteId = null;
     syncPianoRoll();
@@ -2306,10 +2774,21 @@ function bindEvents() {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (state.selectedNoteId) {
         e.preventDefault();
-        pushUndoSnapshot();
-        state.melodyNotes = state.melodyNotes.filter(
-          (n) => n.id !== state.selectedNoteId
-        );
+        if (state.prActiveLayer === 'chords') {
+          if (!state.useCustomChordNotes) {
+            state.customChordNotes = computeAutoChordNotes();
+            state.useCustomChordNotes = true;
+          }
+          pushUndoSnapshot('chords');
+          state.customChordNotes = state.customChordNotes.filter(
+            (n) => n.id !== state.selectedNoteId
+          );
+        } else {
+          pushUndoSnapshot('melody');
+          state.melodyNotes = state.melodyNotes.filter(
+            (n) => n.id !== state.selectedNoteId
+          );
+        }
         state.selectedNoteId = null;
         syncPianoRoll();
         syncAudioEngine();
@@ -2427,18 +2906,37 @@ function init() {
   pianoRoll = new PianoRoll(el.prCanvas, {
     getPlayheadBeat: () => audioEngine.getCurrentBeat(),
     getIsPlaying: () => audioEngine.isPlaying,
-    onHistoryPush: () => pushUndoSnapshot(),
+    onHistoryPush: () => pushUndoSnapshot(state.prActiveLayer),
+    onRequestCustomize: (notesCopy) => {
+      if (state.prActiveLayer !== 'chords' || state.useCustomChordNotes) return;
+      pushUndoSnapshot('chords');
+      state.customChordNotes = Array.isArray(notesCopy) ? notesCopy : computeAutoChordNotes();
+      state.useCustomChordNotes = true;
+      updateChordsLayerUI();
+      updateClearMelodyButton();
+      showToast('Đã chuyển sang chế độ Đệm Piano chỉnh tay!');
+    },
     onChange: (nextNotes) => {
-      state.melodyNotes = nextNotes;
+      if (state.prActiveLayer === 'chords') {
+        state.customChordNotes = nextNotes;
+        state.useCustomChordNotes = true;
+        updateChordsLayerUI();
+      } else {
+        state.melodyNotes = nextNotes;
+      }
       updateClearMelodyButton();
       syncAudioEngine();
     },
     onSelect: (noteId) => {
       state.selectedNoteId = noteId;
     },
-    onAudition: (midi) => {
+    onAudition: (midi, role) => {
       if (ambientScene && state.activeSection === 'hub') ambientScene.wake(1800);
-      audioEngine.auditionMelodyNote(midi).catch(() => {});
+      if (state.prActiveLayer === 'chords') {
+        audioEngine.auditionChordNote(midi, role || (midi < 52 ? 'bass' : 'chord')).catch(() => {});
+      } else {
+        audioEngine.auditionMelodyNote(midi).catch(() => {});
+      }
     },
   });
 
@@ -2509,7 +3007,11 @@ function init() {
         state.totalBars = srcChords.length >= 8 ? 8 : 4;
         state.loopMode = state.totalBars === 8 ? '8' : '4';
         state.remixSourceName = '';
-        state.chords = srcChords.slice(0, state.totalBars).map((c) => ({ ...c }));
+        state.chords = srcChords.slice(0, state.totalBars).map(cloneChordSpec);
+        state.useCustomChordNotes = false;
+        state.customChordNotes = [];
+        state.chordUndoStack = [];
+        state.chordRedoStack = [];
         if (Array.isArray(melodyNotes)) {
           state.melodyNotes = melodyNotes.map((n) => ({ ...n }));
           state.selectedNoteId = null;
@@ -2556,8 +3058,10 @@ function init() {
       audioEngine.studioMidiNoteOn(midi, velocity).catch(() => {});
       if (!audioEngine.isPlaying && !state.midiRecordArmed) return;
 
+      const isChordsLayer = state.prActiveLayer === 'chords';
+      const minRecMidi = isChordsLayer ? 36 : 48;
       let targetMidi = Math.round(midi);
-      while (targetMidi < 48) targetMidi += 12;
+      while (targetMidi < minRecMidi) targetMidi += 12;
       while (targetMidi > 84) targetMidi -= 12;
       if (state.scaleLock) {
         targetMidi = snapMidiToScale(targetMidi, state.keyPc, state.scaleType);
@@ -2574,9 +3078,14 @@ function init() {
         state.midiStepCursor = startBeat + step >= totalBeats ? 0 : startBeat + step;
       }
 
+      if (isChordsLayer && !state.useCustomChordNotes) {
+        state.customChordNotes = computeAutoChordNotes();
+        state.useCustomChordNotes = true;
+      }
+
       const nowMs = performance.now();
       if (nowMs - lastMidiUndoAt > 1200) {
-        pushUndoSnapshot();
+        pushUndoSnapshot(state.prActiveLayer);
       }
       lastMidiUndoAt = nowMs;
 
@@ -2586,8 +3095,13 @@ function init() {
         startBeat: Number(startBeat.toFixed(4)),
         durationBeats: step,
         velocity: Math.max(0.2, Math.min(0.96, velocity || 0.82)),
+        ...(isChordsLayer ? { role: targetMidi < 52 ? 'bass' : 'chord' } : {}),
       };
-      state.melodyNotes = [...state.melodyNotes, noteObj];
+      if (isChordsLayer) {
+        state.customChordNotes = [...state.customChordNotes, noteObj];
+      } else {
+        state.melodyNotes = [...state.melodyNotes, noteObj];
+      }
       state.selectedNoteId = noteObj.id;
       studioMidiRecActive.set(midi, { note: noteObj, wallMs: nowMs, livePlay: audioEngine.isPlaying });
 
@@ -2636,6 +3150,8 @@ function init() {
           drumPattern: state.drumPattern,
           melodyTimbre: state.melodyTimbre,
           voicedChords: state.voicedChords,
+          useCustomChordNotes: state.useCustomChordNotes,
+          customChordNotes: state.customChordNotes,
           melodyNotes: state.melodyNotes,
           mixer: state.mixer,
           customDrumGrid: state.customDrumGrid,
@@ -2647,11 +3163,22 @@ function init() {
           name: `Beat ${keyName} ${state.scaleType === 'minor' ? 'Thứ' : 'Trưởng'} · ${state.bpm} BPM`,
         };
       },
-      onApplyChordsToStudio: ({ keyPc, scaleType, bpm, chords, totalBars, sourceName, remixMode }) => {
+      onApplyChordsToStudio: ({
+        keyPc,
+        scaleType,
+        bpm,
+        chords,
+        totalBars,
+        sourceName,
+        remixMode,
+        referenceAudioBuffer,
+        splitBarCount = 0,
+        breathBarCount = 0,
+      }) => {
         audioEngine.stop();
         updatePlayButtonUI();
         if (state.melodyNotes.length > 0) {
-          pushUndoSnapshot();
+          pushUndoSnapshot('melody');
         }
         state.keyPc = ((Number(keyPc) || 0) + 12) % 12;
         state.scaleType = scaleType === 'minor' ? 'minor' : 'major';
@@ -2666,14 +3193,7 @@ function init() {
 
         const nextChords = [];
         for (let i = 0; i < targetBars; i++) {
-          const c = src[i % src.length];
-          nextChords.push({
-            custom: Boolean(c.custom),
-            degree: c.degree,
-            rootPc: c.rootPc,
-            quality: c.quality,
-            extension: c.extension || 'triad',
-          });
+          nextChords.push(cloneChordSpec(src[i % src.length]));
         }
 
         state.chords = nextChords;
@@ -2681,7 +3201,25 @@ function init() {
         state.loopMode = remixMode ? 'remix' : targetBars === 8 ? '8' : '4';
         state.remixSourceName = remixMode ? (sourceName || 'Bản nhạc Phân tích') : '';
         if (remixMode) {
-          state.remixChordsBackup = nextChords.map((c) => ({ ...c }));
+          state.remixChordsBackup = nextChords.map(cloneChordSpec);
+        }
+
+        // Đặt lại chế độ đệm Piano tự động khớp với vòng hợp âm mới đẩy sang
+        state.useCustomChordNotes = false;
+        state.customChordNotes = [];
+        state.chordUndoStack = [];
+        state.chordRedoStack = [];
+
+        if (referenceAudioBuffer) {
+          state.referenceAudioBuffer = referenceAudioBuffer;
+          state.refEnabled = true;
+          state.refVolume = 45;
+          state.refOffsetMs = 0;
+          audioEngine.setReferenceAudioBuffer(referenceAudioBuffer);
+        } else {
+          state.referenceAudioBuffer = null;
+          state.refEnabled = false;
+          audioEngine.setReferenceAudioBuffer(null);
         }
 
         recomputeVoicings();
@@ -2694,9 +3232,13 @@ function init() {
         if (window.innerWidth <= 768) {
           setMobileTab('chords');
         }
+        const extras = [];
+        if (splitBarCount > 0) extras.push(`${splitBarCount} ô 2 hợp âm`);
+        if (breathBarCount > 0) extras.push(`${breathBarCount} ô nhẹ/nghỉ`);
+        const extraStr = extras.length > 0 ? ` (${extras.join(', ')})` : '';
         showToast(
           remixMode
-            ? `Đã đẩy Full Bài "${state.remixSourceName}" (${targetBars} ô đã căn lưới · ${state.bpm} BPM) sang chế độ Remix!`
+            ? `Đã đẩy Full Bài "${state.remixSourceName}" (${targetBars} ô${extraStr} · ${state.bpm} BPM) sang Remix kèm rãnh đối chiếu!`
             : `Đã nạp ${state.totalBars} ô hợp âm phân tích vào Sáng tác Beat!`
         );
       },
@@ -2734,6 +3276,8 @@ function init() {
         drumPattern: state.drumPattern,
         customDrumGrid: state.customDrumGrid,
         voicedChords: state.voicedChords,
+        useCustomChordNotes: state.useCustomChordNotes,
+        customChordNotes: state.customChordNotes,
         melodyNotes: state.melodyNotes,
       }),
       getMicGain: () => state.micGain,

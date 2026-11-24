@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@500;700;800&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=41" />
+  <link rel="stylesheet" href="./style.css?v=42" />
   <!-- Thư viện ngoài: Tone.js (Âm thanh), lamejs (Nén MP3 trình duyệt) & Three.js (Không gian 3D) -->
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" defer></script>
@@ -506,6 +506,30 @@
           </div>
         </div>
 
+        <!-- Thanh Rãnh Nhạc Gốc Đối Chiếu (Reference Track - Monitoring Only) -->
+        <div id="ref-track-bar" class="ref-track-bar hidden" aria-label="Âm thanh bài gốc đối chiếu">
+          <div class="ref-track-left">
+            <button type="button" id="btn-ref-toggle" class="toggle-pill ref-toggle-btn" aria-pressed="false" title="Bật/tắt phát bài gốc song song để căn nhịp khi chỉnh hợp âm">
+              <span class="ref-dot"></span>
+              <span>Nghe kèm bài gốc đối chiếu</span>
+            </button>
+            <span class="ref-monitor-note desktop-only">Chỉ nghe đối chiếu · Không lẫn vào file Xuất</span>
+          </div>
+          <div class="ref-track-controls">
+            <label class="ref-vol-wrap">
+              <span class="ref-lbl">Âm lượng</span>
+              <input id="ref-vol-slider" class="studio-range ref-vol-slider" type="range" min="0" max="100" value="45" aria-label="Âm lượng nhạc gốc đối chiếu" />
+              <span id="ref-vol-val" class="mono-val ref-val">45%</span>
+            </label>
+            <div class="ref-nudge-group" aria-label="Tinh chỉnh lệch nhịp bài gốc (±25ms)">
+              <span class="ref-lbl">Lệch nhịp</span>
+              <button type="button" id="btn-ref-nudge-minus" class="btn btn-ghost btn-xs mono-val" title="Lùi bài gốc sớm hơn 25ms">-25ms</button>
+              <button type="button" id="ref-offset-val" class="btn btn-ghost btn-xs mono-val ref-offset-val" title="Bấm để đặt lại 0ms">0ms</button>
+              <button type="button" id="btn-ref-nudge-plus" class="btn btn-ghost btn-xs mono-val" title="Đẩy bài gốc trễ hơn 25ms">+25ms</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Lưới các ô nhịp Hợp âm (4, 8 hoặc cuộn Full Bài tới 64 ô) -->
         <div id="chord-strip" class="chord-strip bars-4" role="list" aria-label="Dải vòng hợp âm theo ô nhịp"></div>
       </section>
@@ -542,6 +566,15 @@
           </div>
           <div class="toolbar-cluster">
             <span class="section-dot dot-cyan desktop-only"></span>
+            <div class="seg-group pr-layer-tabs" id="pr-layer-tabs" role="tablist" aria-label="Chuyển làn chỉnh sửa Piano Roll">
+              <button type="button" class="seg-btn pr-layer-btn active" data-pr-layer="melody" role="tab" aria-selected="true" title="Làn 1: Giai điệu MIDI chính">
+                <span>Giai điệu (Melody)</span>
+              </button>
+              <button type="button" class="seg-btn pr-layer-btn" data-pr-layer="chords" role="tab" aria-selected="false" title="Làn 2: Hợp âm &amp; Bass Piano đệm">
+                <span>Hợp âm đệm (Chords)</span>
+              </button>
+            </div>
+
             <div class="seg-group mode-group" id="pr-mode-group" role="group" aria-label="Chế độ tương tác bảng MIDI">
               <button type="button" class="seg-btn active" data-mode="edit" title="Chấm và kéo sửa nốt">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -639,6 +672,22 @@
                 <span id="btn-clear-melody-label">Xóa hết MIDI</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Dải điều khiển dành riêng cho Làn Hợp Âm Đệm (Chords Piano) -->
+        <div id="pr-chords-bar" class="pr-chords-bar hidden" aria-label="Điều khiển làn Hợp âm đệm Piano">
+          <div class="pr-chords-bar-left">
+            <span id="pr-chords-status-badge" class="pr-chords-badge">Đang dùng đệm tự động</span>
+            <span class="pr-chords-tip desktop-only">Cyan: Bass tay trái · Indigo: Hợp âm tay phải · Nốt mờ: Giai điệu đối chiếu</span>
+          </div>
+          <div class="pr-chords-bar-actions">
+            <button type="button" id="btn-dump-chords-pr" class="btn btn-indigo-solid btn-xs">
+              Đổ đệm tự động xuống chỉnh tay
+            </button>
+            <button type="button" id="btn-reset-chords-auto" class="btn btn-cyan-outline btn-xs">
+              Tạo lại từ vòng hợp âm (Tự động)
+            </button>
           </div>
         </div>
 
@@ -1195,6 +1244,46 @@
       </div>
 
       <div class="modal-body">
+        <div class="picker-section chord-modal-bar-opts">
+          <span class="picker-label">Cấu trúc &amp; Kiểu đệm riêng cho ô nhịp này (Per-Bar Accompaniment)</span>
+          <div class="bar-opts-grid">
+            <div class="bar-opt-item">
+              <span class="bar-opt-lbl">Số hợp âm trong ô</span>
+              <div id="chord-modal-split-seg" class="seg-group compact-seg">
+                <button type="button" class="seg-btn active" data-bar-split="0">1 hợp âm / ô</button>
+                <button type="button" class="seg-btn" data-bar-split="1">Chia đôi 2 hợp âm</button>
+              </div>
+            </div>
+
+            <div id="chord-modal-half-wrap" class="bar-opt-item hidden">
+              <span class="bar-opt-lbl">Đang sửa nửa ô</span>
+              <div id="chord-modal-half-seg" class="seg-group compact-seg">
+                <button type="button" class="seg-btn active" data-edit-half="0">Nửa đầu (Phách 1–2)</button>
+                <button type="button" class="seg-btn" data-edit-half="1">Nửa sau (Phách 3–4)</button>
+              </div>
+            </div>
+
+            <label class="bar-opt-item">
+              <span class="bar-opt-lbl">Kiểu đệm ô này</span>
+              <select id="chord-modal-bar-style" class="studio-select compact" aria-label="Kiểu đệm riêng cho ô nhịp này"></select>
+            </label>
+
+            <label class="bar-opt-item">
+              <span class="bar-opt-lbl">Thế đảo (Inversion)</span>
+              <select id="chord-modal-inversion" class="studio-select compact" aria-label="Thế đảo hợp âm ô này"></select>
+            </label>
+
+            <div class="bar-opt-item">
+              <span class="bar-opt-lbl">Quãng tám tay phải</span>
+              <div id="chord-modal-octave" class="seg-group compact-seg">
+                <button type="button" class="seg-btn" data-bar-octave="-1">-1</button>
+                <button type="button" class="seg-btn active" data-bar-octave="0">0</button>
+                <button type="button" class="seg-btn" data-bar-octave="1">+1</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="picker-section">
           <span class="picker-label">1. Hợp âm theo Tông hiện tại (7 bậc Diatonic)</span>
           <div id="diatonic-grid" class="diatonic-grid"></div>
@@ -1249,6 +1338,6 @@
   <!-- Thông báo nổi (Toast) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="./js/app.js?v=41"></script>
+  <script type="module" src="./js/app.js?v=42"></script>
 </body>
 </html>

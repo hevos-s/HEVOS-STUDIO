@@ -1120,6 +1120,146 @@ button {
   margin-right: 4px;
 }
 
+/* Reference Track Monitoring Strip (không lẫn vào Export WAV/MIDI) */
+.ref-track-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(18, 22, 28, 0.88);
+  border: 1px solid rgba(34, 211, 238, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ref-track-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.ref-toggle-btn {
+  gap: 7px;
+  font-size: 11.5px;
+}
+
+.ref-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #71717A;
+  flex-shrink: 0;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ref-toggle-btn.active {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.72);
+  color: #ECFEFF;
+}
+
+.ref-toggle-btn.active .ref-dot {
+  background: #22D3EE;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.85);
+}
+
+.ref-monitor-note {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.ref-track-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.ref-vol-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ref-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.ref-vol-slider {
+  width: 88px;
+}
+
+.ref-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: #67E8F9;
+  min-width: 34px;
+}
+
+.ref-nudge-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ref-offset-val {
+  min-width: 48px;
+  text-align: center;
+  color: #E4E4E7;
+}
+
+/* Split-Bar & Per-Bar Badges trên Thẻ Hợp Âm */
+.chord-split-sep {
+  opacity: 0.45;
+  margin: 0 3px;
+  font-weight: 500;
+}
+
+.chord-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.chord-card-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(167, 139, 250, 0.42);
+  color: #DDD6FE;
+  white-space: nowrap;
+}
+
+.chord-card-badge.is-break {
+  background: rgba(244, 63, 94, 0.18);
+  border-color: rgba(251, 113, 133, 0.48);
+  color: #FECDD3;
+}
+
+.chord-card-badge.is-sustain {
+  background: rgba(34, 211, 238, 0.16);
+  border-color: rgba(34, 211, 238, 0.46);
+  color: #A5F3FC;
+}
+
+.chord-card-badge.is-split {
+  background: rgba(250, 204, 21, 0.14);
+  border-color: rgba(250, 204, 21, 0.42);
+  color: #FEF08A;
+}
+
 .chord-strip.bars-remix {
   display: flex;
   flex-wrap: nowrap;
@@ -1146,9 +1286,9 @@ button {
 }
 
 .chord-card.is-remix-card {
-  flex: 0 0 132px;
-  min-width: 132px;
-  min-height: 66px;
+  flex: 0 0 148px;
+  min-width: 148px;
+  min-height: 70px;
   padding: 9px 10px 8px;
   cursor: pointer;
 }
@@ -1156,8 +1296,10 @@ button {
 .chord-card-top-right {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1;
 }
 
 .chord-edit-btn {
@@ -1166,6 +1308,7 @@ button {
   justify-content: center;
   width: 22px;
   height: 20px;
+  flex-shrink: 0;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1234,10 +1377,11 @@ button {
 
 .chord-card-top {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 5px;
 }
 
 .chord-bar-num {
@@ -1252,7 +1396,7 @@ button {
 
 .chord-roman {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: var(--radius-pill);
@@ -1260,18 +1404,35 @@ button {
   border: 1px solid var(--border);
   color: #E4E4E7;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chord-symbol {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: -0.01em;
   color: #FAFAFA;
   line-height: 1.15;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chord-symbol.is-split-symbol {
+  font-size: 13.5px;
+  letter-spacing: -0.02em;
 }
 
 .chord-strip.bars-8 .chord-symbol {
-  font-size: 14.5px;
+  font-size: 14px;
+}
+
+.chord-strip.bars-8 .chord-symbol.is-split-symbol {
+  font-size: 12.5px;
 }
 
 .chord-voicing {
@@ -2159,6 +2320,106 @@ body.piano-roll-open .toast-container {
   background: #F4F4F5;
   border-color: #FFFFFF;
   color: #09090B;
+}
+
+/* Per-Bar Accompaniment Options bên trong #chord-modal */
+.chord-modal-bar-opts {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bar-opts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 8px 12px;
+  margin-top: 6px;
+}
+
+.bar-opt-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bar-opt-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.compact-seg {
+  display: inline-flex;
+  width: 100%;
+}
+
+.compact-seg .seg-btn {
+  flex: 1;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Piano Roll Layer Tabs & Chords Piano Toolbar */
+.pr-layer-tabs {
+  flex-shrink: 0;
+}
+
+.pr-layer-btn {
+  white-space: nowrap;
+}
+
+.pr-chords-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(24, 24, 34, 0.85);
+}
+
+.pr-chords-bar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.pr-chords-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  color: #E2E8F0;
+  white-space: nowrap;
+}
+
+.pr-chords-badge.is-custom {
+  background: rgba(139, 92, 246, 0.24);
+  border-color: rgba(167, 139, 250, 0.65);
+  color: #EDE9FE;
+}
+
+.pr-chords-tip {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.pr-chords-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Saved Projects List */
@@ -9586,6 +9847,68 @@ body.piano-roll-open .toast-container {
     max-width: 170px;
   }
 
+  .ref-track-bar {
+    padding: 8px 10px;
+    gap: 6px 8px;
+  }
+
+  .ref-track-left,
+  .ref-track-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .ref-vol-wrap {
+    flex: 1;
+    min-width: 135px;
+  }
+
+  .ref-vol-slider {
+    width: 100%;
+    flex: 1;
+    min-width: 60px;
+  }
+
+  .pr-chords-bar {
+    padding: 7px 9px;
+    gap: 6px;
+  }
+
+  .pr-chords-bar-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .pr-chords-bar-actions .btn {
+    width: 100%;
+    white-space: nowrap;
+    min-height: 34px;
+    font-size: 11px;
+    padding: 0 10px;
+  }
+
+  .pr-layer-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pr-layer-tabs .pr-layer-btn {
+    min-height: 34px;
+    height: 34px;
+    padding: 0 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    justify-content: center;
+  }
+
+  .bar-opts-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
   .chord-strip.bars-remix {
     display: flex;
     flex-wrap: nowrap;
@@ -9595,9 +9918,9 @@ body.piano-roll-open .toast-container {
   }
 
   .chord-card.is-remix-card {
-    flex: 0 0 118px;
-    min-width: 118px;
-    min-height: 76px;
+    flex: 0 0 138px;
+    min-width: 138px;
+    min-height: 78px;
     padding: 10px 10px 8px;
   }
 
@@ -9609,7 +9932,13 @@ body.piano-roll-open .toast-container {
   .chord-symbol,
   .chord-strip.bars-8 .chord-symbol,
   .chord-strip.bars-remix .chord-symbol {
-    font-size: 18px;
+    font-size: 17px;
+  }
+
+  .chord-symbol.is-split-symbol,
+  .chord-strip.bars-8 .chord-symbol.is-split-symbol,
+  .chord-strip.bars-remix .chord-symbol.is-split-symbol {
+    font-size: 13.5px;
   }
 
   .melody-toolbar {
@@ -9621,17 +9950,13 @@ body.piano-roll-open .toast-container {
 
   .melody-toolbar .toolbar-cluster {
     width: 100%;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     justify-content: flex-start;
     align-items: center;
-    gap: 6px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    gap: 5px 6px;
+    overflow-x: visible;
     padding-bottom: 1px;
   }
-  .melody-toolbar .toolbar-cluster::-webkit-scrollbar { display: none; }
 
   .mode-group {
     flex: 0 0 auto;
@@ -9675,24 +10000,26 @@ body.piano-roll-open .toast-container {
   }
 
   .melody-toolbar .icon-btn-group {
-    flex-wrap: nowrap;
-    flex-shrink: 0;
-    gap: 4px;
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    width: 100%;
+    max-width: 100%;
+    gap: 5px;
   }
 
   .melody-toolbar .icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     flex-shrink: 0;
   }
 
   .btn-clear-midi,
   .btn-pr-fs-toggle,
   .btn-fs-mini {
-    min-height: 36px;
-    height: 36px;
-    padding: 0 10px;
-    font-size: 11.5px;
+    min-height: 34px;
+    height: 34px;
+    padding: 0 9px;
+    font-size: 11px;
     flex-shrink: 0;
     white-space: nowrap;
   }
@@ -9732,14 +10059,10 @@ body.piano-roll-open .toast-container {
   .vocal-live-box {
     width: 100%;
     min-width: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    flex-wrap: wrap;
+    overflow-x: visible;
     gap: 6px;
   }
-  .vocal-live-box::-webkit-scrollbar { display: none; }
 
   .vocal-waveform {
     flex: 0 0 72px;
@@ -9751,15 +10074,11 @@ body.piano-roll-open .toast-container {
 
   .vocal-post-controls {
     width: 100%;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    gap: 8px;
+    overflow-x: visible;
+    gap: 6px 8px;
   }
-  .vocal-post-controls::-webkit-scrollbar { display: none; }
 
   .vocal-post-controls .studio-select.compact,
   .vocal-post-controls .btn-xs {
